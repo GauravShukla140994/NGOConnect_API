@@ -1,0 +1,155 @@
+using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
+using NGOConnect.Core.Interfaces;
+using NGOConnect.Infrastructure.DAL;
+using NGOConnect.Infrastructure.DbProvider;
+
+namespace NGOConnect.API.Extensions
+{
+    public static class ServiceCollectionExtensions
+    {
+        // ── Database Provider ────────────────────────────────────
+        /// <summary>
+        /// Register the DB provider.
+        /// TO SWITCH DB: change MySqlDbProvider to SqlServerDbProvider here. That's all.
+        /// </summary>
+        public static IServiceCollection AddDatabaseProvider(
+            this IServiceCollection services)
+        {
+            services.AddScoped<IDbProvider, MySqlDbProvider>();
+            return services;
+        }
+
+        // ── DAL Registrations ────────────────────────────────────
+        public static IServiceCollection AddDataAccessLayer(
+            this IServiceCollection services)
+        {
+            services.AddScoped<IAuthDal,   AuthDal>();
+            services.AddScoped<ILookupDal, LookupDal>();
+            services.AddScoped<IUserDal,   UserDal>();
+            // Add more DALs here as modules are built:
+            // services.AddScoped<IOrgDal,     OrgDal>();
+            // services.AddScoped<IProjectDal, ProjectDal>();
+            return services;
+        }
+
+        // ── JWT Authentication ───────────────────────────────────
+        public static IServiceCollection AddJwtAuthentication(
+            this IServiceCollection services, IConfiguration config)
+        {
+            var jwtKey = config["Jwt:Key"]
+                ?? throw new InvalidOperationException("Jwt:Key not configured");
+
+            services
+                .AddAuthentication(options =>
+                {
+                    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+                    options.DefaultChallengeScheme    = JwtBearerDefaults.AuthenticationScheme;
+                })
+                .AddJwtBearer(options =>
+                {
+                    options.TokenValidationParameters = new TokenValidationParameters
+                    {
+                        ValidateIssuer           = true,
+                        ValidateAudience         = true,
+                        ValidateLifetime         = true,
+                        ValidateIssuerSigningKey = true,
+                        ValidIssuer              = config["Jwt:Issuer"],
+                        ValidAudience            = config["Jwt:Audience"],
+                        IssuerSigningKey         = new SymmetricSecurityKey(
+                                                       Encoding.UTF8.GetBytes(jwtKey)),
+                        ClockSkew                = TimeSpan.Zero  // No grace period on expiry
+                    };
+
+                    // Return 401 JSON instead of redirect
+                    options.Events = new JwtBearerEvents
+                    {
+                        OnChallenge = async context =>
+                        {
+                            context.HandleResponse();
+                            context.Response.StatusCode  = 401;
+                            context.Response.ContentType = "application/json";
+                            await context.Response.WriteAsync(
+                                "{\"isSuccess\":0,\"message\":\"Unauthorized. Please login.\",\"errorCode\":\"UNAUTHORIZED\"}");
+                        }
+                    };
+                });
+
+            return services;
+        }
+
+        // ── Swagger with JWT support ─────────────────────────────
+        public static IServiceCollection AddSwaggerWithJwt(
+            this IServiceCollection services)
+        {
+            services.AddSwaggerGen(options =>
+            {
+                options.SwaggerDoc("v1", new OpenApiInfo
+                {
+                    Title       = "NGO Connect API",
+                    Version     = "v1",
+                    Description = "NGO Connect — The LinkedIn of Social Impact",
+                    Contact     = new OpenApiContact
+                    {
+                        Name  = "NGO Connect Team",
+                        Email = "api@ngoconnect.app"
+                    }
+                });
+
+                // Enable [Authorize] padlock in Swagger UI
+                options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+                {
+                    Name         = "Authorization",
+                    Type         = SecuritySchemeType.Http,
+                    Scheme       = "bearer",
+                    BearerFormat = "JWT",
+                    In           = ParameterLocation.Header,
+                    Description  = "Enter your JWT token. Example: eyJhbGci..."
+                });
+
+                options.AddSecurityRequirement(new OpenApiSecurityRequirement
+                {
+                    {
+                        new OpenApiSecurityScheme
+                        {
+                            Reference = new OpenApiReference
+                            {
+                                Type = ReferenceType.SecurityScheme,
+                                Id   = "Bearer"
+                            }
+                        },
+                        Array.Empty<string>()
+                    }
+                });
+            });
+
+            return services;
+        }
+
+        // ── CORS ─────────────────────────────────────────────────
+        public static IServiceCollection AddNgoConnectCors(
+            this IServiceCollection services, IConfiguration config)
+        {
+            var allowedOrigins = config.GetSection("Cors:AllowedOrigins")
+                                       .Get<string[]>() ?? [];
+
+            services.AddCors(options =>
+            {
+                options.AddPolicy("NGOConnectPolicy", policy =>
+                {
+                    if (allowedOrigins.Length > 0)
+                        policy.WithOrigins(allowedOrigins);
+                    else
+                        policy.AllowAnyOrigin(); // Dev only
+
+                    policy.AllowAnyHeader()
+                          .AllowAnyMethod();
+                });
+            });
+
+            return services;
+        }
+    }
+}

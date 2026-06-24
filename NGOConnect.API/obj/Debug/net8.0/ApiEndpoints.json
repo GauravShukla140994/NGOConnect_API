@@ -1,0 +1,319 @@
+[
+  {
+    "ContainingType": "NGOConnect.API.Controllers.AuthController",
+    "Method": "RefreshToken",
+    "RelativePath": "api/v1/Auth/refresh-token",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "NGOConnect.Core.Models.Auth.RefreshTokenRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "NGOConnect.Core.Models.Common.ApiResponse\u00601[[NGOConnect.Core.Models.Auth.RefreshTokenResponse, NGOConnect.Core, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "NGOConnect.API.Controllers.AuthController",
+    "Method": "RevokeToken",
+    "RelativePath": "api/v1/Auth/revoke-token",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "NGOConnect.Core.Models.Auth.RevokeTokenRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "NGOConnect.Core.Models.Common.ApiResponse",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "NGOConnect.API.Controllers.AuthController",
+    "Method": "SendOtp",
+    "RelativePath": "api/v1/Auth/send-otp",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "NGOConnect.Core.Models.Auth.SendOtpRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "NGOConnect.Core.Models.Common.ApiResponse\u00601[[NGOConnect.Core.Models.Auth.SendOtpResponse, NGOConnect.Core, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "NGOConnect.API.Controllers.AuthController",
+    "Method": "VerifyOtp",
+    "RelativePath": "api/v1/Auth/verify-otp",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "NGOConnect.Core.Models.Auth.VerifyOtpRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "NGOConnect.Core.Models.Common.ApiResponse\u00601[[NGOConnect.Core.Models.Auth.VerifyOtpResponse, NGOConnect.Core, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "NGOConnect.API.Controllers.LookupController",
+    "Method": "GetAllTypes",
+    "RelativePath": "api/v1/Lookup/types",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": [
+      {
+        "Type": "NGOConnect.Core.Models.Common.ApiResponse\u00601[[System.Collections.Generic.List\u00601[[NGOConnect.Core.Models.Lookup.LookupTypeModel, NGOConnect.Core, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]], System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "NGOConnect.API.Controllers.LookupController",
+    "Method": "GetValuesByType",
+    "RelativePath": "api/v1/Lookup/values/{typeCode}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "typeCode",
+        "Type": "System.String",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "NGOConnect.Core.Models.Common.ApiResponse\u00601[[System.Collections.Generic.List\u00601[[NGOConnect.Core.Models.Lookup.LookupValueModel, NGOConnect.Core, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]], System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "NGOConnect.API.Controllers.LookupController",
+    "Method": "GetValue",
+    "RelativePath": "api/v1/Lookup/values/{typeCode}/{valueCode}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "typeCode",
+        "Type": "System.String",
+        "IsRequired": true
+      },
+      {
+        "Name": "valueCode",
+        "Type": "System.String",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "NGOConnect.Core.Models.Common.ApiResponse\u00601[[NGOConnect.Core.Models.Lookup.LookupValueModel, NGOConnect.Core, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "NGOConnect.API.Controllers.UserController",
+    "Method": "GetProfile",
+    "RelativePath": "api/v1/User/profile",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": [
+      {
+        "Type": "NGOConnect.Core.Models.Common.ApiResponse\u00601[[NGOConnect.Core.Models.User.UserProfileModel, NGOConnect.Core, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "NGOConnect.API.Controllers.UserController",
+    "Method": "UpdateProfile",
+    "RelativePath": "api/v1/User/profile",
+    "HttpMethod": "PUT",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "NGOConnect.Core.Models.User.UpdateProfileRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "NGOConnect.Core.Models.Common.ApiResponse",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "NGOConnect.API.Controllers.UserController",
+    "Method": "GetPublicProfile",
+    "RelativePath": "api/v1/User/profile/{userId}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "userId",
+        "Type": "System.Int32",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "NGOConnect.Core.Models.Common.ApiResponse\u00601[[NGOConnect.Core.Models.Common.DynamicRow, NGOConnect.Core, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "NGOConnect.API.Controllers.UserController",
+    "Method": "GetSkills",
+    "RelativePath": "api/v1/User/skills",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": [
+      {
+        "Type": "NGOConnect.Core.Models.Common.ApiResponse\u00601[[System.Collections.Generic.List\u00601[[NGOConnect.Core.Models.User.UserSkillModel, NGOConnect.Core, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]], System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "NGOConnect.API.Controllers.UserController",
+    "Method": "AddSkill",
+    "RelativePath": "api/v1/User/skills",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "request",
+        "Type": "NGOConnect.Core.Models.User.AddSkillRequest",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "NGOConnect.Core.Models.Common.ApiResponse",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "NGOConnect.API.Controllers.UserController",
+    "Method": "RemoveSkill",
+    "RelativePath": "api/v1/User/skills/{userSkillId}",
+    "HttpMethod": "DELETE",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "userSkillId",
+        "Type": "System.Int32",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "NGOConnect.Core.Models.Common.ApiResponse",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "Program\u002B\u003C\u003Ec",
+    "Method": "\u003C\u003CMain\u003E$\u003Eb__0_3",
+    "RelativePath": "health",
+    "HttpMethod": "GET",
+    "IsController": false,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": [
+      {
+        "Type": "\u003C\u003Ef__AnonymousType0\u00602[[System.String, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e],[System.DateTime, System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]",
+        "MediaTypes": [
+          "application/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  }
+]

@@ -1,0 +1,73 @@
+[2026-06-23 05:43:28 INF]  | NGO Connect API started. Swagger: /swagger
+[2026-06-23 05:43:29 INF]  | User profile is available. Using 'C:\Users\gaura\AppData\Local\ASP.NET\DataProtection-Keys' as key repository and Windows DPAPI to encrypt keys at rest.
+[2026-06-23 05:43:29 INF]  | Creating key {19708e7a-2f96-468a-8510-eedbef4ebcaa} with creation date 2026-06-23 00:13:29Z, activation date 2026-06-23 00:13:29Z, and expiration date 2026-09-21 00:13:29Z.
+[2026-06-23 05:43:29 INF]  | Writing data to file 'C:\Users\gaura\AppData\Local\ASP.NET\DataProtection-Keys\key-19708e7a-2f96-468a-8510-eedbef4ebcaa.xml'.
+[2026-06-23 05:43:29 INF]  | Now listening on: https://localhost:58410
+[2026-06-23 05:43:29 INF]  | Now listening on: http://localhost:58411
+[2026-06-23 05:43:30 INF]  | Application started. Press Ctrl+C to shut down.
+[2026-06-23 05:43:30 INF]  | Hosting environment: Development
+[2026-06-23 05:43:30 INF]  | Content root path: C:\Gaurav PC\Projects\NGO_Connect\NGOConnect\NGOConnect.API
+[2026-06-23 05:43:32 INF]  | Request starting HTTP/2 GET https://localhost:58410/ - null null
+[2026-06-23 05:43:33 INF] 15E1EBA3A7F645E2 | → GET / | CorrelationId=15E1EBA3A7F645E2 | IP=::1
+[2026-06-23 05:43:34 INF] 15E1EBA3A7F645E2 | ← GET / | 404 | 479ms | CorrelationId=15E1EBA3A7F645E2
+[2026-06-23 05:43:34 INF]  | Request finished HTTP/2 GET https://localhost:58410/ - 404 0 null 1297.8343ms
+[2026-06-23 05:43:34 INF]  | Request reached the end of the middleware pipeline without being handled by application code. Request path: GET https://localhost:58410/, Response status code: 404
+[2026-06-23 05:43:45 INF]  | Request starting HTTP/2 GET https://localhost:58410/swagger - null null
+[2026-06-23 05:43:45 INF]  | Request finished HTTP/2 GET https://localhost:58410/swagger - 301 0 null 24.2405ms
+[2026-06-23 05:43:45 INF]  | Request starting HTTP/2 GET https://localhost:58410/swagger/index.html - null null
+[2026-06-23 05:43:45 INF]  | Request finished HTTP/2 GET https://localhost:58410/swagger/index.html - 200 null text/html;charset=utf-8 155.5652ms
+[2026-06-23 05:43:45 INF]  | Request starting HTTP/2 GET https://localhost:58410/swagger/swagger-ui.css - null null
+[2026-06-23 05:43:45 INF]  | Request starting HTTP/2 GET https://localhost:58410/swagger/index.css - null null
+[2026-06-23 05:43:45 INF]  | Request starting HTTP/2 GET https://localhost:58410/swagger/swagger-ui-bundle.js - null null
+[2026-06-23 05:43:45 INF]  | Request starting HTTP/2 GET https://localhost:58410/_framework/aspnetcore-browser-refresh.js - null null
+[2026-06-23 05:43:45 INF]  | Request starting HTTP/2 GET https://localhost:58410/swagger/index.js - null null
+[2026-06-23 05:43:45 INF] A5B3C4E36CEC4E64 | Sending file. Request path: '/index.css'. Physical path: 'N/A'
+[2026-06-23 05:43:45 INF]  | Request finished HTTP/2 GET https://localhost:58410/swagger/index.js - 200 null application/javascript;charset=utf-8 65.7571ms
+[2026-06-23 05:43:45 INF]  | Request finished HTTP/2 GET https://localhost:58410/swagger/index.css - 200 202 text/css 86.0596ms
+[2026-06-23 05:43:45 INF]  | Request starting HTTP/2 GET https://localhost:58410/swagger/swagger-ui-standalone-preset.js - null null
+[2026-06-23 05:43:45 INF]  | Request starting HTTP/2 GET https://localhost:58410/_vs/browserLink - null null
+[2026-06-23 05:43:45 INF] 644957E9B36742B7 | Sending file. Request path: '/swagger-ui.css'. Physical path: 'N/A'
+[2026-06-23 05:43:45 INF]  | Request finished HTTP/2 GET https://localhost:58410/_framework/aspnetcore-browser-refresh.js - 200 13764 application/javascript; charset=utf-8 97.3611ms
+[2026-06-23 05:43:45 INF] 3C061EFB754343E8 | Sending file. Request path: '/swagger-ui-standalone-preset.js'. Physical path: 'N/A'
+[2026-06-23 05:43:45 INF]  | Request finished HTTP/2 GET https://localhost:58410/swagger/swagger-ui.css - 200 152035 text/css 152.3554ms
+[2026-06-23 05:43:45 INF]  | Request finished HTTP/2 GET https://localhost:58410/swagger/swagger-ui-standalone-preset.js - 200 230007 text/javascript 157.1882ms
+[2026-06-23 05:43:45 INF] 22D407350CFE441D | Sending file. Request path: '/swagger-ui-bundle.js'. Physical path: 'N/A'
+[2026-06-23 05:43:45 INF]  | Request finished HTTP/2 GET https://localhost:58410/swagger/swagger-ui-bundle.js - 200 1426050 text/javascript 198.7551ms
+[2026-06-23 05:43:45 INF]  | Request finished HTTP/2 GET https://localhost:58410/_vs/browserLink - 200 null text/javascript; charset=UTF-8 279.8218ms
+[2026-06-23 05:43:46 INF]  | Request starting HTTP/2 GET https://localhost:58410/swagger/v1/swagger.json - null null
+[2026-06-23 05:43:46 INF]  | Request starting HTTP/2 GET https://localhost:58410/swagger/favicon-32x32.png - null null
+[2026-06-23 05:43:46 INF] 69D2E3D392BF42EC | Sending file. Request path: '/favicon-32x32.png'. Physical path: 'N/A'
+[2026-06-23 05:43:46 INF]  | Request finished HTTP/2 GET https://localhost:58410/swagger/favicon-32x32.png - 200 628 image/png 15.494ms
+[2026-06-23 05:43:46 INF]  | Request finished HTTP/2 GET https://localhost:58410/swagger/v1/swagger.json - 200 null application/json;charset=utf-8 310.49ms
+[2026-06-23 05:44:37 INF]  | Request starting HTTP/2 GET https://localhost:58410/health - null null
+[2026-06-23 05:44:37 INF] D41B86AA39BB478B | Executing endpoint 'HTTP: GET /health'
+[2026-06-23 05:44:37 INF] D41B86AA39BB478B | Executed endpoint 'HTTP: GET /health'
+[2026-06-23 05:44:38 INF]  | Request finished HTTP/2 GET https://localhost:58410/health - 200 null application/json; charset=utf-8 20.0397ms
+[2026-06-23 05:45:11 INF]  | Request starting HTTP/2 GET https://localhost:58410/api/v1/Lookup/values/2 - null null
+[2026-06-23 05:45:11 INF] 0831D33F0ECF4940 | → GET /api/v1/Lookup/values/2 | CorrelationId=0831D33F0ECF4940 | IP=::1
+[2026-06-23 05:45:11 INF] 0831D33F0ECF4940 | Executing endpoint 'NGOConnect.API.Controllers.LookupController.GetValuesByType (NGOConnect.API)'
+[2026-06-23 05:45:11 INF] 0831D33F0ECF4940 | Route matched with {action = "GetValuesByType", controller = "Lookup"}. Executing controller action with signature System.Threading.Tasks.Task`1[NGOConnect.Core.Models.Common.ApiResponse`1[System.Collections.Generic.List`1[NGOConnect.Core.Models.Lookup.LookupValueModel]]] GetValuesByType(System.String) on controller NGOConnect.API.Controllers.LookupController (NGOConnect.API).
+[2026-06-23 05:45:12 ERR] 0831D33F0ECF4940 | GetValuesByTypeCodeAsync failed for TypeCode=2
+MySql.Data.MySqlClient.MySqlException (0x80004005): Retrieval of the RSA public key is not enabled for insecure connections
+   at MySql.Data.MySqlClient.Authentication.CachingSha2AuthenticationPlugin.GeneratePassword()
+   at MySql.Data.MySqlClient.Authentication.CachingSha2AuthenticationPlugin.MoreDataAsync(Byte[] data, Boolean execAsync)
+   at MySql.Data.MySqlClient.Authentication.MySqlAuthenticationPlugin.ContinueAuthenticationAsync(Boolean execAsync, Byte[] data)
+   at MySql.Data.MySqlClient.Authentication.MySqlAuthenticationPlugin.AuthenticateAsync(Boolean reset, Boolean execAsync)
+   at MySql.Data.MySqlClient.NativeDriver.AuthenticateAsync(String authMethod, Boolean reset, Boolean execAsync)
+   at MySql.Data.MySqlClient.NativeDriver.OpenAsync(Boolean execAsync, CancellationToken cancellationToken)
+   at MySql.Data.MySqlClient.NativeDriver.OpenAsync(Boolean execAsync, CancellationToken cancellationToken)
+   at MySql.Data.MySqlClient.Driver.OpenAsync(Boolean execAsync, CancellationToken cancellationToken)
+   at MySql.Data.MySqlClient.Driver.CreateAsync(MySqlConnectionStringBuilder settings, Boolean execAsync, CancellationToken cancellationToken)
+   at MySql.Data.MySqlClient.Driver.CreateAsync(MySqlConnectionStringBuilder settings, Boolean execAsync, CancellationToken cancellationToken)
+   at MySql.Data.MySqlClient.MySqlPool.CreateNewPooledConnectionAsync(Boolean execAsync, CancellationToken cancellationToken)
+   at MySql.Data.MySqlClient.MySqlPool.GetPooledConnectionAsync(Boolean execAsync, CancellationToken cancellationToken)
+   at MySql.Data.MySqlClient.MySqlPool.TryToGetDriverAsync(Boolean execAsync, CancellationToken cancellationToken)
+   at MySql.Data.MySqlClient.MySqlPool.GetConnectionAsync(Boolean execAsync, CancellationToken cancellationToken)
+   at MySql.Data.MySqlClient.MySqlConnection.OpenAsync(Boolean execAsync, CancellationToken cancellationToken)
+   at NGOConnect.Infrastructure.DbProvider.MySqlDbProvider.CreateConnectionAsync() in C:\Gaurav PC\Projects\NGO_Connect\NGOConnect\NGOConnect.Infrastructure\DbProvider\MySqlDbProvider.cs:line 31
+   at NGOConnect.Infrastructure.DAL.LookupDal.GetValuesByTypeCodeAsync(String typeCode) in C:\Gaurav PC\Projects\NGO_Connect\NGOConnect\NGOConnect.Infrastructure\DAL\LookupDal.cs:line 44
+[2026-06-23 05:45:12 INF] 0831D33F0ECF4940 | Executing ObjectResult, writing value of type 'NGOConnect.Core.Models.Common.ApiResponse`1[[System.Collections.Generic.List`1[[NGOConnect.Core.Models.Lookup.LookupValueModel, NGOConnect.Core, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]], System.Private.CoreLib, Version=8.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]'.
+[2026-06-23 05:45:12 INF] 0831D33F0ECF4940 | Executed action NGOConnect.API.Controllers.LookupController.GetValuesByType (NGOConnect.API) in 1030.4034ms
+[2026-06-23 05:45:12 INF] 0831D33F0ECF4940 | Executed endpoint 'NGOConnect.API.Controllers.LookupController.GetValuesByType (NGOConnect.API)'
+[2026-06-23 05:45:12 INF] 0831D33F0ECF4940 | ← GET /api/v1/Lookup/values/2 | 200 | 1122ms | CorrelationId=0831D33F0ECF4940
+[2026-06-23 05:45:12 INF]  | Request finished HTTP/2 GET https://localhost:58410/api/v1/Lookup/values/2 - 200 null application/json; charset=utf-8 1140.0987ms
