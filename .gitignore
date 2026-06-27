@@ -1,4 +1,6 @@
 /.vs
+
+# Build output
 /NGOConnect.API/bin
 /NGOConnect.API/logs
 /NGOConnect.API/obj
@@ -8,3 +10,10 @@
 /NGOConnect.Infrastructure/obj
 /NGOConnect.Tests/bin
 /NGOConnect.Tests/obj
+
+# Visual Studio user-specific files
+*.user
+*.suo
+
+# Local secrets — never commit
+appsettings.Development.json
