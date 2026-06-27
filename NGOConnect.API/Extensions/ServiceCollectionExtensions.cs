@@ -3,8 +3,10 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using NGOConnect.Core.Interfaces;
+using NGOConnect.Infrastructure.Cache;
 using NGOConnect.Infrastructure.DAL;
 using NGOConnect.Infrastructure.DbProvider;
+// v4.0 new namespaces registered below (models live in Core, DALs in Infrastructure)
 
 namespace NGOConnect.API.Extensions
 {
@@ -26,12 +28,34 @@ namespace NGOConnect.API.Extensions
         public static IServiceCollection AddDataAccessLayer(
             this IServiceCollection services)
         {
-            services.AddScoped<IAuthDal,   AuthDal>();
-            services.AddScoped<ILookupDal, LookupDal>();
-            services.AddScoped<IUserDal,   UserDal>();
-            // Add more DALs here as modules are built:
-            // services.AddScoped<IOrgDal,     OrgDal>();
-            // services.AddScoped<IProjectDal, ProjectDal>();
+            // Foundation
+            services.AddScoped<IAuthDal,         AuthDal>();
+            services.AddScoped<ILookupDal,        LookupDal>();
+            services.AddScoped<IUserDal,          UserDal>();
+            // Settings
+            services.AddScoped<ISettingsDal,      SettingsDal>();
+            services.AddSingleton<ISettingsCache, SettingsCache>();
+            // Organisation
+            services.AddScoped<IOrgDal,           OrgDal>();
+            // Projects
+            services.AddScoped<IProjectDal,       ProjectDal>();
+            // Applications
+            services.AddScoped<IApplicationDal,   ApplicationDal>();
+            // Feed / Posts
+            services.AddScoped<IPostDal,          PostDal>();
+            // Community
+            services.AddScoped<ICommunityDal,     CommunityDal>();
+            // Donations
+            services.AddScoped<IDonationDal,      DonationDal>();
+            // SOS
+            services.AddScoped<ISosDal,           SosDal>();
+            // Notifications
+            services.AddScoped<INotificationDal,  NotificationDal>();
+            // v4.0 NEW modules
+            services.AddScoped<IWithdrawalDal,    WithdrawalDal>();
+            services.AddScoped<ICertificateDal,   CertificateDal>();
+            services.AddScoped<ISkillRatingDal,   SkillRatingDal>();
+            services.AddScoped<IBadgeDal,         BadgeDal>();
             return services;
         }
 

@@ -13,6 +13,8 @@ DELIMITER //
 --         PurposeLkpId, IpAddress, ExpiryMinutes
 -- Returns: IsSuccess INT, Message VARCHAR
 -- Rate limit: max 3 OTPs per 10 min per Recipient+Purpose
+-- DB Column note: OtpTokens has no CountryCode column (it lives on Users).
+--                 CountryCode is accepted as param but NOT stored in OtpTokens.
 -- -----------------------------------------------------------------------------
 DROP PROCEDURE IF EXISTS Auth_SendOTP //
 CREATE PROCEDURE Auth_SendOTP(
@@ -46,10 +48,10 @@ BEGIN
           AND  IsUsed       = 0;
 
         -- Insert new OTP
-        INSERT INTO OtpTokens (Recipient, CountryCode, OtpCode, PurposeLkpId, IpAddress, ExpiresAt)
+        -- Note: OtpTokens table columns are: Recipient, OtpCode, PurposeLkpId, IpAddress, ExpiresAt
+        INSERT INTO OtpTokens (Recipient, OtpCode, PurposeLkpId, IpAddress, ExpiresAt)
         VALUES (
             p_Recipient,
-            p_CountryCode,
             p_OtpCode,
             p_PurposeLkpId,
             p_IpAddress,
@@ -66,6 +68,10 @@ END //
 -- Params: Recipient, OtpCode (user-entered), PurposeLkpId, IpAddress
 -- Returns: IsSuccess INT, Message VARCHAR, UserId INT, IsNewUser TINYINT
 -- Logic: validates OTP → creates user if new → returns UserId
+-- DB Column notes:
+--   Users table uses column name: Mobile (not MobileNumber)
+--   Users table has NO RoleLkpId column — roles live in OrgMembers
+--   UserProfiles.FirstName and LastName are NOT NULL — inserted as empty string
 -- -----------------------------------------------------------------------------
 DROP PROCEDURE IF EXISTS Auth_VerifyOTP //
 CREATE PROCEDURE Auth_VerifyOTP(
@@ -75,18 +81,17 @@ CREATE PROCEDURE Auth_VerifyOTP(
     IN p_IpAddress     VARCHAR(45)
 )
 BEGIN
-    DECLARE v_OtpTokenId    INT UNSIGNED DEFAULT 0;
-    DECLARE v_StoredOtp     VARCHAR(6)   DEFAULT '';
-    DECLARE v_AttemptCount  TINYINT      DEFAULT 0;
-    DECLARE v_ExpiresAt     DATETIME;
-    DECLARE v_OtpCountryCode VARCHAR(5)  DEFAULT '+91';
-    DECLARE v_UserId        INT UNSIGNED DEFAULT 0;
-    DECLARE v_IsNewUser     TINYINT(1)   DEFAULT 0;
-    DECLARE v_DefaultRoleId INT UNSIGNED DEFAULT 0;
+    DECLARE v_OtpTokenId     INT UNSIGNED DEFAULT 0;
+    DECLARE v_StoredOtp      VARCHAR(6)   DEFAULT '';
+    DECLARE v_AttemptCount   TINYINT      DEFAULT 0;
+    DECLARE v_ExpiresAt      DATETIME;
+    DECLARE v_OtpCountryCode VARCHAR(5)   DEFAULT '+91';
+    DECLARE v_UserId         INT UNSIGNED DEFAULT 0;
+    DECLARE v_IsNewUser      TINYINT(1)   DEFAULT 0;
 
     -- Fetch the latest active OTP for this recipient + purpose
-    SELECT OtpTokenId, OtpCode, AttemptCount, ExpiresAt, CountryCode
-    INTO   v_OtpTokenId, v_StoredOtp, v_AttemptCount, v_ExpiresAt, v_OtpCountryCode
+    SELECT OtpTokenId, OtpCode, AttemptCount, ExpiresAt
+    INTO   v_OtpTokenId, v_StoredOtp, v_AttemptCount, v_ExpiresAt
     FROM   OtpTokens
     WHERE  Recipient    = p_Recipient
       AND  PurposeLkpId = p_PurposeLkpId
@@ -118,7 +123,6 @@ BEGIN
 
     -- Wrong OTP code
     ELSEIF v_StoredOtp != p_OtpCode THEN
-        -- Increment attempt count before returning failure
         UPDATE OtpTokens
         SET    AttemptCount = AttemptCount + 1
         WHERE  OtpTokenId   = v_OtpTokenId;
@@ -132,34 +136,40 @@ BEGIN
         -- OTP is valid — mark as used
         UPDATE OtpTokens SET IsUsed = 1 WHERE OtpTokenId = v_OtpTokenId;
 
-        -- Check if user already exists (by mobile number)
+        -- Check if user already exists (DB column is "Mobile", not "MobileNumber")
         SELECT UserId INTO v_UserId
         FROM   Users
-        WHERE  MobileNumber = p_Recipient
-          AND  IsDeleted    = 0
+        WHERE  Mobile    = p_Recipient
+          AND  IsDeleted = 0
         LIMIT  1;
 
         IF v_UserId = 0 THEN
-            -- ── NEW USER ── Create user + empty profile
-            -- Resolve default role: VOLUNTEER from LookupValues
-            SELECT lv.LookupValueId INTO v_DefaultRoleId
-            FROM   LookupValues  lv
-            JOIN   LookupTypes   lt ON lt.LookupTypeId = lv.LookupTypeId
-            WHERE  lt.TypeCode   = 'USER_ROLE'
-              AND  lv.ValueCode  = 'VOLUNTEER'
+            -- Attempt email match (recipient may be an email address)
+            SELECT UserId INTO v_UserId
+            FROM   Users
+            WHERE  Email     = p_Recipient
+              AND  IsDeleted = 0
             LIMIT  1;
+        END IF;
 
-            -- Fallback if lookup not seeded yet
-            IF v_DefaultRoleId = 0 THEN SET v_DefaultRoleId = 1; END IF;
-
-            INSERT INTO Users (MobileNumber, CountryCode, RoleLkpId, IsVerified)
-            VALUES (p_Recipient, v_OtpCountryCode, v_DefaultRoleId, 1);
+        IF v_UserId = 0 THEN
+            -- ── NEW USER ── Create user row
+            -- Detect whether recipient looks like email or mobile
+            IF p_Recipient LIKE '%@%' THEN
+                INSERT INTO Users (Email, CountryCode, IsVerified)
+                VALUES (p_Recipient, '+91', 1);
+            ELSE
+                INSERT INTO Users (Mobile, CountryCode, IsVerified)
+                VALUES (p_Recipient, '+91', 1);
+            END IF;
 
             SET v_UserId    = LAST_INSERT_ID();
             SET v_IsNewUser = 1;
 
-            -- Create empty profile row (prevents LEFT JOIN miss in User_GetProfile)
-            INSERT INTO UserProfiles (UserId) VALUES (v_UserId);
+            -- Create empty profile row — FirstName/LastName are NOT NULL in DB,
+            -- using empty string placeholders until user fills in their profile
+            INSERT INTO UserProfiles (UserId, FirstName, LastName)
+            VALUES (v_UserId, '', '');
 
         ELSE
             -- ── EXISTING USER ── ensure verified flag is set
@@ -198,7 +208,6 @@ CREATE PROCEDURE Auth_SaveRefreshToken(
 )
 BEGIN
     -- Enforce max 5 concurrent active sessions per user
-    -- Delete the oldest sessions beyond the 4 most recent (1 slot freed for the new token)
     DELETE FROM RefreshTokens
     WHERE  UserId     = p_UserId
       AND  IsRevoked  = 0
@@ -213,7 +222,6 @@ BEGIN
             ) AS recent
         );
 
-    -- Insert new refresh token
     INSERT INTO RefreshTokens (UserId, Token, DeviceInfo, IpAddress, ExpiresAt)
     VALUES (p_UserId, p_Token, p_DeviceInfo, p_IpAddress, p_ExpiresAt);
 END //
@@ -223,6 +231,7 @@ END //
 -- Called by: AuthDal.RefreshTokenAsync
 -- Params: Token (SHA-256 hashed)
 -- Returns: IsSuccess, Message, UserId, Recipient, RefreshTokenId
+-- DB note: Users.Mobile (not MobileNumber)
 -- -----------------------------------------------------------------------------
 DROP PROCEDURE IF EXISTS Auth_GetRefreshToken //
 CREATE PROCEDURE Auth_GetRefreshToken(
@@ -253,11 +262,11 @@ BEGIN
                0 AS UserId, '' AS Recipient, 0 AS RefreshTokenId;
 
     ELSE
-        SELECT 1                                                       AS IsSuccess,
-               'Token valid.'                                          AS Message,
-               u.UserId                                               AS UserId,
-               COALESCE(u.Email, u.MobileNumber)                      AS Recipient,
-               v_TokenId                                               AS RefreshTokenId
+        SELECT 1                                  AS IsSuccess,
+               'Token valid.'                     AS Message,
+               u.UserId                           AS UserId,
+               COALESCE(u.Email, u.Mobile)        AS Recipient,   -- Mobile (not MobileNumber)
+               v_TokenId                          AS RefreshTokenId
         FROM   Users u
         WHERE  u.UserId = v_UserId;
     END IF;

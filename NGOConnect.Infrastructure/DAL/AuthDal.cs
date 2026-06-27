@@ -39,11 +39,11 @@ namespace NGOConnect.Infrastructure.DAL
                 // Generate OTP here (6-digit)
                 var otp = GenerateOtp();
 
-                _db.AddParameter(cmd, "p_Recipient",    request.Recipient);
-                _db.AddParameter(cmd, "p_CountryCode",  request.CountryCode);
-                _db.AddParameter(cmd, "p_OtpCode",      otp);
-                _db.AddParameter(cmd, "p_PurposeLkpId", request.PurposeLkpId);
-                _db.AddParameter(cmd, "p_IpAddress",    ipAddress);
+                _db.AddParameter(cmd, "p_Recipient",     request.Recipient);
+                _db.AddParameter(cmd, "p_CountryCode",   request.CountryCode);
+                _db.AddParameter(cmd, "p_OtpCode",       otp);
+                _db.AddParameter(cmd, "p_PurposeLkpId",  request.PurposeLkpId);
+                _db.AddParameter(cmd, "p_IpAddress",     ipAddress);
                 _db.AddParameter(cmd, "p_ExpiryMinutes", 10);
 
                 var ds = await _db.FillDataSetAsync(cmd);
@@ -101,7 +101,7 @@ namespace NGOConnect.Infrastructure.DAL
                     return ApiResponse<VerifyOtpResponse>.Failure(
                         row["Message"].ToString()!, "OTP_VERIFY_FAILED");
 
-                int  userId    = Convert.ToInt32(row["UserId"]);
+                int  userId    = row["UserId"] == DBNull.Value? 0: Convert.ToInt32(row["UserId"]);
                 bool isNewUser = Convert.ToBoolean(row["IsNewUser"]);
 
                 // Generate JWT + Refresh token

@@ -24,6 +24,22 @@ namespace NGOConnect.Core.Models.Common
     {
         private readonly Dictionary<string, object?> _store;
 
+        /// <summary>Construct an empty DynamicRow for manually building ad-hoc responses.</summary>
+        public DynamicRow()
+        {
+            _store = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Indexer for setting/getting values. Key is auto-camelCased on write.
+        /// Enables: data["someId"] = 42; — consistent with SP-sourced rows.
+        /// </summary>
+        public object? this[string key]
+        {
+            get => _store.TryGetValue(key, out var v) ? v : null;
+            set => _store[ToCamelCase(key)] = value;
+        }
+
         /// <summary>Construct from DataSet DataRow (used by ExecuteDynamicListAsync / ExecuteDynamicGetAsync).</summary>
         public DynamicRow(DataRow row)
         {
