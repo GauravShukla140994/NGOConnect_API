@@ -1,0 +1,10 @@
+/.vs
+/NGOConnect.API/bin
+/NGOConnect.API/logs
+/NGOConnect.API/obj
+/NGOConnect.Core/bin
+/NGOConnect.Core/obj
+/NGOConnect.Infrastructure/bin
+/NGOConnect.Infrastructure/obj
+/NGOConnect.Tests/bin
+/NGOConnect.Tests/obj
