@@ -16,7 +16,11 @@ namespace NGOConnect.Infrastructure.DAL
             try
             {
                 var profile = await ExecuteGetAsync("User_GetProfile", MapProfile,
-                    cmd => { _db.AddParameter(cmd, "p_UserId", userId); _db.AddParameter(cmd, "p_RequestingUserId", 0); });
+                    cmd =>
+                    {
+                        _db.AddParameter(cmd, "p_UserId",           userId);
+                        _db.AddParameter(cmd, "p_RequestingUserId", 0);
+                    });
                 return profile is null
                     ? ApiResponse<UserProfileModel>.Failure("Profile not found.", "NOT_FOUND")
                     : ApiResponse<UserProfileModel>.Success(profile);
@@ -51,24 +55,25 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var result = await ExecuteWriteAsync("User_UpdateProfile", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_UserId",          userId);
-                    _db.AddParameter(cmd, "p_FirstName",       request.FirstName);
-                    _db.AddParameter(cmd, "p_LastName",        request.LastName);
-                    _db.AddParameter(cmd, "p_About",           request.About);
-                    _db.AddParameter(cmd, "p_GenderLkpId",     request.GenderLkpId);
-                    _db.AddParameter(cmd, "p_DateOfBirth",     request.DateOfBirth);
-                    _db.AddParameter(cmd, "p_ProfilePhoto",    request.ProfilePhoto);
-                    _db.AddParameter(cmd, "p_Occupation",      request.Occupation);
-                    _db.AddParameter(cmd, "p_Organisation",    request.Organisation);
-                    _db.AddParameter(cmd, "p_EducationLkpId",  request.EducationLkpId);
-                    _db.AddParameter(cmd, "p_FieldOfStudy",    request.FieldOfStudy);
-                    _db.AddParameter(cmd, "p_WorkExpLkpId",    request.WorkExpLkpId);
-                    _db.AddParameter(cmd, "p_AddressLine1",    request.AddressLine1);
-                    _db.AddParameter(cmd, "p_AddressLine2",    request.AddressLine2);
-                    _db.AddParameter(cmd, "p_Pincode",         request.Pincode);
-                    _db.AddParameter(cmd, "p_City",            request.City);
-                    _db.AddParameter(cmd, "p_State",           request.State);
-                    _db.AddParameter(cmd, "p_Country",         request.Country);
+                    _db.AddParameter(cmd, "p_UserId",         userId);
+                    _db.AddParameter(cmd, "p_FirstName",      request.FirstName);
+                    _db.AddParameter(cmd, "p_LastName",       request.LastName);
+                    _db.AddParameter(cmd, "p_Bio",            request.Bio);
+                    _db.AddParameter(cmd, "p_ProfilePhoto",   request.ProfilePhoto);
+                    _db.AddParameter(cmd, "p_GenderLkpId",    request.GenderLkpId);
+                    _db.AddParameter(cmd, "p_DateOfBirth",    request.DateOfBirth);
+                    _db.AddParameter(cmd, "p_Occupation",     request.Occupation);
+                    _db.AddParameter(cmd, "p_Organisation",   request.Organisation);
+                    _db.AddParameter(cmd, "p_VolunteerExp",   request.VolunteerExp);
+                    _db.AddParameter(cmd, "p_EducationLkpId", request.EducationLkpId);
+                    _db.AddParameter(cmd, "p_FieldOfStudy",   request.FieldOfStudy);
+                    _db.AddParameter(cmd, "p_WorkExpLkpId",   request.WorkExpLkpId);
+                    _db.AddParameter(cmd, "p_AddressLine1",   request.AddressLine1);
+                    _db.AddParameter(cmd, "p_AddressLine2",   request.AddressLine2);
+                    _db.AddParameter(cmd, "p_City",           request.City);
+                    _db.AddParameter(cmd, "p_State",          request.State);
+                    _db.AddParameter(cmd, "p_Pincode",        request.Pincode);
+                    _db.AddParameter(cmd, "p_Country",        request.Country);
                 });
                 return result.ToApiResponse();
             }
@@ -85,12 +90,14 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var result = await ExecuteWriteAsync("User_UpdateSafetyPrefs", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_UserId",                    userId);
-                    _db.AddParameter(cmd, "p_SosAlertTypeLkpId",         request.SosAlertTypeLkpId);
-                    _db.AddParameter(cmd, "p_EmergencyContactName",      request.EmergencyContactName);
-                    _db.AddParameter(cmd, "p_EmergencyContactPhone",     request.EmergencyContactPhone);
-                    _db.AddParameter(cmd, "p_EmergencyContactRelation",  request.EmergencyContactRelation);
-                    _db.AddParameter(cmd, "p_ShareLocationDuringSos",    request.ShareLocationDuringSos);
+                    _db.AddParameter(cmd, "p_UserId",                   userId);
+                    _db.AddParameter(cmd, "p_EmergVisibilityLkpId",     request.EmergVisibilityLkpId);
+                    _db.AddParameter(cmd, "p_AutoShareDurLkpId",        request.AutoShareDurLkpId);
+                    _db.AddParameter(cmd, "p_AllowLocDuringSos",        request.AllowLocDuringSos);
+                    _db.AddParameter(cmd, "p_AllowLocDuringProj",       request.AllowLocDuringProj);
+                    _db.AddParameter(cmd, "p_EmergencyContactName",     request.EmergencyContactName);
+                    _db.AddParameter(cmd, "p_EmergencyContactPhone",    request.EmergencyContactPhone);
+                    _db.AddParameter(cmd, "p_EmergencyContactRelation", request.EmergencyContactRelation);
                 });
                 return result.ToApiResponse();
             }
@@ -105,11 +112,12 @@ namespace NGOConnect.Infrastructure.DAL
         {
             try
             {
+                // SP expects JSON int array e.g. [1,2,3] — LookupValueIds from INTEREST_TYPE
                 var idsJson = JsonSerializer.Serialize(request.InterestLkpIds);
                 var result = await ExecuteWriteAsync("User_SaveInterests", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_UserId",          userId);
-                    _db.AddParameter(cmd, "p_InterestLkpIds",  idsJson);
+                    _db.AddParameter(cmd, "p_UserId",         userId);
+                    _db.AddParameter(cmd, "p_InterestLkpIds", idsJson);
                 });
                 return result.ToApiResponse();
             }
@@ -126,10 +134,11 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var result = await ExecuteWriteAsync("User_UploadDocument", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_UserId",             userId);
-                    _db.AddParameter(cmd, "p_DocumentTypeLkpId",  request.DocumentTypeLkpId);
-                    _db.AddParameter(cmd, "p_DocumentUrl",        request.DocumentUrl);
-                    _db.AddParameter(cmd, "p_ExpiryDate",         request.ExpiryDate);
+                    _db.AddParameter(cmd, "p_UserId",            userId);
+                    _db.AddParameter(cmd, "p_DocumentTypeLkpId", request.DocumentTypeLkpId);
+                    _db.AddParameter(cmd, "p_FileUrl",           request.FileUrl);
+                    _db.AddParameter(cmd, "p_FileName",          request.FileName);
+                    _db.AddParameter(cmd, "p_FileSizeKb",        request.FileSizeKb);
                 });
                 return result.ToApiResponse();
             }
@@ -186,39 +195,46 @@ namespace NGOConnect.Infrastructure.DAL
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "RemoveSkillAsync failed", userId);
+                Log.Error(ex, "RemoveSkillAsync failed UserId={UserId}", userId);
                 return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
             }
         }
 
+        // ── Mappers ──────────────────────────────────────────────────────────────
+
         private static UserProfileModel MapProfile(DataRow row) => new()
         {
-            UserId             = Col<int>(row,      "UserId"),
-            Mobile             = Col<string>(row,   "Mobile"),
-            Email              = Col<string>(row,   "Email"),
-            CountryCode        = Col<string>(row,   "CountryCode") ?? "+91",
-            FirstName          = Col<string>(row,   "FirstName"),
-            LastName           = Col<string>(row,   "LastName"),
-            Bio                = Col<string>(row,   "Bio"),
-            GenderValueCode    = Col<string>(row,   "GenderValueCode"),
-            DateOfBirth        = ColNullable<DateTime>(row, "DateOfBirth"),
-            ProfilePhoto       = Col<string>(row,   "ProfilePhoto"),
-            Occupation         = Col<string>(row,   "Occupation"),
-            Organisation       = Col<string>(row,   "Organisation"),
-            EducationCode      = Col<string>(row,   "EducationCode"),
-            FieldOfStudy       = Col<string>(row,   "FieldOfStudy"),
-            WorkExpCode        = Col<string>(row,   "WorkExpCode"),
-            AddressLine1       = Col<string>(row,   "AddressLine1"),
-            AddressLine2       = Col<string>(row,   "AddressLine2"),
-            Pincode            = Col<string>(row,   "Pincode"),
-            City               = Col<string>(row,   "City"),
-            State              = Col<string>(row,   "State"),
-            Country            = Col<string>(row,   "Country"),
-            ImpactScore        = Col<int>(row,      "ImpactScore"),
-            ReliabilityPct     = Col<decimal>(row,  "ReliabilityPct"),
-            CreatedAt          = Col<DateTime>(row, "CreatedAt"),
-            UpdatedAt          = ColNullable<DateTime>(row, "UpdatedAt"),
-            IsProfileComplete  = Col<bool>(row,     "IsProfileComplete")
+            UserId            = Col<int>(row,      "UserId"),
+            Mobile            = Col<string>(row,   "Mobile"),
+            Email             = Col<string>(row,   "Email"),
+            CountryCode       = Col<string>(row,   "CountryCode") ?? "+91",
+            IsVerified        = Col<bool>(row,     "IsVerified"),
+            FirstName         = Col<string>(row,   "FirstName"),
+            LastName          = Col<string>(row,   "LastName"),
+            Bio               = Col<string>(row,   "Bio"),
+            Gender            = Col<string>(row,   "Gender"),           // ValueName e.g. "Male"
+            GenderCode        = Col<string>(row,   "GenderCode"),       // ValueCode e.g. "MALE"
+            DateOfBirth       = ColNullable<DateTime>(row, "DateOfBirth"),
+            ProfilePhoto      = Col<string>(row,   "ProfilePhoto"),
+            Occupation        = Col<string>(row,   "Occupation"),
+            Organisation      = Col<string>(row,   "Organisation"),
+            VolunteerExp      = Col<string>(row,   "VolunteerExp"),
+            Education         = Col<string>(row,   "Education"),        // ValueName
+            EducationCode     = Col<string>(row,   "EducationCode"),    // ValueCode
+            FieldOfStudy      = Col<string>(row,   "FieldOfStudy"),
+            WorkExperience    = Col<string>(row,   "WorkExperience"),   // ValueName
+            WorkExpCode       = Col<string>(row,   "WorkExpCode"),      // ValueCode
+            AddressLine1      = Col<string>(row,   "AddressLine1"),
+            AddressLine2      = Col<string>(row,   "AddressLine2"),
+            Pincode           = Col<string>(row,   "Pincode"),
+            City              = Col<string>(row,   "City"),
+            State             = Col<string>(row,   "State"),
+            Country           = Col<string>(row,   "Country"),
+            ImpactScore       = Col<int>(row,      "ImpactScore"),
+            ReliabilityPct    = Col<decimal>(row,  "ReliabilityPct"),
+            MemberSince       = Col<DateTime>(row, "MemberSince"),      // u.CreatedAt aliased in SP
+            UpdatedAt         = ColNullable<DateTime>(row, "UpdatedAt"),
+            IsProfileComplete = Col<bool>(row,     "IsProfileComplete")
         };
 
         private static UserSkillModel MapSkill(IDataReader r) => new()

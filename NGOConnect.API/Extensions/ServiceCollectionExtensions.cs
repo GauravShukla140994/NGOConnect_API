@@ -6,6 +6,7 @@ using NGOConnect.Core.Interfaces;
 using NGOConnect.Infrastructure.Cache;
 using NGOConnect.Infrastructure.DAL;
 using NGOConnect.Infrastructure.DbProvider;
+using NGOConnect.Infrastructure.Services;
 // v4.0 new namespaces registered below (models live in Core, DALs in Infrastructure)
 
 namespace NGOConnect.API.Extensions
@@ -56,6 +57,19 @@ namespace NGOConnect.API.Extensions
             services.AddScoped<ICertificateDal,   CertificateDal>();
             services.AddScoped<ISkillRatingDal,   SkillRatingDal>();
             services.AddScoped<IBadgeDal,         BadgeDal>();
+            return services;
+        }
+
+        // ── Blob / File Storage ──────────────────────────────────
+        /// <summary>
+        /// Register the file storage provider.
+        /// Phase 1: LocalFileService (server disk)
+        /// TO SWITCH TO AZURE: replace LocalFileService with AzureBlobService — that's all.
+        /// </summary>
+        public static IServiceCollection AddBlobService(
+            this IServiceCollection services)
+        {
+            services.AddScoped<IBlobService, LocalFileService>();
             return services;
         }
 

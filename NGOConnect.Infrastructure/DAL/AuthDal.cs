@@ -65,7 +65,7 @@ namespace NGOConnect.Infrastructure.DAL
                 return ApiResponse<SendOtpResponse>.Success(new SendOtpResponse
                 {
                     MaskedRecipient  = MaskRecipient(request.Recipient),
-                    ExpiresInSeconds = 600
+                    ExpiresInSeconds = Convert.ToInt32(otp),
                 }, "OTP sent successfully");
             }
             catch (Exception ex)

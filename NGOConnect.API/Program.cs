@@ -1,3 +1,4 @@
+using Microsoft.Extensions.FileProviders;
 using Serilog;
 using Serilog.Events;
 using NGOConnect.API.Extensions;
@@ -44,6 +45,7 @@ try
     // Extension methods — each group in its own method for clarity
     builder.Services.AddDatabaseProvider();              // IDbProvider → MySqlDbProvider
     builder.Services.AddDataAccessLayer();               // All DAL registrations
+    builder.Services.AddBlobService();                   // IBlobService → LocalFileService (Phase 1)
     builder.Services.AddJwtAuthentication(builder.Configuration);
     builder.Services.AddSwaggerWithJwt();
     builder.Services.AddNgoConnectCors(builder.Configuration);
@@ -101,18 +103,29 @@ try
     // 6. HTTPS redirect
     app.UseHttpsRedirection();
 
-    // 7. CORS
+    // 7. Static files — serve uploaded media under /uploads/*
+    //    UploadRootPath must exist; LocalFileService creates subdirectories on first upload.
+    var uploadRootPath = builder.Configuration["UploadRootPath"]
+        ?? Path.Combine(builder.Environment.ContentRootPath, "uploads");
+    Directory.CreateDirectory(uploadRootPath);
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = new PhysicalFileProvider(uploadRootPath),
+        RequestPath  = "/uploads"
+    });
+
+    // 8. CORS
     app.UseCors("NGOConnectPolicy");
 
-    // 8. Auth
+    // 9. Auth
     app.UseAuthentication();
     app.UseAuthorization();
 
-    // 9. Health check endpoint
+    // 10. Health check endpoint
     app.MapGet("/health", () => new { status = "healthy", timestamp = DateTime.UtcNow })
         .AllowAnonymous();
 
-    // 10. Controllers
+    // 11. Controllers
     app.MapControllers();
 
     Log.Information("NGO Connect API started. Swagger: /swagger");

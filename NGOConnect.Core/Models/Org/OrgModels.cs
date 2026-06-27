@@ -74,11 +74,14 @@ namespace NGOConnect.Core.Models.Org
         public int?  LocationSharingLkpId    { get; set; }
     }
 
-    // ── Upload Org Document (v4.0) ──────────────────────────────────────────────
+    // ── Upload Org Document (v4.1) ──────────────────────────────────────────────
+    // Frontend flow:
+    //   1. POST /media/upload?module=org-documents → get { fileUrl, fileName, fileSizeKb }
+    //   2. POST /org/{orgId}/documents with those values + documentTypeLkpId
     public class UploadOrgDocumentRequest
     {
-        [Required] public int    DocumentTypeLkpId { get; set; }
-        [Required] public string DocumentUrl       { get; set; } = string.Empty;
-        public string? ExpiryDate { get; set; }
+        [Required] public int    DocumentTypeLkpId { get; set; }   // LookupType: DOCUMENT_TYPE
+        [Required] public string FileUrl           { get; set; } = string.Empty;   // from /media/upload
+        [Required] public string FileName          { get; set; } = string.Empty;   // from /media/upload
     }
 }

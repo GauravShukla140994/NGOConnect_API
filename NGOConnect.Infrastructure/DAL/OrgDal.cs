@@ -257,10 +257,10 @@ namespace NGOConnect.Infrastructure.DAL
                 var result = await ExecuteWriteAsync("Org_UploadDocument", cmd =>
                 {
                     _db.AddParameter(cmd, "p_OrgId",             orgId);
-                    _db.AddParameter(cmd, "p_UserId",            userId);
+                    _db.AddParameter(cmd, "p_UploadedBy",        userId);
                     _db.AddParameter(cmd, "p_DocumentTypeLkpId", request.DocumentTypeLkpId);
-                    _db.AddParameter(cmd, "p_DocumentUrl",       request.DocumentUrl);
-                    _db.AddParameter(cmd, "p_ExpiryDate",        request.ExpiryDate);
+                    _db.AddParameter(cmd, "p_FileUrl",           request.FileUrl);
+                    _db.AddParameter(cmd, "p_FileName",          request.FileName);
                 });
                 return result.ToApiResponse();
             }
