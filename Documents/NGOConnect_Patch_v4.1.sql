@@ -34,7 +34,7 @@ ALTER TABLE UserSafetyPreferences
 -- SECTION 2: STORED PROCEDURE UPDATES
 -- ============================================================
 
--- 3. User_GetProfile — add VolunteerExp to SELECT
+-- 3. User_GetProfile — add VolunteerExp + GenderLkpId/EducationLkpId/WorkExpLkpId to SELECT
 DROP PROCEDURE IF EXISTS User_GetProfile //
 CREATE PROCEDURE User_GetProfile(IN p_UserId INT UNSIGNED, IN p_RequestingUserId INT UNSIGNED)
 BEGIN
@@ -42,9 +42,12 @@ BEGIN
         u.UserId, u.Mobile, u.Email, u.CountryCode, u.IsVerified,
         up.FirstName, up.LastName, up.Bio, up.ProfilePhoto,
         up.DateOfBirth, up.Occupation, up.Organisation, up.VolunteerExp,
+        up.GenderLkpId,
         gv.ValueName AS Gender,    gv.ValueCode AS GenderCode,
+        up.EducationLkpId,
         ev.ValueName AS Education, ev.ValueCode AS EducationCode,
         up.FieldOfStudy,
+        up.WorkExpLkpId,
         wv.ValueName AS WorkExperience, wv.ValueCode AS WorkExpCode,
         up.AddressLine1, up.AddressLine2, up.City, up.State, up.Pincode, up.Country,
         up.ImpactScore, up.ReliabilityPct,
@@ -196,17 +199,126 @@ DELIMITER ;
 
 -- ============================================================
 -- SECTION 4: MEDIA / FILE UPLOAD — Settings seed
--- These settings are read by LocalFileService (Phase 1) and
--- will carry forward unchanged when switching to Azure/S3.
+-- These settings are read by LocalF
+-- ============================================================
+-- SECTION 5: MISSING READ ENDPOINTS — Edit Profile + Impact + My Orgs
+-- All SPs are new (CREATE only, no DROP needed on first run)
 -- ============================================================
 
--- 11. Upload settings
-INSERT INTO Settings (SettingGroup, SettingKey, SettingValue, DataType, Description, IsPublic, CreatedBy)
-VALUES
-    ('UPLOAD', 'UPLOAD_MAX_SIZE_MB',     '10',                        'NUMBER',  'Maximum file upload size in megabytes',                       0, 1),
-    ('UPLOAD', 'UPLOAD_ALLOWED_TYPES',   'pdf,jpg,jpeg,png,svg',      'STRING',  'Globally allowed file extensions (comma-separated)',           0, 1),
-    ('UPLOAD', 'UPLOAD_BASE_URL',        'http://localhost:5000/uploads', 'URL', 'Base URL for serving uploaded files (overridden per-env)',    0, 1);
+DELIMITER //
+
+-- NOTE: User_GetProfile already patched with LkpIds in Section 2 above.
+
+-- 13. User_GetSafetyPrefs — for Edit Profile safety step pre-fill
+CREATE PROCEDURE User_GetSafetyPrefs(IN p_UserId INT UNSIGNED)
+BEGIN
+    SELECT
+        sp.EmergVisibilityLkpId,
+        ev.ValueName AS EmergVisibility,
+        sp.AutoShareDurLkpId,
+        av.ValueName AS AutoShareDuration,
+        sp.AllowLocDuringSos,
+        sp.AllowLocDuringProj,
+        sp.EmergencyContactName,
+        sp.EmergencyContactPhone,
+        sp.EmergencyContactRelation
+    FROM UserSafetyPreferences sp
+    LEFT JOIN LookupValues ev ON sp.EmergVisibilityLkpId = ev.LookupValueId
+    LEFT JOIN LookupValues av ON sp.AutoShareDurLkpId    = av.LookupValueId
+    WHERE sp.UserId = p_UserId AND sp.IsDeleted = 0;
+END //
+
+-- 14. User_GetInterests — for Edit Profile interests step pre-fill
+CREATE PROCEDURE User_GetInterests(IN p_UserId INT UNSIGNED)
+BEGIN
+    SELECT
+        ui.InterestLkpId,
+        lv.ValueName AS InterestName,
+        lv.ValueCode AS InterestCode
+    FROM UserInterests ui
+    JOIN LookupValues lv ON ui.InterestLkpId = lv.LookupValueId
+    WHERE ui.UserId = p_UserId
+    ORDER BY lv.OrderNo;
+END //
+
+-- 15. User_GetMyOrgs — for s-my-orgs screen
+CREATE PROCEDURE User_GetMyOrgs(IN p_UserId INT UNSIGNED)
+BEGIN
+    SELECT
+        o.OrgId,
+        o.OrgName,
+        o.LogoUrl,
+        ot.ValueName AS OrgType,
+        o.City,
+        o.State,
+        rv.ValueName AS Role,
+        rv.ValueCode AS RoleCode,
+        o.MemberCount,
+        om.CreatedAt AS JoinedAt
+    FROM OrgMembers om
+    JOIN Organisations o  ON om.OrgId = o.OrgId AND o.IsDeleted = 0
+    JOIN LookupValues sv  ON om.ApprovalStatusLkpId = sv.LookupValueId
+    JOIN LookupValues rv  ON om.RoleLkpId = rv.LookupValueId
+    LEFT JOIN LookupValues ot ON o.OrgTypeLkpId = ot.LookupValueId
+    WHERE om.UserId = p_UserId
+      AND om.IsDeleted = 0
+      AND sv.ValueCode = 'APPROVED'
+    ORDER BY om.CreatedAt DESC;
+END //
+
+-- 16. User_GetBadges — for s-impact screen
+CREATE PROCEDURE User_GetBadges(IN p_UserId INT UNSIGNED)
+BEGIN
+    SELECT
+        ub.UserBadgeId,
+        ub.BadgeLkpId,
+        lv.ValueName AS BadgeName,
+        lv.ValueCode AS BadgeCode,
+        o.OrgName,
+        p.Title AS ProjectName,
+        ub.AwardedAt
+    FROM UserBadges ub
+    JOIN LookupValues lv  ON ub.BadgeLkpId = lv.LookupValueId
+    LEFT JOIN Organisations o ON ub.OrgId = o.OrgId
+    LEFT JOIN Projects p      ON ub.ProjectId = p.ProjectId
+    WHERE ub.UserId = p_UserId
+    ORDER BY ub.AwardedAt DESC;
+END //
+
+-- 17. User_GetImpact — for s-impact dashboard
+CREATE PROCEDURE User_GetImpact(IN p_UserId INT UNSIGNED)
+BEGIN
+    SELECT
+        -- from UserProfiles (denormalized)
+        up.ImpactScore,
+        up.ReliabilityPct,
+        -- Projects completed
+        (SELECT COUNT(*) FROM ProjectAttendance pa
+            JOIN Projects pr ON pa.ProjectId = pr.ProjectId
+            WHERE pa.UserId = p_UserId AND pa.AttendanceStatus = 'ATTENDED') AS ProjectsCompleted,
+        -- Total volunteer hours (sum of session durations where attended)
+        COALESCE((
+            SELECT SUM(TIMESTAMPDIFF(MINUTE, ps.StartTime, ps.EndTime)) / 60.0
+            FROM ProjectAttendance pa
+            JOIN ProjectSessions ps ON pa.SessionId = ps.SessionId
+            WHERE pa.UserId = p_UserId AND pa.AttendanceStatus = 'ATTENDED'
+        ), 0) AS TotalHours,
+        -- Badge count
+        (SELECT COUNT(*) FROM UserBadges WHERE UserId = p_UserId) AS BadgeCount,
+        -- Skill count
+        (SELECT COUNT(*) FROM UserSkills WHERE UserId = p_UserId AND IsDeleted = 0) AS SkillCount,
+        -- Applications made
+        (SELECT COUNT(*) FROM ProjectApplications WHERE UserId = p_UserId AND IsDeleted = 0) AS ProjectsApplied,
+        -- Certificates earned
+        (SELECT COUNT(*) FROM VolunteerCertificates WHERE UserId = p_UserId) AS CertificateCount,
+        u.CreatedAt AS MemberSince
+    FROM Users u
+    JOIN UserProfiles up ON u.UserId = up.UserId AND up.IsDeleted = 0
+    WHERE u.UserId = p_UserId AND u.IsDeleted = 0;
+END //
+
+DELIMITER ;
 
 -- ============================================================
--- Patch v4.1 complete.
+-- Patch v4.1 Section 5 complete.
 -- ============================================================

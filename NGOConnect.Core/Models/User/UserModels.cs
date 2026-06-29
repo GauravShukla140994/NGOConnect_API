@@ -13,6 +13,7 @@ namespace NGOConnect.Core.Models.User
         public string?   FirstName          { get; set; }
         public string?   LastName           { get; set; }
         public string?   Bio                { get; set; }
+        public int?      GenderLkpId        { get; set; }   // LkpId — for dropdown pre-selection
         public string?   Gender             { get; set; }   // ValueName  e.g. "Male"
         public string?   GenderCode         { get; set; }   // ValueCode  e.g. "MALE"
         public DateTime? DateOfBirth        { get; set; }
@@ -21,10 +22,12 @@ namespace NGOConnect.Core.Models.User
         public string?   Organisation       { get; set; }
         public string?   VolunteerExp       { get; set; }   // Previous NGO/volunteer experience
         // Education
+        public int?      EducationLkpId     { get; set; }   // LkpId — for dropdown pre-selection
         public string?   Education          { get; set; }   // ValueName  e.g. "Bachelor's Degree"
         public string?   EducationCode      { get; set; }   // ValueCode  e.g. "BACHELOR"
         public string?   FieldOfStudy       { get; set; }
         // Work Experience
+        public int?      WorkExpLkpId       { get; set; }   // LkpId — for dropdown pre-selection
         public string?   WorkExperience     { get; set; }   // ValueName  e.g. "3–5 years"
         public string?   WorkExpCode        { get; set; }   // ValueCode  e.g. "EXP_3_5"
         // Address
@@ -110,5 +113,71 @@ namespace NGOConnect.Core.Models.User
     public class AddSkillRequest
     {
         [Required][MaxLength(100)] public string SkillName { get; set; } = string.Empty;
+    }
+
+    // ── Safety Preferences — GET response ──────────────────────────────────────
+    public class UserSafetyPrefsModel
+    {
+        public int?    EmergVisibilityLkpId     { get; set; }
+        public string? EmergVisibility          { get; set; }   // ValueName e.g. "Friends Only"
+        public int?    AutoShareDurLkpId        { get; set; }
+        public string? AutoShareDuration        { get; set; }   // ValueName e.g. "30 Minutes"
+        public bool    AllowLocDuringSos        { get; set; }
+        public bool    AllowLocDuringProj       { get; set; }
+        public string? EmergencyContactName     { get; set; }
+        public string? EmergencyContactPhone    { get; set; }
+        public string? EmergencyContactRelation { get; set; }
+    }
+
+    // ── Interests — GET response ────────────────────────────────────────────────
+    public class UserInterestModel
+    {
+        public int    InterestLkpId   { get; set; }
+        public string InterestName    { get; set; } = string.Empty;   // ValueName e.g. "Education"
+        public string InterestCode    { get; set; } = string.Empty;   // ValueCode e.g. "EDUCATION"
+    }
+
+    // ── My Organisations — GET response ────────────────────────────────────────
+    public class UserOrgModel
+    {
+        public int      OrgId          { get; set; }
+        public string   OrgName        { get; set; } = string.Empty;
+        public string?  LogoUrl        { get; set; }
+        public string?  OrgType        { get; set; }   // ValueName e.g. "Education"
+        public string?  City           { get; set; }
+        public string?  State          { get; set; }
+        public string   Role           { get; set; } = string.Empty;   // ValueName e.g. "Admin"
+        public string   RoleCode       { get; set; } = string.Empty;   // ValueCode e.g. "ADMIN"
+        public int      MemberCount    { get; set; }
+        public DateTime JoinedAt       { get; set; }
+    }
+
+    // ── Badges — GET response ───────────────────────────────────────────────────
+    public class UserBadgeModel
+    {
+        public int      UserBadgeId    { get; set; }
+        public int      BadgeLkpId     { get; set; }
+        public string   BadgeName      { get; set; } = string.Empty;   // ValueName e.g. "10 Hours"
+        public string   BadgeCode      { get; set; } = string.Empty;   // ValueCode e.g. "HOURS_10"
+        public string?  OrgName        { get; set; }   // Org that awarded it (nullable)
+        public string?  ProjectName    { get; set; }   // Project it was awarded for (nullable)
+        public DateTime AwardedAt      { get; set; }
+    }
+
+    // ── Impact Dashboard — GET response ────────────────────────────────────────
+    public class UserImpactModel
+    {
+        // Scores
+        public int     ImpactScore       { get; set; }
+        public decimal ReliabilityPct    { get; set; }
+        // Activity totals
+        public int     ProjectsCompleted { get; set; }
+        public decimal TotalHours        { get; set; }
+        public int     BadgeCount        { get; set; }
+        public int     SkillCount        { get; set; }
+        // Volunteer history
+        public int     ProjectsApplied   { get; set; }
+        public int     CertificateCount  { get; set; }
+        public DateTime MemberSince      { get; set; }
     }
 }

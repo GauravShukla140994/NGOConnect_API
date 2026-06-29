@@ -43,9 +43,7 @@ namespace NGOConnect.API.Controllers
         [Authorize]
         [RequestSizeLimit(10 * 1024 * 1024)]   // 10 MB hard limit at HTTP level
         [Consumes("multipart/form-data")]
-        public async Task<ApiResponse<BlobUploadResult>> Upload(
-            [FromQuery] string module,
-            IFormFile file)
+        public async Task<ApiResponse<BlobUploadResult>> Upload([FromQuery] string module, IFormFile file)
         {
             if (string.IsNullOrWhiteSpace(module))
                 return ApiResponse<BlobUploadResult>.Failure(

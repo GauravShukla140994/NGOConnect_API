@@ -27,9 +27,17 @@ namespace NGOConnect.API.Controllers
         public async Task<ApiResponse<DynamicRow>> GetPublicProfile(int userId)
             => await _userDal.GetPublicProfileAsync(userId);
 
+        [HttpGet("safety-prefs")] [Authorize]
+        public async Task<ApiResponse<UserSafetyPrefsModel>> GetSafetyPrefs()
+            => await _userDal.GetSafetyPrefsAsync(GetUserId());
+
         [HttpPut("safety-prefs")] [Authorize]
         public async Task<ApiResponse> UpdateSafetyPrefs([FromBody] UpdateSafetyPrefsRequest request)
             => await _userDal.UpdateSafetyPrefsAsync(GetUserId(), request);
+
+        [HttpGet("interests")] [Authorize]
+        public async Task<ApiResponse<List<UserInterestModel>>> GetInterests()
+            => await _userDal.GetInterestsAsync(GetUserId());
 
         [HttpPost("interests")] [Authorize]
         public async Task<ApiResponse> SaveInterests([FromBody] SaveInterestsRequest request)
@@ -50,6 +58,21 @@ namespace NGOConnect.API.Controllers
         [HttpDelete("skills/{userSkillId:int}")] [Authorize]
         public async Task<ApiResponse> RemoveSkill(int userSkillId)
             => await _userDal.RemoveSkillAsync(GetUserId(), userSkillId);
+
+        // ── My Organisations (s-my-orgs screen) ──────────────────────────────────
+        [HttpGet("orgs")] [Authorize]
+        public async Task<ApiResponse<List<UserOrgModel>>> GetMyOrgs()
+            => await _userDal.GetMyOrgsAsync(GetUserId());
+
+        // ── Badges (s-impact screen) ──────────────────────────────────────────────
+        [HttpGet("badges")] [Authorize]
+        public async Task<ApiResponse<List<UserBadgeModel>>> GetBadges()
+            => await _userDal.GetBadgesAsync(GetUserId());
+
+        // ── Impact Dashboard (s-impact screen) ───────────────────────────────────
+        [HttpGet("impact")] [Authorize]
+        public async Task<ApiResponse<UserImpactModel>> GetImpact()
+            => await _userDal.GetImpactAsync(GetUserId());
 
         private int GetUserId()
         {

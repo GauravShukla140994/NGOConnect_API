@@ -200,6 +200,124 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
+        // ── Safety Prefs ─────────────────────────────────────────────────────────
+
+        public async Task<ApiResponse<UserSafetyPrefsModel>> GetSafetyPrefsAsync(int userId)
+        {
+            try
+            {
+                var row = await ExecuteGetAsync("User_GetSafetyPrefs", MapSafetyPrefs,
+                    cmd => _db.AddParameter(cmd, "p_UserId", userId));
+                return row is null
+                    ? ApiResponse<UserSafetyPrefsModel>.Failure("Safety preferences not found.", "NOT_FOUND")
+                    : ApiResponse<UserSafetyPrefsModel>.Success(row);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetSafetyPrefsAsync failed UserId={UserId}", userId);
+                return ApiResponse<UserSafetyPrefsModel>.Failure("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        // ── Interests ─────────────────────────────────────────────────────────────
+
+        public async Task<ApiResponse<List<UserInterestModel>>> GetInterestsAsync(int userId)
+        {
+            try
+            {
+                var rows = await ExecuteListAsync("User_GetInterests",
+                    r => new UserInterestModel
+                    {
+                        InterestLkpId = Col<int>(r,    "InterestLkpId"),
+                        InterestName  = Col<string>(r, "InterestName")  ?? string.Empty,
+                        InterestCode  = Col<string>(r, "InterestCode")  ?? string.Empty,
+                    },
+                    cmd => _db.AddParameter(cmd, "p_UserId", userId));
+                return ApiResponse<List<UserInterestModel>>.Success(rows);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetInterestsAsync failed UserId={UserId}", userId);
+                return ApiResponse<List<UserInterestModel>>.Failure("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        // ── My Organisations ──────────────────────────────────────────────────────
+
+        public async Task<ApiResponse<List<UserOrgModel>>> GetMyOrgsAsync(int userId)
+        {
+            try
+            {
+                var rows = await ExecuteListAsync("User_GetMyOrgs",
+                    r => new UserOrgModel
+                    {
+                        OrgId       = Col<int>(r,      "OrgId"),
+                        OrgName     = Col<string>(r,   "OrgName")   ?? string.Empty,
+                        LogoUrl     = Col<string>(r,   "LogoUrl"),
+                        OrgType     = Col<string>(r,   "OrgType"),
+                        City        = Col<string>(r,   "City"),
+                        State       = Col<string>(r,   "State"),
+                        Role        = Col<string>(r,   "Role")      ?? string.Empty,
+                        RoleCode    = Col<string>(r,   "RoleCode")  ?? string.Empty,
+                        MemberCount = Col<int>(r,      "MemberCount"),
+                        JoinedAt    = Col<DateTime>(r, "JoinedAt"),
+                    },
+                    cmd => _db.AddParameter(cmd, "p_UserId", userId));
+                return ApiResponse<List<UserOrgModel>>.Success(rows);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetMyOrgsAsync failed UserId={UserId}", userId);
+                return ApiResponse<List<UserOrgModel>>.Failure("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        // ── Badges ────────────────────────────────────────────────────────────────
+
+        public async Task<ApiResponse<List<UserBadgeModel>>> GetBadgesAsync(int userId)
+        {
+            try
+            {
+                var rows = await ExecuteListAsync("User_GetBadges",
+                    r => new UserBadgeModel
+                    {
+                        UserBadgeId = Col<int>(r,      "UserBadgeId"),
+                        BadgeLkpId  = Col<int>(r,      "BadgeLkpId"),
+                        BadgeName   = Col<string>(r,   "BadgeName")   ?? string.Empty,
+                        BadgeCode   = Col<string>(r,   "BadgeCode")   ?? string.Empty,
+                        OrgName     = Col<string>(r,   "OrgName"),
+                        ProjectName = Col<string>(r,   "ProjectName"),
+                        AwardedAt   = Col<DateTime>(r, "AwardedAt"),
+                    },
+                    cmd => _db.AddParameter(cmd, "p_UserId", userId));
+                return ApiResponse<List<UserBadgeModel>>.Success(rows);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetBadgesAsync failed UserId={UserId}", userId);
+                return ApiResponse<List<UserBadgeModel>>.Failure("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        // ── Impact Dashboard ──────────────────────────────────────────────────────
+
+        public async Task<ApiResponse<UserImpactModel>> GetImpactAsync(int userId)
+        {
+            try
+            {
+                var row = await ExecuteGetAsync("User_GetImpact", MapImpact,
+                    cmd => _db.AddParameter(cmd, "p_UserId", userId));
+                return row is null
+                    ? ApiResponse<UserImpactModel>.Failure("Impact data not found.", "NOT_FOUND")
+                    : ApiResponse<UserImpactModel>.Success(row);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetImpactAsync failed UserId={UserId}", userId);
+                return ApiResponse<UserImpactModel>.Failure("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
         // ── Mappers ──────────────────────────────────────────────────────────────
 
         private static UserProfileModel MapProfile(DataRow row) => new()
@@ -212,6 +330,7 @@ namespace NGOConnect.Infrastructure.DAL
             FirstName         = Col<string>(row,   "FirstName"),
             LastName          = Col<string>(row,   "LastName"),
             Bio               = Col<string>(row,   "Bio"),
+            GenderLkpId       = ColNullable<int>(row,    "GenderLkpId"),
             Gender            = Col<string>(row,   "Gender"),           // ValueName e.g. "Male"
             GenderCode        = Col<string>(row,   "GenderCode"),       // ValueCode e.g. "MALE"
             DateOfBirth       = ColNullable<DateTime>(row, "DateOfBirth"),
@@ -219,9 +338,11 @@ namespace NGOConnect.Infrastructure.DAL
             Occupation        = Col<string>(row,   "Occupation"),
             Organisation      = Col<string>(row,   "Organisation"),
             VolunteerExp      = Col<string>(row,   "VolunteerExp"),
+            EducationLkpId    = ColNullable<int>(row,    "EducationLkpId"),
             Education         = Col<string>(row,   "Education"),        // ValueName
             EducationCode     = Col<string>(row,   "EducationCode"),    // ValueCode
             FieldOfStudy      = Col<string>(row,   "FieldOfStudy"),
+            WorkExpLkpId      = ColNullable<int>(row,    "WorkExpLkpId"),
             WorkExperience    = Col<string>(row,   "WorkExperience"),   // ValueName
             WorkExpCode       = Col<string>(row,   "WorkExpCode"),      // ValueCode
             AddressLine1      = Col<string>(row,   "AddressLine1"),
@@ -243,6 +364,32 @@ namespace NGOConnect.Infrastructure.DAL
             SkillName   = r["SkillName"]?.ToString() ?? string.Empty,
             AvgRating   = r["AvgRating"]  == DBNull.Value ? 0m : Convert.ToDecimal(r["AvgRating"]),
             RatingCount = r["RatingCount"] == DBNull.Value ? 0  : Convert.ToInt32(r["RatingCount"])
+        };
+
+        private static UserSafetyPrefsModel MapSafetyPrefs(DataRow row) => new()
+        {
+            EmergVisibilityLkpId     = ColNullable<int>(row,    "EmergVisibilityLkpId"),
+            EmergVisibility          = Col<string>(row,         "EmergVisibility"),
+            AutoShareDurLkpId        = ColNullable<int>(row,    "AutoShareDurLkpId"),
+            AutoShareDuration        = Col<string>(row,         "AutoShareDuration"),
+            AllowLocDuringSos        = Col<bool>(row,           "AllowLocDuringSos"),
+            AllowLocDuringProj       = Col<bool>(row,           "AllowLocDuringProj"),
+            EmergencyContactName     = Col<string>(row,         "EmergencyContactName"),
+            EmergencyContactPhone    = Col<string>(row,         "EmergencyContactPhone"),
+            EmergencyContactRelation = Col<string>(row,         "EmergencyContactRelation"),
+        };
+
+        private static UserImpactModel MapImpact(DataRow row) => new()
+        {
+            ImpactScore       = Col<int>(row,     "ImpactScore"),
+            ReliabilityPct    = Col<decimal>(row, "ReliabilityPct"),
+            ProjectsCompleted = Col<int>(row,     "ProjectsCompleted"),
+            TotalHours        = Col<decimal>(row, "TotalHours"),
+            BadgeCount        = Col<int>(row,     "BadgeCount"),
+            SkillCount        = Col<int>(row,     "SkillCount"),
+            ProjectsApplied   = Col<int>(row,     "ProjectsApplied"),
+            CertificateCount  = Col<int>(row,     "CertificateCount"),
+            MemberSince       = Col<DateTime>(row,"MemberSince"),
         };
     }
 }

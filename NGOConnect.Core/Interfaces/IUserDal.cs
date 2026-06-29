@@ -5,14 +5,27 @@ namespace NGOConnect.Core.Interfaces
 {
     public interface IUserDal
     {
-        Task<ApiResponse<UserProfileModel>>     GetProfileAsync(int userId);
-        Task<ApiResponse<DynamicRow>>           GetPublicProfileAsync(int userId);
-        Task<ApiResponse>                       UpdateProfileAsync(int userId, UpdateProfileRequest request);
-        Task<ApiResponse>                       UpdateSafetyPrefsAsync(int userId, UpdateSafetyPrefsRequest request);
-        Task<ApiResponse>                       SaveInterestsAsync(int userId, SaveInterestsRequest request);
-        Task<ApiResponse>                       UploadDocumentAsync(int userId, UploadDocumentRequest request);
-        Task<ApiResponse<List<UserSkillModel>>> GetSkillsAsync(int userId);
-        Task<ApiResponse>                       AddSkillAsync(int userId, AddSkillRequest request);
-        Task<ApiResponse>                       RemoveSkillAsync(int userId, int userSkillId);
+        // Profile
+        Task<ApiResponse<UserProfileModel>>         GetProfileAsync(int userId);
+        Task<ApiResponse<DynamicRow>>               GetPublicProfileAsync(int userId);
+        Task<ApiResponse>                           UpdateProfileAsync(int userId, UpdateProfileRequest request);
+        // Safety
+        Task<ApiResponse<UserSafetyPrefsModel>>     GetSafetyPrefsAsync(int userId);
+        Task<ApiResponse>                           UpdateSafetyPrefsAsync(int userId, UpdateSafetyPrefsRequest request);
+        // Interests
+        Task<ApiResponse<List<UserInterestModel>>>  GetInterestsAsync(int userId);
+        Task<ApiResponse>                           SaveInterestsAsync(int userId, SaveInterestsRequest request);
+        // Documents
+        Task<ApiResponse>                           UploadDocumentAsync(int userId, UploadDocumentRequest request);
+        // Skills
+        Task<ApiResponse<List<UserSkillModel>>>     GetSkillsAsync(int userId);
+        Task<ApiResponse>                           AddSkillAsync(int userId, AddSkillRequest request);
+        Task<ApiResponse>                           RemoveSkillAsync(int userId, int userSkillId);
+        // My Organisations
+        Task<ApiResponse<List<UserOrgModel>>>       GetMyOrgsAsync(int userId);
+        // Badges
+        Task<ApiResponse<List<UserBadgeModel>>>     GetBadgesAsync(int userId);
+        // Impact Dashboard
+        Task<ApiResponse<UserImpactModel>>          GetImpactAsync(int userId);
     }
 }
