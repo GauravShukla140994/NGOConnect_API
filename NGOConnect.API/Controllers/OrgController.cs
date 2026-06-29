@@ -23,6 +23,11 @@ namespace NGOConnect.API.Controllers
         public async Task<ApiResponse<DynamicRow>> GetProfile(int orgId)
             => await _org.GetProfileAsync(orgId);
 
+        // Admin dashboard KPIs — Total Members, Active Volunteers, Hours, Active Projects, Pending
+        [HttpGet("{orgId:int}/dashboard")] [Authorize]
+        public async Task<ApiResponse<OrgDashboardModel>> GetDashboard(int orgId)
+            => await _org.GetDashboardAsync(orgId);
+
         [HttpPut("{orgId:int}")] [Authorize]
         public async Task<ApiResponse> Update(int orgId, [FromBody] UpdateOrgRequest request)
             => await _org.UpdateAsync(orgId, GetUserId(), request);

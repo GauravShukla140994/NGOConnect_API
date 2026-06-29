@@ -322,3 +322,232 @@ DELIMITER ;
 -- ============================================================
 -- Patch v4.1 Section 5 complete.
 -- ============================================================
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
+-- ============================================================
+-- SECTION 6: ORGANISATION MODULE FIXES
+-- - ADD ContactPerson to Organisations table
+-- - Patch Org_Register SP (add ContactPerson + fix param name)
+-- - Patch Org_Update SP (add ContactPerson + Country)
+-- - Patch Org_GetProfile SP (return OrgTypeLkpId + StatusLkpId)
+-- - NEW Org_GetDashboard SP (admin dashboard KPIs)
+-- ============================================================
+
+USE NGOConnect;
+
+-- 18. Add ContactPerson column to Organisations
+ALTER TABLE Organisations
+    ADD COLUMN ContactPerson VARCHAR(100) NULL AFTER OrgName;
+
+DELIMITER //
+
+-- 19. Org_Register — add ContactPerson, fix param name (p_RegistrationNo not p_RegistrationNumber)
+DROP PROCEDURE IF EXISTS Org_Register //
+CREATE PROCEDURE Org_Register(
+    IN p_UserId         INT UNSIGNED,
+    IN p_OrgName        VARCHAR(200),
+    IN p_RegistrationNo VARCHAR(100),
+    IN p_OrgTypeLkpId   INT UNSIGNED,
+    IN p_Category       VARCHAR(100),
+    IN p_ContactPerson  VARCHAR(100),
+    IN p_About          TEXT,
+    IN p_Mission        TEXT,
+    IN p_Vision         TEXT,
+    IN p_LogoUrl        VARCHAR(500),
+    IN p_ContactEmail   VARCHAR(150),
+    IN p_ContactPhone   VARCHAR(20),
+    IN p_Website        VARCHAR(255),
+    IN p_AddressLine1   VARCHAR(200),
+    IN p_AddressLine2   VARCHAR(200),
+    IN p_City           VARCHAR(100),
+    IN p_State          VARCHAR(100),
+    IN p_Pincode        VARCHAR(20),
+    IN p_Country        VARCHAR(100)
+)
+BEGIN
+    DECLARE v_Exists       INT DEFAULT 0;
+    DECLARE v_StatusLkpId  INT UNSIGNED;
+    DECLARE v_RoleLkpId    INT UNSIGNED;
+    DECLARE v_MemStatLkpId INT UNSIGNED;
+    DECLARE v_OrgId        INT UNSIGNED;
+
+    SELECT COUNT(*) INTO v_Exists FROM Organisations WHERE RegNumber = p_RegistrationNo AND IsDeleted = 0;
+    IF v_Exists > 0 THEN
+        SELECT 0 AS IsSuccess, 'Registration number already exists.' AS Message, NULL AS OrgId;
+    ELSE
+        SELECT LookupValueId INTO v_StatusLkpId FROM LookupValues lv
+            JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+            WHERE lt.TypeCode = 'ORG_STATUS' AND lv.ValueCode = 'PENDING' LIMIT 1;
+        SELECT LookupValueId INTO v_RoleLkpId FROM LookupValues lv
+            JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+            WHERE lt.TypeCode = 'MEMBER_ROLE' AND lv.ValueCode = 'FOUNDER' LIMIT 1;
+        SELECT LookupValueId INTO v_MemStatLkpId FROM LookupValues lv
+            JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+            WHERE lt.TypeCode = 'MEMBER_STATUS' AND lv.ValueCode = 'APPROVED' LIMIT 1;
+
+        INSERT INTO Organisations
+            (OrgName, ContactPerson, OrgTypeLkpId, RegNumber, Category, About, Mission, Vision,
+             LogoUrl, ContactEmail, ContactPhone, Website,
+             AddressLine1, AddressLine2, City, State, Pincode, Country, StatusLkpId, CreatedBy)
+        VALUES
+            (p_OrgName, p_ContactPerson, p_OrgTypeLkpId, p_RegistrationNo, p_Category,
+             p_About, p_Mission, p_Vision, p_LogoUrl, p_ContactEmail, p_ContactPhone, p_Website,
+             p_AddressLine1, p_AddressLine2, p_City, p_State, p_Pincode,
+             COALESCE(p_Country, 'India'), v_StatusLkpId, p_UserId);
+
+        SET v_OrgId = LAST_INSERT_ID();
+
+        INSERT INTO OrgMembers
+            (OrgId, UserId, RoleLkpId, StatusLkpId, CanPost, CanComment, CanCommunityPost, MaxPostsPerDay, JoinedAt, CreatedBy)
+        VALUES
+            (v_OrgId, p_UserId, v_RoleLkpId, v_MemStatLkpId, 1, 1, 1, 50, NOW(), p_UserId);
+
+        SELECT 1 AS IsSuccess, 'Organisation registered successfully.' AS Message, v_OrgId AS OrgId;
+    END IF;
+END //
+
+-- 20. Org_Update — add ContactPerson + Country
+DROP PROCEDURE IF EXISTS Org_Update //
+CREATE PROCEDURE Org_Update(
+    IN p_OrgId         INT UNSIGNED,
+    IN p_UserId        INT UNSIGNED,
+    IN p_OrgName       VARCHAR(200),
+    IN p_Category      VARCHAR(100),
+    IN p_ContactPerson VARCHAR(100),
+    IN p_About         TEXT,
+    IN p_Mission       TEXT,
+    IN p_Vision        TEXT,
+    IN p_LogoUrl       VARCHAR(500),
+    IN p_ContactEmail  VARCHAR(150),
+    IN p_ContactPhone  VARCHAR(20),
+    IN p_Website       VARCHAR(255),
+    IN p_AddressLine1  VARCHAR(200),
+    IN p_AddressLine2  VARCHAR(200),
+    IN p_City          VARCHAR(100),
+    IN p_State         VARCHAR(100),
+    IN p_Pincode       VARCHAR(20),
+    IN p_Country       VARCHAR(100)
+)
+BEGIN
+    UPDATE Organisations SET
+        OrgName       = COALESCE(p_OrgName,       OrgName),
+        Category      = COALESCE(p_Category,      Category),
+        ContactPerson = COALESCE(p_ContactPerson, ContactPerson),
+        About         = COALESCE(p_About,         About),
+        Mission       = COALESCE(p_Mission,       Mission),
+        Vision        = COALESCE(p_Vision,        Vision),
+        LogoUrl       = COALESCE(p_LogoUrl,       LogoUrl),
+        ContactEmail  = COALESCE(p_ContactEmail,  ContactEmail),
+        ContactPhone  = COALESCE(p_ContactPhone,  ContactPhone),
+        Website       = COALESCE(p_Website,       Website),
+        AddressLine1  = COALESCE(p_AddressLine1,  AddressLine1),
+        AddressLine2  = COALESCE(p_AddressLine2,  AddressLine2),
+        City          = COALESCE(p_City,          City),
+        State         = COALESCE(p_State,         State),
+        Pincode       = COALESCE(p_Pincode,       Pincode),
+        Country       = COALESCE(p_Country,       Country),
+        UpdatedBy     = p_UserId,
+        UpdatedAt     = NOW()
+    WHERE OrgId = p_OrgId AND IsDeleted = 0;
+    SELECT 1 AS IsSuccess, 'Organisation updated.' AS Message;
+END //
+
+-- 21. Org_GetProfile — add OrgTypeLkpId + StatusLkpId + ContactPerson for edit pre-fill
+DROP PROCEDURE IF EXISTS Org_GetProfile //
+CREATE PROCEDURE Org_GetProfile(IN p_OrgId INT UNSIGNED)
+BEGIN
+    SELECT
+        o.OrgId, o.OrgName, o.RegNumber, o.Category, o.ContactPerson,
+        o.LogoUrl, o.About, o.Mission, o.Vision,
+        o.ContactEmail, o.ContactPhone, o.Website,
+        o.AddressLine1, o.AddressLine2, o.City, o.State, o.Pincode, o.Country,
+        o.OrgTypeLkpId,
+        tv.ValueName AS OrgType,
+        o.StatusLkpId,
+        sv.ValueName AS OrgStatus,
+        o.CreatedAt,
+        (SELECT COUNT(*) FROM OrgMembers om
+            JOIN LookupValues lv ON om.StatusLkpId = lv.LookupValueId
+            JOIN LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
+            WHERE om.OrgId = o.OrgId AND om.IsDeleted = 0
+              AND lt.TypeCode = 'MEMBER_STATUS' AND lv.ValueCode = 'APPROVED') AS MemberCount
+    FROM Organisations o
+    LEFT JOIN LookupValues tv ON o.OrgTypeLkpId = tv.LookupValueId
+    LEFT JOIN LookupValues sv ON o.StatusLkpId  = sv.LookupValueId
+    WHERE o.OrgId = p_OrgId AND o.IsDeleted = 0;
+END //
+
+-- 22. Org_GetDashboard — admin dashboard KPIs (s-admin screen)
+CREATE PROCEDURE Org_GetDashboard(IN p_OrgId INT UNSIGNED)
+BEGIN
+    DECLARE v_ApprovedStatusId INT UNSIGNED;
+    DECLARE v_ActiveStatusId   INT UNSIGNED;
+
+    SELECT lv.LookupValueId INTO v_ApprovedStatusId
+    FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE lt.TypeCode = 'MEMBER_STATUS' AND lv.ValueCode = 'APPROVED' LIMIT 1;
+
+    SELECT lv.LookupValueId INTO v_ActiveStatusId
+    FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'ACTIVE' LIMIT 1;
+
+    SELECT
+        -- Total approved members
+        (SELECT COUNT(*) FROM OrgMembers
+         WHERE OrgId = p_OrgId AND StatusLkpId = v_ApprovedStatusId AND IsDeleted = 0
+        ) AS TotalMembers,
+
+        -- New members joined this calendar month
+        (SELECT COUNT(*) FROM OrgMembers
+         WHERE OrgId = p_OrgId AND StatusLkpId = v_ApprovedStatusId AND IsDeleted = 0
+           AND YEAR(CreatedAt) = YEAR(NOW()) AND MONTH(CreatedAt) = MONTH(NOW())
+        ) AS NewMembersThisMonth,
+
+        -- Volunteers who attended ≥1 session this month
+        (SELECT COUNT(DISTINCT pa.UserId) FROM ProjectAttendance pa
+         JOIN Projects p ON pa.ProjectId = p.ProjectId
+         WHERE p.OrgId = p_OrgId AND pa.AttendanceStatus = 'ATTENDED'
+           AND YEAR(pa.MarkedAt) = YEAR(NOW()) AND MONTH(pa.MarkedAt) = MONTH(NOW())
+        ) AS ActiveVolunteers,
+
+        -- Active rate % (avoid divide-by-zero)
+        ROUND(
+            CASE WHEN (SELECT COUNT(*) FROM OrgMembers WHERE OrgId = p_OrgId AND StatusLkpId = v_ApprovedStatusId AND IsDeleted = 0) = 0
+                 THEN 0
+                 ELSE (SELECT COUNT(DISTINCT pa.UserId) FROM ProjectAttendance pa
+                       JOIN Projects p ON pa.ProjectId = p.ProjectId
+                       WHERE p.OrgId = p_OrgId AND pa.AttendanceStatus = 'ATTENDED'
+                         AND YEAR(pa.MarkedAt) = YEAR(NOW()) AND MONTH(pa.MarkedAt) = MONTH(NOW()))
+                      * 100.0
+                      / (SELECT COUNT(*) FROM OrgMembers WHERE OrgId = p_OrgId AND StatusLkpId = v_ApprovedStatusId AND IsDeleted = 0)
+            END, 1
+        ) AS ActiveRatePct,
+
+        -- Total volunteer hours attended this month
+        COALESCE((
+            SELECT SUM(TIMESTAMPDIFF(MINUTE, ps.StartTime, ps.EndTime)) / 60.0
+            FROM ProjectAttendance pa
+            JOIN ProjectSessions ps ON pa.SessionId = ps.SessionId
+            JOIN Projects p ON pa.ProjectId = p.ProjectId
+            WHERE p.OrgId = p_OrgId AND pa.AttendanceStatus = 'ATTENDED'
+              AND YEAR(pa.MarkedAt) = YEAR(NOW()) AND MONTH(pa.MarkedAt) = MONTH(NOW())
+        ), 0) AS VolunteerHoursMonth,
+
+        -- Active projects
+        (SELECT COUNT(*) FROM Projects
+         WHERE OrgId = p_OrgId AND StatusLkpId = v_ActiveStatusId AND IsDeleted = 0
+        ) AS ActiveProjects,
+
+        -- Pending membership applications
+        (SELECT COUNT(*) FROM OrgMembers om
+         JOIN LookupValues lv ON om.StatusLkpId = lv.LookupValueId
+         JOIN LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
+         WHERE om.OrgId = p_OrgId AND om.IsDeleted = 0
+           AND lt.TypeCode = 'MEMBER_STATUS' AND lv.ValueCode = 'PENDING'
+        ) AS PendingApplications;
+END //
+
+DELIMITER ;
+
+-- ============================================================
+-- Patch v4.1 Section 6 complete.
+-- =============================================================

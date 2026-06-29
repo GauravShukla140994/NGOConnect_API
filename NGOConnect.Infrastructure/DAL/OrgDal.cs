@@ -15,22 +15,25 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var result = await ExecuteWriteAsync("Org_Register", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_UserId",             userId);
-                    _db.AddParameter(cmd, "p_OrgName",            request.OrgName);
-                    _db.AddParameter(cmd, "p_RegistrationNumber", request.RegistrationNumber);
-                    _db.AddParameter(cmd, "p_OrgTypeLkpId",       request.OrgTypeLkpId);
-                    _db.AddParameter(cmd, "p_Mission",            request.Mission);
-                    _db.AddParameter(cmd, "p_Vision",             request.Vision);
-                    _db.AddParameter(cmd, "p_LogoUrl",            request.LogoUrl);
-                    _db.AddParameter(cmd, "p_AddressLine1",       request.AddressLine1);
-                    _db.AddParameter(cmd, "p_AddressLine2",       request.AddressLine2);
-                    _db.AddParameter(cmd, "p_Pincode",            request.Pincode);
-                    _db.AddParameter(cmd, "p_City",               request.City);
-                    _db.AddParameter(cmd, "p_State",              request.State);
-                    _db.AddParameter(cmd, "p_Country",            request.Country);
-                    _db.AddParameter(cmd, "p_Website",            request.Website);
-                    _db.AddParameter(cmd, "p_ContactEmail",       request.Email);
-                    _db.AddParameter(cmd, "p_ContactPhone",       request.Phone);
+                    _db.AddParameter(cmd, "p_UserId",         userId);
+                    _db.AddParameter(cmd, "p_OrgName",        request.OrgName);
+                    _db.AddParameter(cmd, "p_RegistrationNo", request.RegistrationNumber);   // SP uses p_RegistrationNo
+                    _db.AddParameter(cmd, "p_OrgTypeLkpId",   request.OrgTypeLkpId);
+                    _db.AddParameter(cmd, "p_Category",       request.Category);
+                    _db.AddParameter(cmd, "p_ContactPerson",  request.ContactPerson);
+                    _db.AddParameter(cmd, "p_About",          request.About);
+                    _db.AddParameter(cmd, "p_Mission",        request.Mission);
+                    _db.AddParameter(cmd, "p_Vision",         request.Vision);
+                    _db.AddParameter(cmd, "p_LogoUrl",        request.LogoUrl);
+                    _db.AddParameter(cmd, "p_ContactEmail",   request.Email);
+                    _db.AddParameter(cmd, "p_ContactPhone",   request.Phone);
+                    _db.AddParameter(cmd, "p_Website",        request.Website);
+                    _db.AddParameter(cmd, "p_AddressLine1",   request.AddressLine1);
+                    _db.AddParameter(cmd, "p_AddressLine2",   request.AddressLine2);
+                    _db.AddParameter(cmd, "p_City",           request.City);
+                    _db.AddParameter(cmd, "p_State",          request.State);
+                    _db.AddParameter(cmd, "p_Pincode",        request.Pincode);
+                    _db.AddParameter(cmd, "p_Country",        request.Country);
                 });
 
                 if (!result.Succeeded)
@@ -72,21 +75,24 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var result = await ExecuteWriteAsync("Org_Update", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_OrgId",        orgId);
-                    _db.AddParameter(cmd, "p_UserId",       userId);
-                    _db.AddParameter(cmd, "p_OrgName",      request.OrgName);
-                    _db.AddParameter(cmd, "p_Mission",      request.Mission);
-                    _db.AddParameter(cmd, "p_Vision",       request.Vision);
-                    _db.AddParameter(cmd, "p_LogoUrl",      request.LogoUrl);
-                    _db.AddParameter(cmd, "p_AddressLine1", request.AddressLine1);
-                    _db.AddParameter(cmd, "p_AddressLine2", request.AddressLine2);
-                    _db.AddParameter(cmd, "p_Pincode",      request.Pincode);
-                    _db.AddParameter(cmd, "p_City",         request.City);
-                    _db.AddParameter(cmd, "p_State",        request.State);
-                    _db.AddParameter(cmd, "p_Country",      request.Country);
-                    _db.AddParameter(cmd, "p_Website",      request.Website);
-                    _db.AddParameter(cmd, "p_ContactEmail", request.Email);
-                    _db.AddParameter(cmd, "p_ContactPhone", request.Phone);
+                    _db.AddParameter(cmd, "p_OrgId",         orgId);
+                    _db.AddParameter(cmd, "p_UserId",        userId);
+                    _db.AddParameter(cmd, "p_OrgName",       request.OrgName);
+                    _db.AddParameter(cmd, "p_Category",      request.Category);
+                    _db.AddParameter(cmd, "p_ContactPerson", request.ContactPerson);
+                    _db.AddParameter(cmd, "p_About",         request.About);
+                    _db.AddParameter(cmd, "p_Mission",       request.Mission);
+                    _db.AddParameter(cmd, "p_Vision",        request.Vision);
+                    _db.AddParameter(cmd, "p_LogoUrl",       request.LogoUrl);
+                    _db.AddParameter(cmd, "p_ContactEmail",  request.Email);
+                    _db.AddParameter(cmd, "p_ContactPhone",  request.Phone);
+                    _db.AddParameter(cmd, "p_Website",       request.Website);
+                    _db.AddParameter(cmd, "p_AddressLine1",  request.AddressLine1);
+                    _db.AddParameter(cmd, "p_AddressLine2",  request.AddressLine2);
+                    _db.AddParameter(cmd, "p_City",          request.City);
+                    _db.AddParameter(cmd, "p_State",         request.State);
+                    _db.AddParameter(cmd, "p_Pincode",       request.Pincode);
+                    _db.AddParameter(cmd, "p_Country",       request.Country);
                 });
                 return result.ToApiResponse();
             }
@@ -94,6 +100,34 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 Log.Error(ex, "UpdateAsync failed OrgId={OrgId}", orgId);
                 return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        public async Task<ApiResponse<OrgDashboardModel>> GetDashboardAsync(int orgId)
+        {
+            try
+            {
+                var row = await ExecuteGetAsync("Org_GetDashboard",
+                    r => new OrgDashboardModel
+                    {
+                        TotalMembers        = Col<int>(r,     "TotalMembers"),
+                        NewMembersThisMonth = Col<int>(r,     "NewMembersThisMonth"),
+                        ActiveVolunteers    = Col<int>(r,     "ActiveVolunteers"),
+                        ActiveRatePct       = Col<decimal>(r, "ActiveRatePct"),
+                        VolunteerHoursMonth = Col<decimal>(r, "VolunteerHoursMonth"),
+                        ActiveProjects      = Col<int>(r,     "ActiveProjects"),
+                        PendingApplications = Col<int>(r,     "PendingApplications"),
+                    },
+                    cmd => _db.AddParameter(cmd, "p_OrgId", orgId));
+
+                return row is null
+                    ? ApiResponse<OrgDashboardModel>.Failure("Organisation not found.", "NOT_FOUND")
+                    : ApiResponse<OrgDashboardModel>.Success(row);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetDashboardAsync failed OrgId={OrgId}", orgId);
+                return ApiResponse<OrgDashboardModel>.Failure("An error occurred.", "INTERNAL_ERROR");
             }
         }
 
