@@ -155,7 +155,7 @@ When there is a conflict between files, this priority order applies:
 
 ## Current Pending Document Updates
 
-_No pending changes. All documents are current as of 2026-06-27._
+_No pending changes. All documents are current as of 2026-06-29._
 
 ### `NGOConnect_Complete_Setup_v4.1.sql`
 

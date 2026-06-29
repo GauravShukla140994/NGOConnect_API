@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "e2415ef2-8ec4-445b-9dd6-e0a4684f53c4",
     "name": "NGOConnect API v4.1",
-    "description": "Complete REST API collection for NGOConnect platform v4.1\n\nBase URL: https://api.ngoconnect.app/api/v1\n\n14 Modules | 80+ Endpoints | 100 Stored Procedures | 47 DB Tables\n\nAuthentication: OTP-based login → JWT Bearer token\n\nSetup:\n1. Run '01 Auth > Send OTP' with your mobile number\n2. Run '01 Auth > Verify OTP' → copy access_token to collection variable\n3. All authenticated endpoints use {{access_token}} automatically",
+    "description": "Complete REST API collection for NGOConnect platform v4.1\n\nBase URL: https://api.ngoconnect.app/api/v1\n\n14 Modules | 80+ Endpoints | 100 Stored Procedures | 47 DB Tables\n\nAuthentication: OTP-based login \u2192 JWT Bearer token\n\nSetup:\n1. Run '01 Auth > Send OTP' with your mobile number\n2. Run '01 Auth > Verify OTP' \u2192 copy access_token to collection variable\n3. All authenticated endpoints use {{access_token}} automatically",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -624,6 +624,151 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "Get Safety Prefs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/user/safety-prefs",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "user",
+                "safety-prefs"
+              ],
+              "query": []
+            },
+            "description": "Get safety preferences for Edit Profile pre-fill. Returns: emergVisibilityLkpId, emergVisibility, autoShareDurLkpId, autoShareDuration, allowLocDuringSos, allowLocDuringProj, emergencyContactName, emergencyContactPhone, emergencyContactRelation",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get My Interests",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/user/interests",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "user",
+                "interests"
+              ],
+              "query": []
+            },
+            "description": "Get saved interests for Edit Profile pre-fill. Returns: [{ interestLkpId, interestName, interestCode }]",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get My Orgs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/user/my-orgs",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "user",
+                "my-orgs"
+              ],
+              "query": []
+            },
+            "description": "Get all organisations the user is an APPROVED member of (s-my-orgs screen). Returns: [{ orgId, orgName, logoUrl, orgType, city, state, role, roleCode, memberCount, joinedAt }]",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get My Badges",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/user/badges",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "user",
+                "badges"
+              ],
+              "query": []
+            },
+            "description": "Get all earned badges (s-impact screen). Returns: [{ userBadgeId, badgeLkpId, badgeName, badgeCode, orgName, projectName, awardedAt }]",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get My Impact",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/user/impact",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "user",
+                "impact"
+              ],
+              "query": []
+            },
+            "description": "Get impact dashboard stats (s-impact screen). Returns: { impactScore, reliabilityPct, projectsCompleted, totalHours, badgeCount, skillCount, projectsApplied, certificateCount, memberSince }",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
         }
       ],
       "id": "5df7c2dc-b60b-47b0-b042-898ebaaea62b"
@@ -632,7 +777,7 @@
       "name": "04 Organisation",
       "item": [
         {
-          "name": "Register Org",
+          "name": "Register Organisation",
           "request": {
             "method": "POST",
             "header": [
@@ -664,7 +809,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"orgName\": \"Green Future NGO\",\n  \"registrationNumber\": \"NGO-2024-001\",\n  \"orgTypeLkpId\": 1,\n  \"mission\": \"Empower communities\",\n  \"vision\": \"A sustainable world\",\n  \"logoUrl\": \"\",\n  \"addressLine1\": \"456 NGO Lane\",\n  \"addressLine2\": \"\",\n  \"pincode\": \"400002\",\n  \"city\": \"Mumbai\",\n  \"state\": \"Maharashtra\",\n  \"country\": \"India\",\n  \"website\": \"https://greenfuture.org\",\n  \"contactEmail\": \"admin@greenfuture.org\",\n  \"contactPhone\": \"9876543200\"\n}",
+              "raw": "{\n  \"orgName\": \"Green Earth Foundation\",\n  \"registrationNumber\": \"MH2024NGO001\",\n  \"orgTypeLkpId\": 1,\n  \"category\": \"Environment\",\n  \"contactPerson\": \"Anita Sharma\",\n  \"about\": \"A volunteer-driven NGO focused on urban greening and tree plantation drives.\",\n  \"mission\": \"Make cities greener\",\n  \"vision\": \"Green planet by 2050\",\n  \"logoUrl\": \"https://storage.example.com/logos/org1.png\",\n  \"contactEmail\": \"contact@greenearth.org\",\n  \"contactPhone\": \"+919876543210\",\n  \"website\": \"https://greenearth.org\",\n  \"addressLine1\": \"101 Park Avenue\",\n  \"addressLine2\": \"Near Central Park\",\n  \"pincode\": \"400001\",\n  \"city\": \"Mumbai\",\n  \"state\": \"Maharashtra\",\n  \"country\": \"India\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -733,7 +878,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"orgName\": \"Green Future NGO\",\n  \"registrationNumber\": \"NGO-2024-001\",\n  \"orgTypeLkpId\": 1,\n  \"mission\": \"Updated mission\",\n  \"vision\": \"Updated vision\",\n  \"logoUrl\": \"\",\n  \"addressLine1\": \"456 NGO Lane\",\n  \"addressLine2\": \"\",\n  \"pincode\": \"400002\",\n  \"city\": \"Mumbai\",\n  \"state\": \"Maharashtra\",\n  \"country\": \"India\",\n  \"website\": \"\",\n  \"contactEmail\": \"\",\n  \"contactPhone\": \"\"\n}",
+              "raw": "{\n  \"orgName\": \"Green Earth Foundation (Updated)\",\n  \"category\": \"Environment\",\n  \"contactPerson\": \"Rahul Mehta\",\n  \"about\": \"Updated description of the NGO.\",\n  \"mission\": \"Updated mission statement\",\n  \"vision\": \"Updated vision statement\",\n  \"logoUrl\": \"https://storage.example.com/logos/org1_new.png\",\n  \"contactEmail\": \"info@greenearth.org\",\n  \"contactPhone\": \"+919876543211\",\n  \"website\": \"https://greenearth.org\",\n  \"addressLine1\": \"202 Eco Lane\",\n  \"addressLine2\": \"\",\n  \"pincode\": \"400002\",\n  \"city\": \"Mumbai\",\n  \"state\": \"Maharashtra\",\n  \"country\": \"India\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -744,7 +889,7 @@
           "response": []
         },
         {
-          "name": "List Orgs",
+          "name": "List Orgs (Explore All NGOs)",
           "request": {
             "method": "GET",
             "header": [
@@ -755,7 +900,7 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/org/list?keyword=green&orgTypeLkpId=1&pageNumber=1&pageSize=20",
+              "raw": "{{base_url}}/org/list?keyword=green&category=Environment&pageNumber=1&pageSize=20",
               "host": [
                 "{{base_url}}"
               ],
@@ -766,11 +911,13 @@
               "query": [
                 {
                   "key": "keyword",
-                  "value": "green"
+                  "value": "green",
+                  "description": "Search by org name or city"
                 },
                 {
-                  "key": "orgTypeLkpId",
-                  "value": "1"
+                  "key": "category",
+                  "value": "Environment",
+                  "description": "Filter by ORG_CATEGORY ValueCode (Education, Environment, Healthcare, etc.)"
                 },
                 {
                   "key": "pageNumber",
@@ -1122,6 +1269,404 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "Get Org Dashboard",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/org/1/dashboard",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1",
+                "dashboard"
+              ],
+              "query": []
+            },
+            "description": "Admin dashboard KPIs (s-admin screen). Returns: { totalMembers, newMembersThisMonth, activeVolunteers, activeRatePct, volunteerHoursMonth, activeProjects, pendingApplications }",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Recommended Orgs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/org/recommended",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "recommended"
+              ],
+              "query": []
+            },
+            "description": "Recommended NGOs matched to user interests (s-explore Recommended tab). Returns: [{ orgId, orgName, category, logoUrl, city, state, memberCount, avgRating, latitude, longitude, matchScore }]",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Trending Campaigns",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/org/trending-campaigns",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "trending-campaigns"
+              ],
+              "query": [
+                {
+                  "key": "pageSize",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Trending active campaigns (s-explore Trending tab). Returns: [{ campaignId, campaignName, orgName, orgLogoUrl, raisedAmount, targetAmount, donorCount, progressPct, endDate, isEmergency }]",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Get Donation Dashboard",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/org/1/donation-dashboard",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1",
+                "donation-dashboard"
+              ],
+              "query": []
+            },
+            "description": "Donation KPIs for admin (s-admin-donations screen). Returns: { totalRaisedAllTime, thisMonthRaised, lastMonthRaised, todayRaised, todayTransactionCount, recurringMonthlyAmount, activeRecurringDonors, totalCampaigns, activeCampaigns }",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Member Role",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"memberId\": 5,\n  \"roleLkpId\": 3\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/org/1/members/role",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1",
+                "members",
+                "role"
+              ]
+            },
+            "description": "Change a member's role (s-admin-vols screen). roleLkpId from LookupType: MEMBER_ROLE",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Volunteer Profile (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/org/1/volunteers/2",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1",
+                "volunteers",
+                "2"
+              ],
+              "query": []
+            },
+            "description": "Admin view of volunteer (s-vol-profile screen). Includes reliability score. Returns: { userId, fullName, city, occupation, profilePhoto, totalHours, projectCount, orgCount, reliabilityPct, avgRating, peerRating, noShowCount, excusedCount, complaintCount, roleCode, roleName, statusCode, statusName, joinedAt }",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Member Impact (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/org/1/members/2/impact",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1",
+                "members",
+                "2",
+                "impact"
+              ],
+              "query": []
+            },
+            "description": "Admin view of member impact (s-member-impact screen). Returns: { userId, fullName, occupation, city, roleName, impactScore, reliabilityPct, totalHours, projectCount, orgCount, badgeCount, noShowCount, complaintCount }",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Award Badge to Volunteer",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": 2,\n  \"badgeLkpId\": 3,\n  \"projectId\": 5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/org/1/badges",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1",
+                "badges"
+              ]
+            },
+            "description": "Award a badge to a volunteer (s-vol-profile / s-participants screens). badgeLkpId from LookupType: BADGE_TYPE",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Excuse No-Show",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"attendanceId\": 42\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/org/1/attendance/excuse",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1",
+                "attendance",
+                "excuse"
+              ]
+            },
+            "description": "Mark a no-show as excused so it doesn't penalise reliability score (s-participants screen)",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Donors (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/org/1/donors",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1",
+                "donors"
+              ],
+              "query": [
+                {
+                  "key": "tab",
+                  "value": "ALL",
+                  "description": "ALL | RECURRING | TOP"
+                },
+                {
+                  "key": "pageNumber",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Paginated donor list (s-admin-donors screen). Returns: [{ userId, fullName, email, phone, totalDonated, donationCount, lastDonatedAt, isAnonymous, isRecurring }]",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Transactions (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/org/1/transactions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1",
+                "transactions"
+              ],
+              "query": [
+                {
+                  "key": "statusCode",
+                  "value": "",
+                  "description": "Optional: SUCCESS, PENDING, FAILED, REFUNDED"
+                },
+                {
+                  "key": "pageNumber",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Paginated transaction list (s-admin-transactions screen). Returns: [{ transactionId, readableId, donorName, amount, netAmount, campaignName, statusCode, statusName, paymentMethod, createdAt, isAnonymous }]",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
         }
       ],
       "id": "79023253-165e-4a6a-bfba-824f3c6222dc"

@@ -551,3 +551,481 @@ DELIMITER ;
 -- ============================================================
 -- Patch v4.1 Section 6 complete.
 -- =============================================================
+
+-- ============================================================
+-- SECTION 7: Explore & Admin Donor/Volunteer SPs
+--   7.1 ALTER TABLE Organisations — add AvgRating, RatingCount, Latitude, Longitude
+--   7.2 Org_List (FIXED — keyword + category, always APPROVED, returns rating + coords)
+--   7.3 Org_ListRecommended  (match user interests to org category)
+--   7.4 Campaign_ListPublicTrending
+--   7.5 Org_GetDonationDashboard
+--   7.6 Org_GetDonors
+--   7.7 Org_GetTransactions
+--   7.8 Org_GetVolunteerProfile
+--   7.9 Org_GetMemberImpact
+--   7.10 Org_UpdateMemberRole
+--   7.11 UserBadge_Award
+--   7.12 Attendance_ExcuseNoShow
+-- ============================================================
+
+-- ── 7.1 ALTER TABLE Organisations ────────────────────────────
+ALTER TABLE Organisations
+    ADD COLUMN IF NOT EXISTS AvgRating   DECIMAL(3,2) NOT NULL DEFAULT 0.00 COMMENT 'Avg NGO rating (0-5), updated on each rating write',
+    ADD COLUMN IF NOT EXISTS RatingCount INT UNSIGNED  NOT NULL DEFAULT 0    COMMENT 'Number of ratings contributing to AvgRating',
+    ADD COLUMN IF NOT EXISTS Latitude    DECIMAL(10,7)          NULL         COMMENT 'NGO pin latitude for client-side distance calc',
+    ADD COLUMN IF NOT EXISTS Longitude   DECIMAL(10,7)          NULL         COMMENT 'NGO pin longitude';
+
+-- ── 7.2 Org_List ─────────────────────────────────────────────
+DELIMITER //
+DROP PROCEDURE IF EXISTS Org_List //
+CREATE PROCEDURE Org_List(
+    IN p_Keyword    VARCHAR(200),
+    IN p_Category   VARCHAR(100),
+    IN p_PageNumber INT,
+    IN p_PageSize   INT
+)
+BEGIN
+    DECLARE v_Offset      INT DEFAULT (p_PageNumber - 1) * p_PageSize;
+    DECLARE v_ApprovedId  INT;
+
+    SELECT lv.LookupValueId INTO v_ApprovedId
+    FROM LookupValues lv
+    JOIN LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE lt.TypeCode = 'ORG_STATUS' AND lv.ValueCode = 'APPROVED'
+    LIMIT 1;
+
+    -- Result set 1: page of orgs
+    SELECT
+        o.OrgId,
+        o.OrgName,
+        o.Category,
+        o.LogoUrl,
+        o.City,
+        o.State,
+        IFNULL((SELECT COUNT(*) FROM OrgMembers om2
+                 JOIN LookupValues lv2 ON om2.StatusLkpId = lv2.LookupValueId
+                 JOIN LookupTypes  lt2 ON lv2.LookupTypeId = lt2.LookupTypeId
+                WHERE om2.OrgId = o.OrgId AND om2.IsDeleted = 0
+                  AND lt2.TypeCode = 'MEMBER_STATUS' AND lv2.ValueCode = 'APPROVED'), 0) AS MemberCount,
+        o.AvgRating,
+        o.Latitude,
+        o.Longitude
+    FROM Organisations o
+    WHERE o.IsDeleted = 0
+      AND o.StatusLkpId = v_ApprovedId
+      AND (p_Keyword IS NULL  OR o.OrgName LIKE CONCAT('%', p_Keyword, '%')
+                              OR o.City    LIKE CONCAT('%', p_Keyword, '%'))
+      AND (p_Category IS NULL OR o.Category = p_Category)
+    ORDER BY o.OrgName
+    LIMIT p_PageSize OFFSET v_Offset;
+
+    -- Result set 2: total count for pagination
+    SELECT COUNT(*) AS TotalCount
+    FROM Organisations o
+    WHERE o.IsDeleted = 0
+      AND o.StatusLkpId = v_ApprovedId
+      AND (p_Keyword IS NULL  OR o.OrgName LIKE CONCAT('%', p_Keyword, '%')
+                              OR o.City    LIKE CONCAT('%', p_Keyword, '%'))
+      AND (p_Category IS NULL OR o.Category = p_Category);
+END //
+
+-- ── 7.3 Org_ListRecommended ───────────────────────────────────
+DROP PROCEDURE IF EXISTS Org_ListRecommended //
+CREATE PROCEDURE Org_ListRecommended(
+    IN p_UserId INT
+)
+BEGIN
+    DECLARE v_ApprovedId INT;
+
+    SELECT lv.LookupValueId INTO v_ApprovedId
+    FROM LookupValues lv
+    JOIN LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE lt.TypeCode = 'ORG_STATUS' AND lv.ValueCode = 'APPROVED'
+    LIMIT 1;
+
+    -- Match user interests (by ValueCode) to org Category; rank by match count then avg rating
+    SELECT
+        o.OrgId,
+        o.OrgName,
+        o.Category,
+        o.LogoUrl,
+        o.City,
+        o.State,
+        IFNULL((SELECT COUNT(*) FROM OrgMembers om2
+                 JOIN LookupValues lv2 ON om2.StatusLkpId = lv2.LookupValueId
+                 JOIN LookupTypes  lt2 ON lv2.LookupTypeId = lt2.LookupTypeId
+                WHERE om2.OrgId = o.OrgId AND om2.IsDeleted = 0
+                  AND lt2.TypeCode = 'MEMBER_STATUS' AND lv2.ValueCode = 'APPROVED'), 0) AS MemberCount,
+        o.AvgRating,
+        o.Latitude,
+        o.Longitude,
+        COUNT(ui.UserInterestId) AS MatchScore
+    FROM Organisations o
+    JOIN UserInterests ui ON 1=1   -- cross to user interests
+    JOIN LookupValues  lv ON ui.InterestLkpId = lv.LookupValueId
+    WHERE o.IsDeleted = 0
+      AND o.StatusLkpId = v_ApprovedId
+      AND ui.UserId = p_UserId
+      AND lv.ValueCode = o.Category   -- interest ValueCode matches org Category
+    GROUP BY o.OrgId
+    ORDER BY MatchScore DESC, o.AvgRating DESC
+    LIMIT 20;
+END //
+
+-- ── 7.4 Campaign_ListPublicTrending ──────────────────────────
+DROP PROCEDURE IF EXISTS Campaign_ListPublicTrending //
+CREATE PROCEDURE Campaign_ListPublicTrending(
+    IN p_PageSize INT
+)
+BEGIN
+    SELECT
+        dc.CampaignId,
+        dc.CampaignName,
+        o.OrgName,
+        o.LogoUrl           AS OrgLogoUrl,
+        dc.RaisedAmount,
+        dc.TargetAmount,
+        dc.DonorCount,
+        ROUND(IF(dc.TargetAmount > 0, dc.RaisedAmount / dc.TargetAmount * 100, 0), 2) AS ProgressPct,
+        dc.EndDate,
+        dc.BannerUrl,
+        dc.IsEmergency
+    FROM DonationCampaigns dc
+    JOIN Organisations o ON dc.OrgId = o.OrgId
+    WHERE dc.IsActive = 1
+      AND dc.IsDeleted = 0
+      AND o.IsDeleted  = 0
+    ORDER BY dc.IsEmergency DESC, dc.DonorCount DESC, dc.RaisedAmount DESC
+    LIMIT p_PageSize;
+END //
+
+-- ── 7.5 Org_GetDonationDashboard ──────────────────────────────
+DROP PROCEDURE IF EXISTS Org_GetDonationDashboard //
+CREATE PROCEDURE Org_GetDonationDashboard(
+    IN p_OrgId INT
+)
+BEGIN
+    SELECT
+        -- All-time total (successful)
+        IFNULL((SELECT SUM(dt.Amount) FROM DonationTransactions dt
+                 JOIN DonationCampaigns dc ON dt.CampaignId = dc.CampaignId
+                WHERE dc.OrgId = p_OrgId AND dt.StatusCode = 'SUCCESS'), 0) AS TotalRaisedAllTime,
+
+        -- This calendar month
+        IFNULL((SELECT SUM(dt.Amount) FROM DonationTransactions dt
+                 JOIN DonationCampaigns dc ON dt.CampaignId = dc.CampaignId
+                WHERE dc.OrgId = p_OrgId AND dt.StatusCode = 'SUCCESS'
+                  AND YEAR(dt.CreatedAt) = YEAR(NOW()) AND MONTH(dt.CreatedAt) = MONTH(NOW())), 0) AS ThisMonthRaised,
+
+        -- Last calendar month
+        IFNULL((SELECT SUM(dt.Amount) FROM DonationTransactions dt
+                 JOIN DonationCampaigns dc ON dt.CampaignId = dc.CampaignId
+                WHERE dc.OrgId = p_OrgId AND dt.StatusCode = 'SUCCESS'
+                  AND YEAR(dt.CreatedAt) = YEAR(DATE_SUB(NOW(), INTERVAL 1 MONTH))
+                  AND MONTH(dt.CreatedAt) = MONTH(DATE_SUB(NOW(), INTERVAL 1 MONTH))), 0) AS LastMonthRaised,
+
+        -- Today
+        IFNULL((SELECT SUM(dt.Amount) FROM DonationTransactions dt
+                 JOIN DonationCampaigns dc ON dt.CampaignId = dc.CampaignId
+                WHERE dc.OrgId = p_OrgId AND dt.StatusCode = 'SUCCESS'
+                  AND DATE(dt.CreatedAt) = CURDATE()), 0) AS TodayRaised,
+
+        IFNULL((SELECT COUNT(*) FROM DonationTransactions dt
+                 JOIN DonationCampaigns dc ON dt.CampaignId = dc.CampaignId
+                WHERE dc.OrgId = p_OrgId AND dt.StatusCode = 'SUCCESS'
+                  AND DATE(dt.CreatedAt) = CURDATE()), 0) AS TodayTransactionCount,
+
+        -- Active recurring donations
+        IFNULL((SELECT SUM(rd.Amount) FROM RecurringDonations rd
+                 JOIN DonationCampaigns dc ON rd.CampaignId = dc.CampaignId
+                WHERE dc.OrgId = p_OrgId AND rd.IsActive = 1), 0) AS RecurringMonthlyAmount,
+
+        IFNULL((SELECT COUNT(DISTINCT rd.UserId) FROM RecurringDonations rd
+                 JOIN DonationCampaigns dc ON rd.CampaignId = dc.CampaignId
+                WHERE dc.OrgId = p_OrgId AND rd.IsActive = 1), 0) AS ActiveRecurringDonors,
+
+        -- Campaigns
+        IFNULL((SELECT COUNT(*) FROM DonationCampaigns WHERE OrgId = p_OrgId AND IsDeleted = 0), 0) AS TotalCampaigns,
+        IFNULL((SELECT COUNT(*) FROM DonationCampaigns WHERE OrgId = p_OrgId AND IsDeleted = 0 AND IsActive = 1), 0) AS ActiveCampaigns;
+END //
+
+-- ── 7.6 Org_GetDonors ─────────────────────────────────────────
+-- tab: ALL | RECURRING | TOP
+DROP PROCEDURE IF EXISTS Org_GetDonors //
+CREATE PROCEDURE Org_GetDonors(
+    IN p_OrgId      INT,
+    IN p_Tab        VARCHAR(20),
+    IN p_PageNumber INT,
+    IN p_PageSize   INT
+)
+BEGIN
+    DECLARE v_Offset INT DEFAULT (p_PageNumber - 1) * p_PageSize;
+
+    -- Result set 1: donors
+    SELECT
+        u.UserId,
+        IF(dt_agg.IsAnonymous = 1, NULL, up.FullName)  AS FullName,
+        IF(dt_agg.IsAnonymous = 1, NULL, u.Email)       AS Email,
+        IF(dt_agg.IsAnonymous = 1, NULL, u.MobileNumber) AS Phone,
+        dt_agg.TotalDonated,
+        dt_agg.DonationCount,
+        dt_agg.LastDonatedAt,
+        dt_agg.IsAnonymous,
+        IF(rd_agg.ActiveCount > 0, 1, 0) AS IsRecurring
+    FROM (
+        SELECT
+            dt.UserId,
+            SUM(dt.Amount)    AS TotalDonated,
+            COUNT(*)          AS DonationCount,
+            MAX(dt.CreatedAt) AS LastDonatedAt,
+            MAX(dt.IsAnonymous) AS IsAnonymous
+        FROM DonationTransactions dt
+        JOIN DonationCampaigns dc ON dt.CampaignId = dc.CampaignId
+        WHERE dc.OrgId = p_OrgId AND dt.StatusCode = 'SUCCESS'
+          AND (p_Tab != 'RECURRING' OR dt.UserId IN (
+                SELECT rd.UserId FROM RecurringDonations rd
+                JOIN DonationCampaigns dc2 ON rd.CampaignId = dc2.CampaignId
+                WHERE dc2.OrgId = p_OrgId AND rd.IsActive = 1))
+        GROUP BY dt.UserId
+    ) dt_agg
+    JOIN Users u ON u.UserId = dt_agg.UserId
+    LEFT JOIN UserProfiles up ON up.UserId = u.UserId
+    LEFT JOIN (
+        SELECT rd.UserId, COUNT(*) AS ActiveCount
+        FROM RecurringDonations rd
+        JOIN DonationCampaigns dc ON rd.CampaignId = dc.CampaignId
+        WHERE dc.OrgId = p_OrgId AND rd.IsActive = 1
+        GROUP BY rd.UserId
+    ) rd_agg ON rd_agg.UserId = u.UserId
+    ORDER BY
+        CASE WHEN p_Tab = 'TOP' THEN dt_agg.TotalDonated END DESC,
+        dt_agg.LastDonatedAt DESC
+    LIMIT p_PageSize OFFSET v_Offset;
+
+    -- Result set 2: total count
+    SELECT COUNT(DISTINCT dt.UserId) AS TotalCount
+    FROM DonationTransactions dt
+    JOIN DonationCampaigns dc ON dt.CampaignId = dc.CampaignId
+    WHERE dc.OrgId = p_OrgId AND dt.StatusCode = 'SUCCESS'
+      AND (p_Tab != 'RECURRING' OR dt.UserId IN (
+            SELECT rd.UserId FROM RecurringDonations rd
+            JOIN DonationCampaigns dc2 ON rd.CampaignId = dc2.CampaignId
+            WHERE dc2.OrgId = p_OrgId AND rd.IsActive = 1));
+END //
+
+-- ── 7.7 Org_GetTransactions ───────────────────────────────────
+DROP PROCEDURE IF EXISTS Org_GetTransactions //
+CREATE PROCEDURE Org_GetTransactions(
+    IN p_OrgId      INT,
+    IN p_StatusCode VARCHAR(30),
+    IN p_PageNumber INT,
+    IN p_PageSize   INT
+)
+BEGIN
+    DECLARE v_Offset INT DEFAULT (p_PageNumber - 1) * p_PageSize;
+
+    -- Result set 1: transactions
+    SELECT
+        dt.TransactionId,
+        dt.ReadableId,
+        IF(dt.IsAnonymous = 1, NULL, up.FullName) AS DonorName,
+        dt.Amount,
+        dt.NetAmount,
+        dc.CampaignName,
+        dt.StatusCode,
+        lv.ValueName    AS StatusName,
+        dt.PaymentMethod,
+        dt.CreatedAt,
+        dt.IsAnonymous
+    FROM DonationTransactions dt
+    JOIN DonationCampaigns dc ON dt.CampaignId = dc.CampaignId
+    JOIN LookupValues lv      ON dt.StatusLkpId = lv.LookupValueId
+    LEFT JOIN UserProfiles up ON up.UserId = dt.UserId
+    WHERE dc.OrgId = p_OrgId
+      AND (p_StatusCode IS NULL OR dt.StatusCode = p_StatusCode)
+    ORDER BY dt.CreatedAt DESC
+    LIMIT p_PageSize OFFSET v_Offset;
+
+    -- Result set 2: total count
+    SELECT COUNT(*) AS TotalCount
+    FROM DonationTransactions dt
+    JOIN DonationCampaigns dc ON dt.CampaignId = dc.CampaignId
+    WHERE dc.OrgId = p_OrgId
+      AND (p_StatusCode IS NULL OR dt.StatusCode = p_StatusCode);
+END //
+
+-- ── 7.8 Org_GetVolunteerProfile ───────────────────────────────
+-- Admin view: includes reliability score (never return this in public API)
+DROP PROCEDURE IF EXISTS Org_GetVolunteerProfile //
+CREATE PROCEDURE Org_GetVolunteerProfile(
+    IN p_OrgId  INT,
+    IN p_UserId INT
+)
+BEGIN
+    SELECT
+        u.UserId,
+        up.FullName,
+        up.City,
+        up.Occupation,
+        up.ProfilePhoto,
+        -- Public impact
+        IFNULL((SELECT SUM(ps.DurationHours)
+                FROM ProjectAttendance pa
+                JOIN ProjectSessions ps ON pa.SessionId = ps.SessionId
+                WHERE pa.UserId = p_UserId AND pa.AttendanceStatus = 'ATTENDED'), 0)       AS TotalHours,
+        IFNULL((SELECT COUNT(DISTINCT pa.ProjectId)
+                FROM ProjectAttendance pa WHERE pa.UserId = p_UserId
+                  AND pa.AttendanceStatus = 'ATTENDED'), 0)                                AS ProjectCount,
+        IFNULL((SELECT COUNT(DISTINCT p.OrgId)
+                FROM ProjectAttendance pa
+                JOIN Projects p ON pa.ProjectId = p.ProjectId
+                WHERE pa.UserId = p_UserId AND pa.AttendanceStatus = 'ATTENDED'), 0)       AS OrgCount,
+        -- Reliability (admin-only)
+        ROUND(IFNULL(
+            (SELECT attended / total * 100 FROM (
+                SELECT
+                    SUM(CASE WHEN AttendanceStatus IN ('ATTENDED','EXCUSED') THEN 1 ELSE 0 END) AS attended,
+                    COUNT(*) AS total
+                FROM ProjectAttendance WHERE UserId = p_UserId
+            ) r WHERE total > 0), 100), 2)                                                AS ReliabilityPct,
+        IFNULL((SELECT AVG(usr.RatingValue)
+                FROM UserSkillRatings usr
+                JOIN ProjectSkills ps2 ON usr.ProjectSkillId = ps2.ProjectSkillId
+                JOIN Projects p2       ON ps2.ProjectId = p2.ProjectId
+                WHERE usr.RatedUserId = p_UserId AND p2.OrgId = p_OrgId), 0)              AS AvgRating,
+        IFNULL((SELECT AVG(usr2.RatingValue)
+                FROM UserSkillRatings usr2
+                WHERE usr2.RatedUserId = p_UserId AND usr2.RaterType = 'PEER'), 0)        AS PeerRating,
+        IFNULL((SELECT COUNT(*) FROM ProjectAttendance WHERE UserId = p_UserId
+                AND AttendanceStatus = 'NO_SHOW'), 0)                                     AS NoShowCount,
+        IFNULL((SELECT COUNT(*) FROM ProjectAttendance WHERE UserId = p_UserId
+                AND AttendanceStatus = 'EXCUSED'), 0)                                     AS ExcusedCount,
+        0                                                                                  AS ComplaintCount, -- placeholder
+        -- Membership in this org
+        lv_role.ValueCode   AS RoleCode,
+        lv_role.ValueName   AS RoleName,
+        lv_status.ValueCode AS StatusCode,
+        lv_status.ValueName AS StatusName,
+        om.CreatedAt        AS JoinedAt
+    FROM Users u
+    JOIN UserProfiles up ON up.UserId = u.UserId
+    LEFT JOIN OrgMembers om        ON om.OrgId = p_OrgId AND om.UserId = p_UserId AND om.IsDeleted = 0
+    LEFT JOIN LookupValues lv_role ON lv_role.LookupValueId = om.RoleLkpId
+    LEFT JOIN LookupValues lv_status ON lv_status.LookupValueId = om.StatusLkpId
+    WHERE u.UserId = p_UserId AND u.IsDeleted = 0;
+END //
+
+-- ── 7.9 Org_GetMemberImpact ───────────────────────────────────
+DROP PROCEDURE IF EXISTS Org_GetMemberImpact //
+CREATE PROCEDURE Org_GetMemberImpact(
+    IN p_OrgId  INT,
+    IN p_UserId INT
+)
+BEGIN
+    SELECT
+        u.UserId,
+        up.FullName,
+        up.Occupation,
+        up.City,
+        lv_role.ValueName AS RoleName,
+        up.ImpactScore,
+        ROUND(IFNULL(
+            (SELECT attended / total * 100 FROM (
+                SELECT
+                    SUM(CASE WHEN AttendanceStatus IN ('ATTENDED','EXCUSED') THEN 1 ELSE 0 END) AS attended,
+                    COUNT(*) AS total
+                FROM ProjectAttendance WHERE UserId = p_UserId
+            ) r WHERE total > 0), 100), 2)                                               AS ReliabilityPct,
+        IFNULL((SELECT SUM(ps.DurationHours)
+                FROM ProjectAttendance pa
+                JOIN ProjectSessions ps ON pa.SessionId = ps.SessionId
+                WHERE pa.UserId = p_UserId AND pa.AttendanceStatus = 'ATTENDED'), 0)     AS TotalHours,
+        IFNULL((SELECT COUNT(DISTINCT pa.ProjectId)
+                FROM ProjectAttendance pa WHERE pa.UserId = p_UserId
+                  AND pa.AttendanceStatus = 'ATTENDED'), 0)                              AS ProjectCount,
+        IFNULL((SELECT COUNT(DISTINCT p.OrgId)
+                FROM ProjectAttendance pa
+                JOIN Projects p ON pa.ProjectId = p.ProjectId
+                WHERE pa.UserId = p_UserId AND pa.AttendanceStatus = 'ATTENDED'), 0)     AS OrgCount,
+        IFNULL((SELECT COUNT(*) FROM UserBadges WHERE UserId = p_UserId AND IsDeleted = 0), 0) AS BadgeCount,
+        IFNULL((SELECT COUNT(*) FROM ProjectAttendance WHERE UserId = p_UserId
+                AND AttendanceStatus = 'NO_SHOW'), 0)                                    AS NoShowCount,
+        0                                                                                 AS ComplaintCount
+    FROM Users u
+    JOIN UserProfiles up ON up.UserId = u.UserId
+    LEFT JOIN OrgMembers om        ON om.OrgId = p_OrgId AND om.UserId = p_UserId AND om.IsDeleted = 0
+    LEFT JOIN LookupValues lv_role ON lv_role.LookupValueId = om.RoleLkpId
+    WHERE u.UserId = p_UserId AND u.IsDeleted = 0;
+END //
+
+-- ── 7.10 Org_UpdateMemberRole ─────────────────────────────────
+DROP PROCEDURE IF EXISTS Org_UpdateMemberRole //
+CREATE PROCEDURE Org_UpdateMemberRole(
+    IN p_OrgId     INT,
+    IN p_MemberId  INT,   -- OrgMembers.OrgMemberId
+    IN p_RoleLkpId INT,
+    IN p_UpdatedBy INT
+)
+BEGIN
+    UPDATE OrgMembers
+    SET RoleLkpId = p_RoleLkpId,
+        UpdatedAt = NOW(),
+        UpdatedBy = p_UpdatedBy
+    WHERE OrgMemberId = p_MemberId
+      AND OrgId       = p_OrgId
+      AND IsDeleted   = 0;
+
+    IF ROW_COUNT() = 0 THEN
+        SELECT 0 AS IsSuccess, 'Member not found or already deleted.' AS Message;
+    ELSE
+        SELECT 1 AS IsSuccess, 'Member role updated.' AS Message;
+    END IF;
+END //
+
+-- ── 7.11 UserBadge_Award ─────────────────────────────────────
+DROP PROCEDURE IF EXISTS UserBadge_Award //
+CREATE PROCEDURE UserBadge_Award(
+    IN p_UserId    INT,
+    IN p_BadgeLkpId INT,
+    IN p_AwardedBy INT,
+    IN p_OrgId     INT,
+    IN p_ProjectId INT
+)
+BEGIN
+    INSERT INTO UserBadges (UserId, BadgeLkpId, AwardedBy, AwardedByOrgId, ProjectId, IsDeleted, CreatedAt)
+    VALUES (p_UserId, p_BadgeLkpId, p_AwardedBy, p_OrgId, p_ProjectId, 0, NOW());
+
+    SELECT 1 AS IsSuccess, 'Badge awarded successfully.' AS Message, LAST_INSERT_ID() AS BadgeId;
+END //
+
+-- ── 7.12 Attendance_ExcuseNoShow ──────────────────────────────
+DROP PROCEDURE IF EXISTS Attendance_ExcuseNoShow //
+CREATE PROCEDURE Attendance_ExcuseNoShow(
+    IN p_AttendanceId INT,
+    IN p_OrgId        INT,
+    IN p_ExcusedBy    INT
+)
+BEGIN
+    UPDATE ProjectAttendance pa
+    JOIN ProjectSessions ps ON pa.SessionId = ps.SessionId
+    JOIN Projects p         ON ps.ProjectId = p.ProjectId
+    SET pa.AttendanceStatus = 'EXCUSED',
+        pa.UpdatedAt        = NOW()
+    WHERE pa.AttendanceId = p_AttendanceId
+      AND pa.AttendanceStatus = 'NO_SHOW'
+      AND p.OrgId = p_OrgId;
+
+    IF ROW_COUNT() = 0 THEN
+        SELECT 0 AS IsSuccess, 'Attendance record not found or not a no-show in this org.' AS Message;
+    ELSE
+        SELECT 1 AS IsSuccess, 'No-show excused. Reliability score will adjust.' AS Message;
+    END IF;
+END //
+
+DELIMITER ;
+
+-- ============================================================
+-- Patch v4.1 Section 7 complete.
+-- Run this file once on the MySQL 8 database.
+-- Total changes: 6 DB ALTERs + 11 new/fixed SPs.
+-- ============================================================

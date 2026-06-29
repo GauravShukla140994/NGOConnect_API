@@ -3,18 +3,36 @@
 **Database:** MySQL 8.0+  
 **Version:** 4.1  
 **Tables:** 47  
-**Stored Procedures:** 100  
-**Generated:** 2026-06-27  
+**Stored Procedures:** 115  
+**Generated:** 2026-06-29  
 
 **Changes from v4.0:**
+
+*Section 1–4 (v4.1 initial)*
 - `UserProfiles`: Added `VolunteerExp TEXT NULL` column (previous NGO/volunteer experience)
 - `UserSafetyPreferences`: Corrected column names to match actual DB schema; added `EmergencyContactName`, `EmergencyContactPhone`, `EmergencyContactRelation`
-- `User_GetProfile` SP: Now returns `VolunteerExp`, `CountryCode`, `IsVerified`, `UpdatedAt`, `IsProfileComplete`; confirmed correct column aliases
+- `User_GetProfile` SP: Now returns `VolunteerExp`, `CountryCode`, `IsVerified`, `UpdatedAt`, `IsProfileComplete`, `GenderLkpId`, `EducationLkpId`, `WorkExpLkpId`
 - `User_UpdateProfile` SP: Added `p_VolunteerExp` (now 19 params)
 - `User_UpdateSafetyPrefs` SP: Added 3 emergency contact params (now 8 params)
 - `Lookup_GetValueByCode` SP: Now returns `OrderNo`, `IsDefault` in addition to existing columns
 - Auth SPs: Documented correctly from `02_SP_Auth.sql` source of truth
-- SP list: Corrected duplicate `Auth_GetRefreshToken` entry; updated User SP descriptions  
+- `UserInterests` table: Redesigned — now uses `InterestLkpId INT FK→LookupValues` (was free-text); `User_SaveInterests` SP rewrites full list from JSON array
+- Settings: Added 3 upload settings (`UPLOAD_MAX_SIZE_MB`, `UPLOAD_ALLOWED_TYPES`, `UPLOAD_BASE_URL`)
+
+*Section 5 (v4.1 User GET SPs — new)*
+- 5 new read SPs: `User_GetSafetyPrefs`, `User_GetInterests`, `User_GetMyOrgs`, `User_GetBadges`, `User_GetImpact`
+
+*Section 6 (v4.1 Org module fixes)*
+- `Organisations`: Added `ContactPerson VARCHAR(100) NULL` column
+- `Org_Register` SP: Fixed `p_RegistrationNo` (was `p_RegistrationNumber`); added `p_Category`, `p_ContactPerson`, `p_About` params (now 19 params)
+- `Org_Update` SP: Added `p_Category`, `p_ContactPerson`, `p_About`, `p_Country` params (now 18 params)
+- `Org_GetProfile` SP: Now returns `OrgTypeLkpId`, `StatusLkpId`, `ContactPerson`, `Category` for edit form pre-fill
+- `Org_GetDashboard` SP: New — returns 7 KPI fields for Admin Dashboard (s-admin screen)
+
+*Section 7 (v4.1 Explore + Admin Donor/Volunteer SPs — new)*
+- `Organisations`: Added `AvgRating DECIMAL(3,2)`, `RatingCount INT UNSIGNED`, `Latitude DECIMAL(10,7)`, `Longitude DECIMAL(10,7)`
+- `Org_List` SP: Fixed — now filters by `p_Keyword` + `p_Category` (not `p_OrgTypeLkpId`); always returns APPROVED orgs only; returns `AvgRating`, `Latitude`, `Longitude`
+- 10 new SPs: `Org_ListRecommended`, `Campaign_ListPublicTrending`, `Org_GetDonationDashboard`, `Org_GetDonors`, `Org_GetTransactions`, `Org_GetVolunteerProfile`, `Org_GetMemberImpact`, `Org_UpdateMemberRole`, `UserBadge_Award` (updated), `Attendance_ExcuseNoShow`
 
 ---
 
@@ -187,22 +205,29 @@
 |---|---|---|
 | OrgId | INT UNSIGNED PK AUTO_INCREMENT | |
 | OrgName | VARCHAR(300) NOT NULL | |
-| RegistrationNumber | VARCHAR(100) UNIQUE NULL | v4.0 |
-| OrgTypeLkpId | INT UNSIGNED FK→LookupValues NOT NULL | |
-| Mission | TEXT NULL | v4.0 |
-| Vision | TEXT NULL | v4.0 |
-| LogoUrl | VARCHAR(500) NULL | v4.0 |
-| AddressLine1 | VARCHAR(300) NULL | v4.0 |
-| AddressLine2 | VARCHAR(300) NULL | v4.0 |
-| Pincode | VARCHAR(20) NULL | v4.0 |
+| RegNumber | VARCHAR(100) UNIQUE NULL | Registration number (column name: RegNumber, not RegistrationNumber) |
+| OrgTypeLkpId | INT UNSIGNED FK→LookupValues NOT NULL | LookupType: ORG_TYPE |
+| Category | VARCHAR(100) NULL | Category tag shown on NGO cards (e.g. "Education", "Environment"); matches ORG_CATEGORY ValueCode |
+| ContactPerson | VARCHAR(100) NULL | **v4.1 Section 6** Contact person name (Step 2 of create wizard) |
+| About | TEXT NULL | Short description of the NGO |
+| Mission | TEXT NULL | |
+| Vision | TEXT NULL | |
+| LogoUrl | VARCHAR(500) NULL | Azure Blob URL |
+| AddressLine1 | VARCHAR(300) NULL | |
+| AddressLine2 | VARCHAR(300) NULL | |
+| Pincode | VARCHAR(20) NULL | |
 | City | VARCHAR(100) NULL | |
 | State | VARCHAR(100) NULL | |
 | Country | VARCHAR(100) DEFAULT 'India' | |
 | Website | VARCHAR(300) NULL | |
 | ContactEmail | VARCHAR(255) NULL | |
 | ContactPhone | VARCHAR(20) NULL | |
-| StatusLkpId | INT UNSIGNED FK→LookupValues NOT NULL | PENDING/VERIFIED/SUSPENDED |
-| MemberCount | INT DEFAULT 0 | Denormalized |
+| StatusLkpId | INT UNSIGNED FK→LookupValues NOT NULL | LookupType: ORG_STATUS — PENDING/APPROVED/REJECTED/SUSPENDED |
+| MemberCount | INT DEFAULT 0 | Denormalized — updated by membership SPs |
+| AvgRating | DECIMAL(3,2) NOT NULL DEFAULT 0.00 | **v4.1 Section 7** Average NGO rating (0–5); updated on each rating write |
+| RatingCount | INT UNSIGNED NOT NULL DEFAULT 0 | **v4.1 Section 7** Number of ratings contributing to AvgRating |
+| Latitude | DECIMAL(10,7) NULL | **v4.1 Section 7** NGO pin latitude; returned to client for distance calc |
+| Longitude | DECIMAL(10,7) NULL | **v4.1 Section 7** NGO pin longitude |
 | IsDeleted | TINYINT(1) DEFAULT 0 | |
 | CreatedBy | INT UNSIGNED FK→Users NOT NULL | |
 | CreatedAt | DATETIME DEFAULT CURRENT_TIMESTAMP | |
@@ -741,10 +766,10 @@
 | Auth_RevokeRefreshToken | p_Token | WRITE | Soft-revokes by hashed token (logout) |
 | Auth_RevokeRefreshTokenById | p_RefreshTokenId | WRITE | Revokes by ID (used during token rotation) |
 
-### User (9 SPs)
+### User (14 SPs)
 | SP Name | Params | Type | Description |
 |---|---|---|---|
-| User_GetProfile | p_UserId, p_RequestingUserId | GET | Returns full profile including `VolunteerExp`, `IsVerified`, `CountryCode`, `MemberSince`, `IsProfileComplete`; LookupValue names + codes for Gender/Education/WorkExp |
+| User_GetProfile | p_UserId, p_RequestingUserId | GET | Full profile including `VolunteerExp`, `IsVerified`, `CountryCode`, `MemberSince`, `IsProfileComplete`, `GenderLkpId`, `EducationLkpId`, `WorkExpLkpId` and lookup names |
 | User_GetPublicProfile | p_UserId | GET (Dynamic) | Public-safe profile — no sensitive fields |
 | User_UpdateProfile | p_UserId + 18 profile params | WRITE | **v4.1: 19 params** — all fields COALESCE (partial update safe); includes `p_VolunteerExp` |
 | User_UpdateSafetyPrefs | p_UserId, p_EmergVisibilityLkpId, p_AutoShareDurLkpId, p_AllowLocDuringSos, p_AllowLocDuringProj, p_EmergencyContactName, p_EmergencyContactPhone, p_EmergencyContactRelation | WRITE | **v4.1: 8 params** — UPSERT on UserId; all fields COALESCE |
@@ -753,6 +778,11 @@
 | User_GetSkills | p_UserId | LIST | Returns UserSkills with AvgRating, RatingCount |
 | User_AddSkill | p_UserId, p_SkillName | WRITE | Insert; returns `UserSkillId`; 0 if duplicate |
 | User_RemoveSkill | p_UserId, p_UserSkillId | WRITE | Soft-delete (IsDeleted=1) |
+| User_GetSafetyPrefs | p_UserId | GET | **v4.1 Section 5** Returns safety prefs + emergency contacts; used for Edit Profile (safety step) pre-fill. Returns: `EmergVisibilityLkpId`, `EmergVisibility`, `AutoShareDurLkpId`, `AutoShareDuration`, `AllowLocDuringSos`, `AllowLocDuringProj`, `EmergencyContactName`, `EmergencyContactPhone`, `EmergencyContactRelation` |
+| User_GetInterests | p_UserId | LIST | **v4.1 Section 5** Returns user's saved interests with lookup names. Returns: `InterestLkpId`, `InterestName`, `InterestCode` |
+| User_GetMyOrgs | p_UserId | LIST (Dynamic) | **v4.1 Section 5** Returns all orgs the user is an APPROVED member of. Returns: `OrgId`, `OrgName`, `LogoUrl`, `OrgType`, `City`, `State`, `Role`, `RoleCode`, `MemberCount`, `JoinedAt` |
+| User_GetBadges | p_UserId | LIST | **v4.1 Section 5** Returns all earned badges. Returns: `UserBadgeId`, `BadgeLkpId`, `BadgeName`, `BadgeCode`, `OrgName`, `ProjectName`, `AwardedAt` |
+| User_GetImpact | p_UserId | GET | **v4.1 Section 5** Returns full impact dashboard stats. Returns: `ImpactScore`, `ReliabilityPct`, `ProjectsCompleted`, `TotalHours`, `BadgeCount`, `SkillCount`, `ProjectsApplied`, `CertificateCount`, `MemberSince` |
 
 ### Lookup (4 SPs)
 | SP Name | Params | Type | Description |
@@ -770,20 +800,29 @@
 | Settings_GetAll | READ | Admin only |
 | Settings_Update | WRITE | Update value, refresh cache |
 
-### Organisation (10 SPs)
-| SP Name | Type | Description |
-|---|---|---|
-| Org_Register | WRITE | Creates org + adds creator as ADMIN member |
-| Org_GetProfile | GET | Full org profile with member count, type |
-| Org_Update | WRITE | Updates all v4.0 fields |
-| Org_List | PAGED | Keyword + orgType filter |
-| Org_GetMembers | LIST | All members with role, status, permissions |
-| Org_AddMember | WRITE | Direct add (admin action) |
-| Org_RemoveMember | WRITE | Soft remove |
-| Org_RequestMembership | WRITE | User self-requests; stores RequestMessage |
-| Org_ReviewMembership | WRITE | APPROVED/REJECTED with AdminNotes |
-| Org_GetPendingMembers | LIST | PENDING approval requests |
-| Org_UpdateMemberPermissions | WRITE | CanPost, CanComment, MaxPostsPerDay, LocationSharing |
+### Organisation (24 SPs)
+| SP Name | Params | Type | Description |
+|---|---|---|---|
+| Org_Register | p_UserId, p_OrgName, p_RegistrationNo, p_OrgTypeLkpId, p_Category, p_ContactPerson, p_About, p_Mission, p_Vision, p_LogoUrl, p_ContactEmail, p_ContactPhone, p_Website, p_AddressLine1, p_AddressLine2, p_City, p_State, p_Pincode, p_Country | WRITE | **v4.1 Section 6: 19 params** Creates org + adds creator as ADMIN member. Returns `IsSuccess`, `Message`, `OrgId` |
+| Org_GetProfile | p_OrgId | GET | **v4.1 Section 6** Full org profile — now returns `OrgTypeLkpId`, `StatusLkpId`, `Category`, `ContactPerson` for edit form pre-fill |
+| Org_Update | p_OrgId, p_UserId, p_OrgName, p_Category, p_ContactPerson, p_About, p_Mission, p_Vision, p_LogoUrl, p_ContactEmail, p_ContactPhone, p_Website, p_AddressLine1, p_AddressLine2, p_City, p_State, p_Pincode, p_Country | WRITE | **v4.1 Section 6: 18 params** All fields COALESCE (partial update safe) |
+| Org_GetDashboard | p_OrgId | GET | **v4.1 Section 6 NEW** Admin dashboard KPIs. Returns: `TotalMembers`, `NewMembersThisMonth`, `ActiveVolunteers`, `ActiveRatePct`, `VolunteerHoursMonth`, `ActiveProjects`, `PendingApplications` |
+| Org_List | p_Keyword, p_Category, p_PageNumber, p_PageSize | PAGED | **v4.1 Section 7 FIXED** Always returns APPROVED orgs only. Filters by keyword (name/city) + category string. Returns `OrgId`, `OrgName`, `Category`, `LogoUrl`, `City`, `State`, `MemberCount`, `AvgRating`, `Latitude`, `Longitude` + TotalCount |
+| Org_ListRecommended | p_UserId | LIST | **v4.1 Section 7 NEW** Matches user's INTEREST_TYPE ValueCodes against org Category; returns up to 20 orgs ranked by MatchScore then AvgRating. Returns same fields as Org_List + `MatchScore` |
+| Campaign_ListPublicTrending | p_PageSize | LIST | **v4.1 Section 7 NEW** Active campaigns ranked by IsEmergency → DonorCount → RaisedAmount. Returns: `CampaignId`, `CampaignName`, `OrgName`, `OrgLogoUrl`, `RaisedAmount`, `TargetAmount`, `DonorCount`, `ProgressPct`, `EndDate`, `BannerUrl`, `IsEmergency` |
+| Org_GetDonationDashboard | p_OrgId | GET | **v4.1 Section 7 NEW** Returns 9 donation KPIs for s-admin-donations screen: `TotalRaisedAllTime`, `ThisMonthRaised`, `LastMonthRaised`, `TodayRaised`, `TodayTransactionCount`, `RecurringMonthlyAmount`, `ActiveRecurringDonors`, `TotalCampaigns`, `ActiveCampaigns` |
+| Org_GetDonors | p_OrgId, p_Tab (ALL/RECURRING/TOP), p_PageNumber, p_PageSize | PAGED | **v4.1 Section 7 NEW** Donor list for s-admin-donors. Respects IsAnonymous flag. Returns: `UserId`, `FullName`, `Email`, `Phone`, `TotalDonated`, `DonationCount`, `LastDonatedAt`, `IsAnonymous`, `IsRecurring` + TotalCount |
+| Org_GetTransactions | p_OrgId, p_StatusCode, p_PageNumber, p_PageSize | PAGED | **v4.1 Section 7 NEW** Transaction list for s-admin-transactions. Filter by statusCode (null = all). Returns: `TransactionId`, `ReadableId`, `DonorName`, `Amount`, `NetAmount`, `CampaignName`, `StatusCode`, `StatusName`, `PaymentMethod`, `CreatedAt`, `IsAnonymous` + TotalCount |
+| Org_GetVolunteerProfile | p_OrgId, p_UserId | GET | **v4.1 Section 7 NEW** Admin view of volunteer for s-vol-profile. Includes reliability score (never public). Returns: `UserId`, `FullName`, `City`, `Occupation`, `ProfilePhoto`, `TotalHours`, `ProjectCount`, `OrgCount`, `ReliabilityPct`, `AvgRating`, `PeerRating`, `NoShowCount`, `ExcusedCount`, `ComplaintCount`, `RoleCode`, `RoleName`, `StatusCode`, `StatusName`, `JoinedAt` |
+| Org_GetMemberImpact | p_OrgId, p_UserId | GET | **v4.1 Section 7 NEW** Admin view for s-member-impact. Returns: `UserId`, `FullName`, `Occupation`, `City`, `RoleName`, `ImpactScore`, `ReliabilityPct`, `TotalHours`, `ProjectCount`, `OrgCount`, `BadgeCount`, `NoShowCount`, `ComplaintCount` |
+| Org_UpdateMemberRole | p_OrgId, p_MemberId, p_RoleLkpId, p_UpdatedBy | WRITE | **v4.1 Section 7 NEW** Changes a member's role (VOLUNTEER/COORDINATOR/ADMIN). Returns `IsSuccess`, `Message` |
+| Org_GetMembers | p_OrgId | LIST (Dynamic) | All members with role, status, permissions |
+| Org_AddMember | p_OrgId, p_UserId, p_RoleLkpId, p_RequestedBy | WRITE | Direct add (admin action) |
+| Org_RemoveMember | p_OrgId, p_UserId, p_RequestedBy | WRITE | Soft remove |
+| Org_RequestMembership | p_OrgId, p_UserId, p_Message | WRITE | User self-requests; stores RequestMessage |
+| Org_ReviewMembership | p_RequestId, p_StatusCode, p_AdminNotes, p_ReviewedBy | WRITE | APPROVED/REJECTED with AdminNotes |
+| Org_GetPendingMembers | p_OrgId | LIST (Dynamic) | PENDING approval requests |
+| Org_UpdateMemberPermissions | p_OrgId, p_MemberId, p_CanPost, p_CanComment, p_CanCommunityPost, p_MaxPostsPerDay, p_LocationSharingLkpId, p_UpdatedBy | WRITE | Granular member permissions |
 | Org_UploadDocument | p_OrgId, p_UploadedBy, p_DocumentTypeLkpId, p_FileUrl, p_FileName | WRITE | Inserts into OrgDocuments; FileUrl/FileName come from POST /media/upload |
 
 ### Project (10 SPs)
@@ -873,12 +912,13 @@
 | Withdrawal_GetByOrg | PAGED | Withdrawal list with campaign title + status |
 | Withdrawal_AdminReview | WRITE | APPROVED deducts from RaisedAmount |
 
-### Certificate / Badge / Rating (3 SPs)
-| SP Name | Type | Description |
-|---|---|---|
-| Certificate_GetByUser | LIST | Joins Projects + Organisations |
-| UserSkillRating_Add | WRITE | ON DUPLICATE KEY UPDATE |
-| UserBadge_Award | WRITE | INSERT IGNORE |
+### Certificate / Badge / Rating / Attendance (5 SPs)
+| SP Name | Params | Type | Description |
+|---|---|---|---|
+| Certificate_GetByUser | p_UserId | LIST | Joins Projects + Organisations |
+| UserSkillRating_Add | p_RaterUserId, p_RatedUserId, p_UserSkillId, p_Rating, p_Review, p_ProjectId | WRITE | ON DUPLICATE KEY UPDATE |
+| UserBadge_Award | p_UserId, p_BadgeLkpId, p_AwardedBy, p_OrgId, p_ProjectId | WRITE | **v4.1 Section 7** Awards badge from NGO admin; includes `p_OrgId` (AwardedByOrgId). Returns `IsSuccess`, `Message`, `BadgeId` |
+| Attendance_ExcuseNoShow | p_AttendanceId, p_OrgId, p_ExcusedBy | WRITE | **v4.1 Section 7 NEW** Marks a NO_SHOW as EXCUSED so it doesn't penalise reliability score. Validates the attendance belongs to this org. Returns `IsSuccess`, `Message` |
 
 ### Notification (5 SPs)
 | SP Name | Type | Description |
@@ -919,4 +959,5 @@ SP pattern: `SELECT ... FOR UPDATE` on IdSequences, increment, format, use in IN
 
 ---
 
-*NGOConnect v4.0 — 47 Tables, 100 Stored Procedures, 44 LookupTypes*
+*NGOConnect v4.1 — 47 Tables, 115 Stored Procedures, 44 LookupTypes*  
+*Patch v4.1 Sections 1–7 applied. Run `NGOConnect_Patch_v4.1.sql` to upgrade from v4.0.*

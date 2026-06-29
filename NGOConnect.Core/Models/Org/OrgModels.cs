@@ -103,4 +103,153 @@ namespace NGOConnect.Core.Models.Org
         [Required] public string FileUrl           { get; set; } = string.Empty;   // from /media/upload
         [Required] public string FileName          { get; set; } = string.Empty;   // from /media/upload
     }
+
+    // ── Award Badge to volunteer (s-vol-profile, s-participants screens) ─────────
+    public class AwardBadgeRequest
+    {
+        [Required] public int  UserId     { get; set; }
+        [Required] public int  BadgeLkpId { get; set; }   // LookupType: BADGE_TYPE
+        public int? ProjectId             { get; set; }   // project it was earned on (optional)
+    }
+
+    // ── Update member role (s-admin-vols screen) ─────────────────────────────────
+    public class UpdateMemberRoleRequest
+    {
+        [Required] public int MemberId  { get; set; }
+        [Required] public int RoleLkpId { get; set; }   // LookupType: MEMBER_ROLE
+    }
+
+    // ── Mark attendance no-show as excused (s-participants screen) ───────────────
+    public class ExcuseNoShowRequest
+    {
+        [Required] public int AttendanceId { get; set; }
+    }
+
+    // ── Org List / Search result (s-explore All NGOs tab + s-my-orgs) ────────────
+    // AvgRating and Latitude/Longitude added to Organisations table in Patch Section 7
+    public class OrgListItemModel
+    {
+        public int      OrgId       { get; set; }
+        public string   OrgName     { get; set; } = string.Empty;
+        public string?  Category    { get; set; }
+        public string?  LogoUrl     { get; set; }
+        public string?  City        { get; set; }
+        public string?  State       { get; set; }
+        public int      MemberCount { get; set; }
+        public decimal  AvgRating   { get; set; }   // 0.00–5.00
+        public decimal? Latitude    { get; set; }   // for client-side distance calc
+        public decimal? Longitude   { get; set; }
+    }
+
+    // ── Recommended org (s-explore Recommended tab) ───────────────────────────────
+    public class RecommendedOrgModel : OrgListItemModel
+    {
+        public int MatchScore { get; set; }   // number of matching user interests
+    }
+
+    // ── Trending campaign (s-explore Trending tab) ───────────────────────────────
+    public class TrendingCampaignModel
+    {
+        public int      CampaignId    { get; set; }
+        public string   CampaignName  { get; set; } = string.Empty;
+        public string   OrgName       { get; set; } = string.Empty;
+        public string?  OrgLogoUrl    { get; set; }
+        public decimal  RaisedAmount  { get; set; }
+        public decimal  TargetAmount  { get; set; }
+        public int      DonorCount    { get; set; }
+        public decimal  ProgressPct   { get; set; }   // RaisedAmount/TargetAmount * 100
+        public DateTime? EndDate      { get; set; }
+        public string?  BannerUrl     { get; set; }
+        public bool     IsEmergency   { get; set; }
+    }
+
+    // ── Admin Donation Dashboard (s-admin-donations screen) ──────────────────────
+    public class OrgDonationDashboardModel
+    {
+        public decimal TotalRaisedAllTime      { get; set; }
+        public decimal ThisMonthRaised         { get; set; }
+        public decimal LastMonthRaised         { get; set; }   // for % change calculation
+        public decimal TodayRaised             { get; set; }
+        public int     TodayTransactionCount   { get; set; }
+        public decimal RecurringMonthlyAmount  { get; set; }   // sum of active recurring donations
+        public int     ActiveRecurringDonors   { get; set; }
+        public int     TotalCampaigns          { get; set; }
+        public int     ActiveCampaigns         { get; set; }
+    }
+
+    // ── Admin Donor list item (s-admin-donors screen) ────────────────────────────
+    public class OrgDonorModel
+    {
+        public int      UserId         { get; set; }
+        public string?  FullName       { get; set; }   // null if anonymous
+        public string?  Email          { get; set; }
+        public string?  Phone          { get; set; }
+        public decimal  TotalDonated   { get; set; }
+        public int      DonationCount  { get; set; }
+        public DateTime LastDonatedAt  { get; set; }
+        public bool     IsAnonymous    { get; set; }
+        public bool     IsRecurring    { get; set; }   // has active recurring donation
+    }
+
+    // ── Admin Transaction list item (s-admin-transactions screen) ────────────────
+    public class OrgTransactionModel
+    {
+        public int      TransactionId     { get; set; }
+        public string   ReadableId        { get; set; } = string.Empty;   // DON-2026-000147
+        public string?  DonorName         { get; set; }   // null if anonymous
+        public decimal  Amount            { get; set; }
+        public decimal  NetAmount         { get; set; }   // after platform fee
+        public string?  CampaignName      { get; set; }   // null if general donation
+        public string   StatusCode        { get; set; } = string.Empty;
+        public string   StatusName        { get; set; } = string.Empty;
+        public string?  PaymentMethod     { get; set; }
+        public DateTime CreatedAt         { get; set; }
+        public bool     IsAnonymous       { get; set; }
+    }
+
+    // ── Admin Volunteer Profile (s-vol-profile screen — admin view) ───────────────
+    public class OrgVolunteerProfileModel
+    {
+        // Basic info
+        public int      UserId          { get; set; }
+        public string?  FullName        { get; set; }
+        public string?  City            { get; set; }
+        public string?  Occupation      { get; set; }
+        public string?  ProfilePhoto    { get; set; }
+        // Public impact stats
+        public decimal  TotalHours      { get; set; }
+        public int      ProjectCount    { get; set; }
+        public int      OrgCount        { get; set; }
+        // Reliability (admin-only, never shown publicly)
+        public decimal  ReliabilityPct  { get; set; }
+        public decimal  AvgRating       { get; set; }   // admin's rating of this volunteer
+        public decimal  PeerRating      { get; set; }   // peer-rated avg across skills
+        public int      NoShowCount     { get; set; }
+        public int      ExcusedCount    { get; set; }
+        public int      ComplaintCount  { get; set; }
+        // Membership in THIS org
+        public string?  RoleCode        { get; set; }
+        public string?  RoleName        { get; set; }
+        public string?  StatusCode      { get; set; }
+        public string?  StatusName      { get; set; }
+        public DateTime? JoinedAt       { get; set; }
+    }
+
+    // ── Admin Member Impact (s-member-impact screen — admin view) ────────────────
+    public class OrgMemberImpactModel
+    {
+        public int      UserId          { get; set; }
+        public string?  FullName        { get; set; }
+        public string?  Occupation      { get; set; }
+        public string?  City            { get; set; }
+        public string?  RoleName        { get; set; }   // role in THIS org
+        public int      ImpactScore     { get; set; }
+        public decimal  ReliabilityPct  { get; set; }   // admin-only
+        public decimal  TotalHours      { get; set; }
+        public int      ProjectCount    { get; set; }
+        public int      OrgCount        { get; set; }
+        public int      BadgeCount      { get; set; }
+        public int      NoShowCount     { get; set; }
+        public int      ComplaintCount  { get; set; }
+    }
 }
