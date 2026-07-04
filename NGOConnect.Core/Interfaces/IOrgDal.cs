@@ -10,7 +10,7 @@ namespace NGOConnect.Core.Interfaces
         Task<ApiResponse<DynamicRow>>                      GetProfileAsync(int orgId);
         Task<ApiResponse>                                  UpdateAsync(int orgId, int userId, UpdateOrgRequest request);
         // ── Explore (s-explore screen) ──────────────────────────────────────────
-        Task<ApiResponse<PagedResult<OrgListItemModel>>>   ListAsync(int pageNumber, int pageSize, string? keyword = null, string? category = null);
+        Task<ApiResponse<PagedResult<OrgListItemModel>>>   ListAsync(int pageNumber, int pageSize, string? keyword = null, string? category = null, decimal? lat = null, decimal? lng = null);
         Task<ApiResponse<List<RecommendedOrgModel>>>       GetRecommendedAsync(int userId);
         Task<ApiResponse<List<TrendingCampaignModel>>>     GetTrendingCampaignsAsync(int pageSize);
         // ── Admin Dashboard ─────────────────────────────────────────────────────

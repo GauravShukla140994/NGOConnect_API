@@ -101,7 +101,10 @@ try
     }
 
     // 6. HTTPS redirect
-    app.UseHttpsRedirection();
+    if (!app.Environment.IsDevelopment())
+    {
+        app.UseHttpsRedirection();
+    }
 
     // 7. Static files — serve uploaded media under /uploads/*
     //    UploadRootPath must exist; LocalFileService creates subdirectories on first upload.

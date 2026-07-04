@@ -33,13 +33,16 @@ namespace NGOConnect.API.Controllers
             => await _org.UpdateAsync(orgId, GetUserId(), request);
 
         // s-explore → All NGOs tab (paginated, filterable by keyword + category)
+        // lat/lng optional — when provided, SP sorts nearest-first via server-side Haversine
         [HttpGet("list")]
         public async Task<ApiResponse<PagedResult<OrgListItemModel>>> List(
-            [FromQuery] string? keyword    = null,
-            [FromQuery] string? category  = null,
-            [FromQuery] int     pageNumber = 1,
-            [FromQuery] int     pageSize   = 20)
-            => await _org.ListAsync(pageNumber, pageSize, keyword, category);
+            [FromQuery] string?  keyword    = null,
+            [FromQuery] string?  category   = null,
+            [FromQuery] int      pageNumber = 1,
+            [FromQuery] int      pageSize   = 20,
+            [FromQuery] decimal? lat        = null,
+            [FromQuery] decimal? lng        = null)
+            => await _org.ListAsync(pageNumber, pageSize, keyword, category, lat, lng);
 
         // s-explore → Recommended tab (matched to user's interests)
         [HttpGet("recommended")] [Authorize]

@@ -29,12 +29,14 @@ namespace NGOConnect.API.Controllers
 
         [HttpGet("list")]
         public async Task<ApiResponse<PagedResult<DynamicRow>>> List(
-            [FromQuery] int?    orgId            = null,
-            [FromQuery] string? keyword          = null,
-            [FromQuery] int?    projectTypeLkpId = null,
-            [FromQuery] int     pageNumber       = 1,
-            [FromQuery] int     pageSize         = 20)
-            => await _project.ListAsync(pageNumber, pageSize, orgId, keyword, projectTypeLkpId);
+            [FromQuery] int?    orgId      = null,
+            [FromQuery] string? category   = null,
+            [FromQuery] string? city       = null,
+            [FromQuery] string? statusCode = null,
+            [FromQuery] string? typeCode   = null,
+            [FromQuery] int     pageNumber = 1,
+            [FromQuery] int     pageSize   = 20)
+            => await _project.ListAsync(pageNumber, pageSize, orgId, category, city, statusCode, typeCode);
 
         [HttpPost("{projectId:int}/skills")] [Authorize]
         public async Task<ApiResponse> AddSkill(int projectId, [FromBody] AddProjectSkillRequest request)

@@ -8,7 +8,7 @@ namespace NGOConnect.Core.Interfaces
         Task<ApiResponse<DynamicRow>>              CreateAsync(int userId, CreateProjectRequest request);
         Task<ApiResponse<DynamicRow>>              GetByIdAsync(int projectId);
         Task<ApiResponse>                          UpdateAsync(int projectId, int userId, UpdateProjectRequest request);
-        Task<ApiResponse<PagedResult<DynamicRow>>> ListAsync(int pageNumber, int pageSize, int? orgId = null, string? keyword = null, int? projectTypeLkpId = null);
+        Task<ApiResponse<PagedResult<DynamicRow>>> ListAsync(int pageNumber, int pageSize, int? orgId = null, string? category = null, string? city = null, string? statusCode = null, string? typeCode = null);
         Task<ApiResponse>                          AddSkillAsync(int projectId, int userId, AddProjectSkillRequest request);
 
         // Sessions

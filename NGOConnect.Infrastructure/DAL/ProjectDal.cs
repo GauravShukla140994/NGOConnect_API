@@ -125,17 +125,19 @@ namespace NGOConnect.Infrastructure.DAL
         }
 
         public async Task<ApiResponse<PagedResult<DynamicRow>>> ListAsync(
-            int pageNumber, int pageSize, int? orgId = null, string? keyword = null, int? projectTypeLkpId = null)
+            int pageNumber, int pageSize, int? orgId = null, string? category = null, string? city = null, string? statusCode = null, string? typeCode = null)
         {
             try
             {
                 var paged = await ExecuteDynamicPagedListAsync("Project_List", pageNumber, pageSize, cmd =>
                 {
-                    _db.AddParameter(cmd, "p_OrgId",             orgId);
-                    _db.AddParameter(cmd, "p_Keyword",           keyword);
-                    _db.AddParameter(cmd, "p_ProjectTypeLkpId",  projectTypeLkpId);
-                    _db.AddParameter(cmd, "p_PageNumber",        pageNumber);
-                    _db.AddParameter(cmd, "p_PageSize",          pageSize);
+                    _db.AddParameter(cmd, "p_OrgId",      orgId);
+                    _db.AddParameter(cmd, "p_Category",   category);
+                    _db.AddParameter(cmd, "p_City",       city);
+                    _db.AddParameter(cmd, "p_StatusCode", statusCode);
+                    _db.AddParameter(cmd, "p_TypeCode",   typeCode);
+                    _db.AddParameter(cmd, "p_PageNumber", pageNumber);
+                    _db.AddParameter(cmd, "p_PageSize",   pageSize);
                 });
                 return ApiResponse<PagedResult<DynamicRow>>.Success(paged);
             }

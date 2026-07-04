@@ -251,16 +251,18 @@ namespace NGOConnect.Infrastructure.DAL
                 var rows = await ExecuteListAsync("User_GetMyOrgs",
                     r => new UserOrgModel
                     {
-                        OrgId       = Col<int>(r,      "OrgId"),
-                        OrgName     = Col<string>(r,   "OrgName")   ?? string.Empty,
-                        LogoUrl     = Col<string>(r,   "LogoUrl"),
-                        OrgType     = Col<string>(r,   "OrgType"),
-                        City        = Col<string>(r,   "City"),
-                        State       = Col<string>(r,   "State"),
-                        Role        = Col<string>(r,   "Role")      ?? string.Empty,
-                        RoleCode    = Col<string>(r,   "RoleCode")  ?? string.Empty,
-                        MemberCount = Col<int>(r,      "MemberCount"),
-                        JoinedAt    = Col<DateTime>(r, "JoinedAt"),
+                        OrgId            = Col<int>(r,      "OrgId"),
+                        OrgName          = Col<string>(r,   "OrgName")          ?? string.Empty,
+                        LogoUrl          = Col<string>(r,   "LogoUrl"),
+                        OrgType          = Col<string>(r,   "OrgType"),
+                        City             = Col<string>(r,   "City"),
+                        State            = Col<string>(r,   "State"),
+                        Role             = Col<string>(r,   "Role")             ?? string.Empty,
+                        RoleCode         = Col<string>(r,   "RoleCode")         ?? string.Empty,
+                        MemberStatusCode = Col<string>(r,   "MemberStatusCode") ?? string.Empty,
+                        OrgStatusCode    = Col<string>(r,   "OrgStatusCode")    ?? string.Empty,
+                        MemberCount      = Col<int>(r,      "MemberCount"),
+                        JoinedAt         = Col<DateTime>(r, "JoinedAt"),
                     },
                     cmd => _db.AddParameter(cmd, "p_UserId", userId));
                 return ApiResponse<List<UserOrgModel>>.Success(rows);

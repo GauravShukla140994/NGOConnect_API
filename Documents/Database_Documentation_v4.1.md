@@ -780,7 +780,7 @@
 | User_RemoveSkill | p_UserId, p_UserSkillId | WRITE | Soft-delete (IsDeleted=1) |
 | User_GetSafetyPrefs | p_UserId | GET | **v4.1 Section 5** Returns safety prefs + emergency contacts; used for Edit Profile (safety step) pre-fill. Returns: `EmergVisibilityLkpId`, `EmergVisibility`, `AutoShareDurLkpId`, `AutoShareDuration`, `AllowLocDuringSos`, `AllowLocDuringProj`, `EmergencyContactName`, `EmergencyContactPhone`, `EmergencyContactRelation` |
 | User_GetInterests | p_UserId | LIST | **v4.1 Section 5** Returns user's saved interests with lookup names. Returns: `InterestLkpId`, `InterestName`, `InterestCode` |
-| User_GetMyOrgs | p_UserId | LIST (Dynamic) | **v4.1 Section 5** Returns all orgs the user is an APPROVED member of. Returns: `OrgId`, `OrgName`, `LogoUrl`, `OrgType`, `City`, `State`, `Role`, `RoleCode`, `MemberCount`, `JoinedAt` |
+| User_GetMyOrgs | p_UserId | LIST (Dynamic) | **v4.1 Section 5** Returns all orgs the user is an APPROVED member of. Returns: `OrgId`, `OrgName`, `LogoUrl`, `OrgType`, `City`, `State`, `Role`, `RoleCode`, `MemberStatusCode`, `OrgStatusCode`, `MemberCount`, `JoinedAt` |
 | User_GetBadges | p_UserId | LIST | **v4.1 Section 5** Returns all earned badges. Returns: `UserBadgeId`, `BadgeLkpId`, `BadgeName`, `BadgeCode`, `OrgName`, `ProjectName`, `AwardedAt` |
 | User_GetImpact | p_UserId | GET | **v4.1 Section 5** Returns full impact dashboard stats. Returns: `ImpactScore`, `ReliabilityPct`, `ProjectsCompleted`, `TotalHours`, `BadgeCount`, `SkillCount`, `ProjectsApplied`, `CertificateCount`, `MemberSince` |
 
@@ -865,13 +865,13 @@
 | Post_Report | WRITE | PostReports insert |
 
 ### Community (5 SPs)
-| SP Name | Type | Description |
-|---|---|---|
-| Community_CreatePost | WRITE | Title required, PostTypeLkpId, AudienceLkpId |
-| Community_GetFeed | PAGED | Optional OrgId filter |
-| Community_AcknowledgePost | WRITE | Mark post acknowledged |
-| Community_CreatePoll | WRITE | Creates CommunityPost + PollOptions from JSON |
-| Community_Vote | WRITE | INSERT IGNORE (one vote per user per option) |
+| SP Name | Params | Type | Description |
+|---|---|---|---|
+| Community_CreatePost | p_UserId, p_OrgId, p_Title, p_Content, p_PostTypeLkpId, p_AudienceLkpId | WRITE | Creates org-scoped community post. `PostTypeLkpId` from TypeCode=`POST_TYPE_COMMUNITY`; `AudienceLkpId` from TypeCode=`POST_VISIBILITY`. Returns `IsSuccess`, `Message`, `CommunityPostId` |
+| Community_GetFeed | p_OrgId (nullable), p_PageNumber, p_PageSize | PAGED (Dynamic) | Returns paginated community feed as DynamicRow. `p_OrgId` optional — omit for platform-wide feed. Returns rows + `TotalCount` |
+| Community_AcknowledgePost | p_CommunityPostId, p_UserId | WRITE | Marks a post acknowledged by the calling user (used for Announcements). Returns `IsSuccess`, `Message` |
+| Community_CreatePoll | p_UserId, p_OrgId, p_Question, p_OptionsJson, p_ExpiresInHours | WRITE | Creates a CommunityPost of type POLL + inserts PollOptions from JSON string array (e.g. `["Yes","No","Maybe"]`). Returns `IsSuccess`, `Message`, `PollId` |
+| Community_Vote | p_PollId, p_UserId, p_PollOptionId | WRITE | INSERT IGNORE — one vote per user per option, prevents duplicate votes. Returns `IsSuccess`, `Message` |
 
 ### SOS (9 SPs)
 | SP Name | Type | Description |

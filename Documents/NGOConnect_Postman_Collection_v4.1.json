@@ -689,17 +689,17 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/user/my-orgs",
+              "raw": "{{base_url}}/user/orgs",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "user",
-                "my-orgs"
+                "orgs"
               ],
               "query": []
             },
-            "description": "Get all organisations the user is an APPROVED member of (s-my-orgs screen). Returns: [{ orgId, orgName, logoUrl, orgType, city, state, role, roleCode, memberCount, joinedAt }]",
+            "description": "Get all organisations the user is an APPROVED member of (s-my-orgs screen). Returns: [{ orgId, orgName, logoUrl, orgType, city, state, role, roleCode, memberStatusCode, orgStatusCode, memberCount, joinedAt }]",
             "auth": {
               "type": "bearer",
               "bearer": [

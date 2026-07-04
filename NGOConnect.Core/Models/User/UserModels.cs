@@ -140,16 +140,18 @@ namespace NGOConnect.Core.Models.User
     // ── My Organisations — GET response ────────────────────────────────────────
     public class UserOrgModel
     {
-        public int      OrgId          { get; set; }
-        public string   OrgName        { get; set; } = string.Empty;
-        public string?  LogoUrl        { get; set; }
-        public string?  OrgType        { get; set; }   // ValueName e.g. "Education"
-        public string?  City           { get; set; }
-        public string?  State          { get; set; }
-        public string   Role           { get; set; } = string.Empty;   // ValueName e.g. "Admin"
-        public string   RoleCode       { get; set; } = string.Empty;   // ValueCode e.g. "ADMIN"
-        public int      MemberCount    { get; set; }
-        public DateTime JoinedAt       { get; set; }
+        public int      OrgId             { get; set; }
+        public string   OrgName           { get; set; } = string.Empty;
+        public string?  LogoUrl           { get; set; }
+        public string?  OrgType           { get; set; }   // ValueName e.g. "Education"
+        public string?  City              { get; set; }
+        public string?  State             { get; set; }
+        public string   Role              { get; set; } = string.Empty;   // ValueName e.g. "Admin"
+        public string   RoleCode          { get; set; } = string.Empty;   // ValueCode e.g. "ADMIN", "FOUNDER", "MEMBER"
+        public string   MemberStatusCode  { get; set; } = string.Empty;   // APPROVED | PENDING
+        public string   OrgStatusCode     { get; set; } = string.Empty;   // ACTIVE | PENDING | SUSPENDED
+        public int      MemberCount       { get; set; }
+        public DateTime JoinedAt          { get; set; }
     }
 
     // ── Badges — GET response ───────────────────────────────────────────────────

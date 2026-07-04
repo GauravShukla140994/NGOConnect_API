@@ -22,6 +22,19 @@ Key rules:
 - Significant changes (new endpoint, SP param change, model field change) → ask before bumping version
 - Uploaded SP files are the highest source of truth — they override the setup SQL
 
+## MANDATORY: Change Tracking — Every Session
+
+**At the START of every session:**
+1. Read `Documents/DOCUMENTATION_GUIDELINES.md` — check the **Current Pending Document Updates** section at the bottom
+2. Carry those pending changes forward — they are the running list of what must be applied when the user says "update documents"
+
+**During every session — after ANY code or DB change:**
+- Immediately append the change to the **Current Pending Document Updates** section in `Documents/DOCUMENTATION_GUIDELINES.md`
+- Never leave a change untracked. If you fix an SP, alter a table, add an endpoint, or change a model — write it to the pending list before moving on
+- Format: document name → what changed (SP name, table name, endpoint, model field)
+
+**Why this matters:** Sessions end, context is lost, conversation summaries are incomplete. The ONLY reliable record of pending changes is the file on disk. If it is not written there, it is lost.
+
 ## Prototype Reference
 
 The approved UI prototype is `Documents/NGO_Connect_Final_v1.6.html` — this is the design baseline for all API and DB work. Any new feature or screen must trace back to this prototype or be explicitly discussed and approved before implementation.

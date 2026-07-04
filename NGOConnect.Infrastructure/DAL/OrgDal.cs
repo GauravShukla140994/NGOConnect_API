@@ -132,17 +132,21 @@ namespace NGOConnect.Infrastructure.DAL
         }
 
         public async Task<ApiResponse<PagedResult<OrgListItemModel>>> ListAsync(
-            int pageNumber, int pageSize, string? keyword = null, string? category = null)
+            int pageNumber, int pageSize, string? keyword = null, string? category = null,
+            decimal? lat = null, decimal? lng = null)
         {
             try
             {
                 // Org_List always returns APPROVED orgs; returns 2 result sets for pagination
+                // p_Lat / p_Lng optional — when provided, SP sorts nearest-first via Haversine
                 var paged = await ExecutePagedListAsync("Org_List", MapOrgListItem, pageNumber, pageSize, cmd =>
                 {
                     _db.AddParameter(cmd, "p_Keyword",    keyword);
                     _db.AddParameter(cmd, "p_Category",   category);
                     _db.AddParameter(cmd, "p_PageNumber", pageNumber);
                     _db.AddParameter(cmd, "p_PageSize",   pageSize);
+                    _db.AddParameter(cmd, "p_Lat",        lat.HasValue ? (object)lat.Value : DBNull.Value);
+                    _db.AddParameter(cmd, "p_Lng",        lng.HasValue ? (object)lng.Value : DBNull.Value);
                 });
 
                 return ApiResponse<PagedResult<OrgListItemModel>>.Success(paged);

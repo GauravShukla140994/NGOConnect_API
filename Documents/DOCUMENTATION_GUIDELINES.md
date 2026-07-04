@@ -155,8 +155,26 @@ When there is a conflict between files, this priority order applies:
 
 ## Current Pending Document Updates
 
-_No pending changes. All documents are current as of 2026-06-29._
+_Last updated: 2026-07-04. All changes applied — no pending updates._
 
-### `NGOConnect_Complete_Setup_v4.1.sql`
+_Applied in this session (2026-07-04):_
+- `Database_Documentation_v4.1.md`: Community SP table — added `Params` column with exact SP signatures for all 5 SPs (`Community_CreatePost`, `Community_GetFeed`, `Community_AcknowledgePost`, `Community_CreatePoll`, `Community_Vote`)
+- `Database_Documentation_v4.1.md`: `User_GetMyOrgs` — added `MemberStatusCode`, `OrgStatusCode` to return column list
+- `API_Documentation_v4.1.docx`: `GET /user/my-orgs` route corrected to `GET /user/orgs` (matches actual `UserController` route `[HttpGet("orgs")]`)
+- `NGOConnect_Postman_Collection_v4.1.json`: `GET /user/my-orgs` corrected to `GET /user/orgs`; description updated with `memberStatusCode`, `orgStatusCode` fields
 
-- Not yet created. When requested: merge NGOConnect_Complete_Setup_v4.0.sql + all sections of NGOConnect_Patch_v4.1.sql into a single fresh setup file.
+_Previously applied (created v4.1 from v4.0):_
+- `User_GetProfile` SP: `p_RequestingUserId` param added; full column list expanded (IsVerified, VolunteerExp, GenderLkpId, Gender/Code, EducationLkpId, Education/Code, FieldOfStudy, WorkExpLkpId, WorkExperience/Code, AddressLine1/2, Pincode, UpdatedAt, MemberSince, IsProfileComplete)
+- `User_UpdateProfile` SP: `p_VolunteerExp` param added (19 params total)
+- `User_GetSafetyPrefs`, `User_GetInterests`, `User_GetMyOrgs`, `User_GetBadges`, `User_GetImpact` SPs: all new, documented in v4.1 Section 5
+- `GET /user/profile` response model expanded with all new fields above
+
+---
+
+### Outstanding (future sessions — needs backend work before docs can be updated)
+
+- `Community_CreatePost` SP: Add params `p_IsPinned`, `p_NotifyAll`, `p_AllowBestAnswer`, `p_EventReference`, `p_WhatChanged` (mobile sends these; SP does not yet accept them)
+- `Community_CreatePoll` SP: Add params `p_IsMultiChoice`, `p_AudienceLkpId`
+- New endpoint: `PATCH /community/post/{id}/pin` — does not exist in backend yet
+- New endpoint: `DELETE /community/post/{id}` — does not exist in backend yet
+- `03_SP_User.sql` file: Update to match patched `User_GetProfile` (2-param version with full column list)

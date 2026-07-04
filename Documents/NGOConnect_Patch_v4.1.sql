@@ -53,7 +53,11 @@ BEGIN
         up.ImpactScore, up.ReliabilityPct,
         u.CreatedAt AS MemberSince,
         up.UpdatedAt,
-        up.IsProfileComplete
+        CASE
+            WHEN up.FirstName IS NOT NULL AND TRIM(up.FirstName) != ''
+             AND up.LastName  IS NOT NULL AND TRIM(up.LastName)  != ''
+            THEN 1 ELSE 0
+        END AS IsProfileComplete
     FROM Users u
     JOIN UserProfiles up ON u.UserId = up.UserId AND up.IsDeleted = 0
     LEFT JOIN LookupValues gv ON up.GenderLkpId    = gv.LookupValueId
@@ -242,27 +246,33 @@ BEGIN
 END //
 
 -- 15. User_GetMyOrgs — for s-my-orgs screen
+-- FIX: was joining on om.ApprovalStatusLkpId (wrong column — column is om.StatusLkpId)
+-- FIX: now returns BOTH APPROVED and PENDING members, plus MemberStatusCode + OrgStatusCode
+DROP PROCEDURE IF EXISTS User_GetMyOrgs //
 CREATE PROCEDURE User_GetMyOrgs(IN p_UserId INT UNSIGNED)
 BEGIN
     SELECT
         o.OrgId,
         o.OrgName,
         o.LogoUrl,
-        ot.ValueName AS OrgType,
+        ot.ValueName  AS OrgType,
         o.City,
         o.State,
-        rv.ValueName AS Role,
-        rv.ValueCode AS RoleCode,
+        rv.ValueName  AS Role,
+        rv.ValueCode  AS RoleCode,
+        sv.ValueCode  AS MemberStatusCode,   -- APPROVED | PENDING
+        os.ValueCode  AS OrgStatusCode,      -- ACTIVE | PENDING | SUSPENDED
         o.MemberCount,
-        om.CreatedAt AS JoinedAt
+        om.CreatedAt  AS JoinedAt
     FROM OrgMembers om
-    JOIN Organisations o  ON om.OrgId = o.OrgId AND o.IsDeleted = 0
-    JOIN LookupValues sv  ON om.ApprovalStatusLkpId = sv.LookupValueId
-    JOIN LookupValues rv  ON om.RoleLkpId = rv.LookupValueId
+    JOIN Organisations o   ON om.OrgId = o.OrgId AND o.IsDeleted = 0
+    JOIN LookupValues sv   ON om.StatusLkpId = sv.LookupValueId          -- member status (FIXED column)
+    JOIN LookupValues rv   ON om.RoleLkpId   = rv.LookupValueId          -- member role
+    JOIN LookupValues os   ON o.StatusLkpId  = os.LookupValueId          -- org approval status
     LEFT JOIN LookupValues ot ON o.OrgTypeLkpId = ot.LookupValueId
-    WHERE om.UserId = p_UserId
+    WHERE om.UserId    = p_UserId
       AND om.IsDeleted = 0
-      AND sv.ValueCode = 'APPROVED'
+      AND sv.ValueCode IN ('APPROVED', 'PENDING')    -- include join requests + active members
     ORDER BY om.CreatedAt DESC;
 END //
 
