@@ -1,0 +1,10 @@
+{
+  "$schema": "https://schema.railpack.com",
+  "provider": "dotnet",
+  "packages": {
+    "dotnet": "8"
+  },
+  "deploy": {
+    "startCommand": "dotnet NGOConnect.API.dll"
+  }
+}
