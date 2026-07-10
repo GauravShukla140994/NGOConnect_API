@@ -27,9 +27,9 @@ SET AUTOCOMMIT = 0;
 START TRANSACTION;
 SET time_zone = '+05:30';
 
-DROP DATABASE IF EXISTS NGOConnect;
-CREATE DATABASE NGOConnect CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE NGOConnect;
+DROP DATABASE IF EXISTS ngoconnect;
+CREATE DATABASE ngoconnect CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE ngoconnect;
 SET FOREIGN_KEY_CHECKS = 0;
 
 -- ============================================================
@@ -615,6 +615,9 @@ CREATE TABLE CommunityPosts (
     Title               VARCHAR(300)  NOT NULL,
     Content             TEXT          NULL,
     AudienceLkpId       INT UNSIGNED  NOT NULL,
+    LikeCount           INT UNSIGNED  NOT NULL DEFAULT 0,
+    CommentCount        INT UNSIGNED  NOT NULL DEFAULT 0,
+    AcknowledgeCount    INT UNSIGNED  NOT NULL DEFAULT 0,
     IsPinned            TINYINT(1)    NOT NULL DEFAULT 0,
     BestAnswerCommentId INT UNSIGNED  NULL,
     AssignedToUserId    INT UNSIGNED  NULL,
@@ -625,7 +628,6 @@ CREATE TABLE CommunityPosts (
     EventRef            VARCHAR(200)  NULL,
     VolunteersNeeded    INT UNSIGNED  NULL,
     ResourceFileUrl     VARCHAR(500)  NULL,
-    AcknowledgeCount    INT UNSIGNED  NOT NULL DEFAULT 0,
     IsDeleted           TINYINT(1)    NOT NULL DEFAULT 0,
     DeletedAt           DATETIME      NULL,
     DeletedBy           INT UNSIGNED  NULL,
@@ -711,6 +713,7 @@ CREATE TABLE SosIncidents (
     ResolvedAt      DATETIME      NULL,
     ResolvedByLkpId INT UNSIGNED  NULL,
     CancelReason    TEXT          NULL,
+    CancelledAt     DATETIME      NULL,
     IsDeleted       TINYINT(1)    NOT NULL DEFAULT 0,
     CreatedAt       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UpdatedAt       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -3956,20 +3959,11 @@ COMMIT;
 --   SPs:     +5 new, 4 replaced (Community_GetFeed, _CreatePost, _CreatePoll, _Vote)
 -- ════════════════════════════════════════════════════════════════
 
--- ── ALTER CommunityPosts ─────────────────────────────────────────
-ALTER TABLE CommunityPosts
-    ADD COLUMN LikeCount       INT UNSIGNED NOT NULL DEFAULT 0 AFTER AudienceLkpId,
-    ADD COLUMN CommentCount    INT UNSIGNED NOT NULL DEFAULT 0 AFTER LikeCount,
-    ADD COLUMN AcknowledgeCount INT UNSIGNED NOT NULL DEFAULT 0 AFTER CommentCount;
+-- ── NOTE: CommunityPosts columns (LikeCount, CommentCount, AcknowledgeCount) ─
+-- Already included in CREATE TABLE above. No ALTER needed.
 
--- ── ALTER SosIncidents (v4.2 fixes) ─────────────────────────────
--- Note: If the column is already named UserId, skip the RENAME statement.
--- The schema fix changes VictimUserId → UserId and adds IsDeleted, CancelledAt.
-ALTER TABLE SosIncidents
-    ADD COLUMN IsDeleted   TINYINT(1) NOT NULL DEFAULT 0 AFTER Longitude,
-    ADD COLUMN CancelledAt DATETIME NULL AFTER ResolvedAt;
--- If column is named VictimUserId, uncomment the next line:
--- ALTER TABLE SosIncidents CHANGE VictimUserId UserId INT UNSIGNED NOT NULL;
+-- ── NOTE: SosIncidents columns (IsDeleted, CancelledAt) ──────────────────────
+-- Already included in CREATE TABLE above. No ALTER needed.
 
 -- ── NEW TABLE: CommunityPostLikes ────────────────────────────────
 CREATE TABLE IF NOT EXISTS CommunityPostLikes (
@@ -4984,8 +4978,8 @@ DELIMITER ;
 -- ── v4.3 Seed: ORG_TYPE lookup values ─────────────────────────
 -- Adds 6 new legal entity types (INSERT IGNORE = idempotent)
 -- Existing: TRUST (1), SOCIETY (2), SECTION_8 (3)
-INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsActive, IsSystemValue)
-SELECT lt.LookupTypeId, v.ValueCode, v.ValueName, v.OrderNo, 1, 1
+INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue)
+SELECT lt.LookupTypeId, v.ValueCode, v.ValueName, v.OrderNo, 1
 FROM LookupTypes lt
 JOIN (
     SELECT 'NGO'                     AS ValueCode, 'NGO'                      AS ValueName, 4  AS OrderNo UNION ALL

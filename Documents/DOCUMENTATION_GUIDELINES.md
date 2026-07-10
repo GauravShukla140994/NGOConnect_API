@@ -159,6 +159,7 @@ When there is a conflict between files, this priority order applies:
 
 **`NGOConnect_Complete_Setup_v4.4.sql`**
 - `Post_Create`: Remove duplicate 7-param definition at line ~2695 (old version with `p_MediaType`). The canonical 6-param version at line ~6243 (from `NGOConnect_Patch_PostFeed_VideoSupport.sql`, auto-detects IMAGE/VIDEO from URL extension) is the one running in DB — the duplicate causes confusion.
+- `Post_GetFeed`: Update to 4-param signature: `p_UserId, p_OrgId, p_PageNumber, p_PageSize`. Add `AND (p_OrgId IS NULL OR p.OrgId = p_OrgId)` to both SELECT and COUNT. Source: `NGOConnect_Patch_PostFeed_OrgFilter.sql`.
 
 ---
 
