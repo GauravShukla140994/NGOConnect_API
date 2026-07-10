@@ -6,9 +6,9 @@ namespace NGOConnect.Core.Interfaces
     public interface IProjectDal
     {
         Task<ApiResponse<DynamicRow>>              CreateAsync(int userId, CreateProjectRequest request);
-        Task<ApiResponse<DynamicRow>>              GetByIdAsync(int projectId);
+        Task<ApiResponse<DynamicRow>>              GetByIdAsync(int projectId, int userId = 0);
         Task<ApiResponse>                          UpdateAsync(int projectId, int userId, UpdateProjectRequest request);
-        Task<ApiResponse<PagedResult<DynamicRow>>> ListAsync(int pageNumber, int pageSize, int? orgId = null, string? category = null, string? city = null, string? statusCode = null, string? typeCode = null);
+        Task<ApiResponse<PagedResult<DynamicRow>>> ListAsync(int pageNumber, int pageSize, int? orgId = null, string? category = null, string? city = null, string? statusCode = null, string? typeCode = null, decimal? userLat = null, decimal? userLon = null);
         Task<ApiResponse>                          AddSkillAsync(int projectId, int userId, AddProjectSkillRequest request);
 
         // Sessions
@@ -24,5 +24,11 @@ namespace NGOConnect.Core.Interfaces
 
         // Complete
         Task<ApiResponse>                          CompleteAsync(int projectId, int userId, CompleteProjectRequest request);
+
+        // Cancel
+        Task<ApiResponse>                          CancelAsync(int projectId, int userId, CancelProjectRequest request);
+
+        // Manual attendance override (admin)
+        Task<ApiResponse>                          ManualAttendanceAsync(int markedBy, ManualAttendanceRequest request);
     }
 }

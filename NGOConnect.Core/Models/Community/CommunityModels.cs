@@ -61,4 +61,11 @@ namespace NGOConnect.Core.Models.Community
         [Range(1, int.MaxValue)]
         public int PollOptionId { get; set; }
     }
+
+    public class AddCommentRequest
+    {
+        [Required(ErrorMessage = "Content is required")]
+        [MaxLength(2000)]
+        public string Content { get; set; } = string.Empty;
+    }
 }

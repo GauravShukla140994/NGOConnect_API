@@ -1,48 +1,11 @@
 {
   "info": {
-    "_postman_id": "e2415ef2-8ec4-445b-9dd6-e0a4684f53c4",
-    "name": "NGOConnect API v4.1",
-    "description": "Complete REST API collection for NGOConnect platform v4.1\n\nBase URL: https://api.ngoconnect.app/api/v1\n\n14 Modules | 80+ Endpoints | 100 Stored Procedures | 47 DB Tables\n\nAuthentication: OTP-based login \u2192 JWT Bearer token\n\nSetup:\n1. Run '01 Auth > Send OTP' with your mobile number\n2. Run '01 Auth > Verify OTP' \u2192 copy access_token to collection variable\n3. All authenticated endpoints use {{access_token}} automatically",
-    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    "_postman_id": "cf67ebfb-3b0e-44a5-870c-88ca443951b8",
+    "name": "NGOConnect API v4.3",
+    "description": "Complete REST API collection for NGOConnect platform v4.0\n\nBase URL: https://api.ngoconnect.app/api/v1\n\n14 Modules | 80+ Endpoints | 100 Stored Procedures | 47 DB Tables\n\nAuthentication: OTP-based login → JWT Bearer token\n\nSetup:\n1. Run '01 Auth > Send OTP' with your mobile number\n2. Run '01 Auth > Verify OTP' → copy access_token to collection variable\n3. All authenticated endpoints use {{access_token}} automatically",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "29560704"
   },
-  "auth": {
-    "type": "bearer",
-    "bearer": [
-      {
-        "key": "token",
-        "value": "{{access_token}}",
-        "type": "string"
-      }
-    ]
-  },
-  "variable": [
-    {
-      "key": "base_url",
-      "value": "https://api.ngoconnect.app/api/v1",
-      "type": "string"
-    },
-    {
-      "key": "access_token",
-      "value": "",
-      "type": "string"
-    },
-    {
-      "key": "refresh_token",
-      "value": "",
-      "type": "string"
-    }
-  ],
-  "event": [
-    {
-      "listen": "prerequest",
-      "script": {
-        "exec": [
-          ""
-        ],
-        "type": "text/javascript"
-      }
-    }
-  ],
   "item": [
     {
       "name": "01 Auth",
@@ -58,6 +21,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"recipient\": \"donor@test.com\",\n  \"countryCode\": \"+91\",\n  \"purposeLkpId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/auth/send-otp",
               "host": [
@@ -67,22 +39,40 @@
                 "auth",
                 "send-otp"
               ]
-            },
-            "description": "",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"recipient\": \"9876543210\",\n  \"countryCode\": \"+91\",\n  \"purposeLkpId\": 1\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
             }
           },
           "response": []
         },
         {
           "name": "Verify OTP",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Parse response\r",
+                  "let response = pm.response.json();\r",
+                  "\r",
+                  "if (response.isSuccess === 1 && response.data) {\r",
+                  "\r",
+                  "    // Save Collection Variables\r",
+                  "    pm.environment.set(\"access_token\", response.data.accessToken);\r",
+                  "    // pm.collectionVariables.set(\"refreshToken\", response.data.refreshToken);\r",
+                  "    // pm.collectionVariables.set(\"userId\", response.data.userId);\r",
+                  "    // pm.collectionVariables.set(\"accessTokenExpiry\", response.data.accessTokenExpiry);\r",
+                  "    // pm.collectionVariables.set(\"refreshTokenExpiry\", response.data.refreshTokenExpiry);\r",
+                  "    console.log(\"Access Token saved successfully.\");\r",
+                  "}\r",
+                  "else {\r",
+                  "    console.log(\"Login failed. Token not saved.\");\r",
+                  "}"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
@@ -92,6 +82,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"recipient\": \"donor@test.com\",\n  \"otpCode\": \"175063\",\n  \"purposeLkpId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/auth/verify-otp",
               "host": [
@@ -101,16 +100,6 @@
                 "auth",
                 "verify-otp"
               ]
-            },
-            "description": "",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"recipient\": \"9876543210\",\n  \"otpCode\": \"123456\",\n  \"purposeLkpId\": 1\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
             }
           },
           "response": []
@@ -126,6 +115,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{access_token}}\",\n  \"deviceInfo\": \"Android 14\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/auth/refresh-token",
               "host": [
@@ -135,16 +133,6 @@
                 "auth",
                 "refresh-token"
               ]
-            },
-            "description": "",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"refreshToken\": \"{{refresh_token}}\",\n  \"deviceInfo\": \"Android 14\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
             }
           },
           "response": []
@@ -160,6 +148,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{access_token}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/auth/revoke-token",
               "host": [
@@ -169,22 +166,11 @@
                 "auth",
                 "revoke-token"
               ]
-            },
-            "description": "",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"refreshToken\": \"{{refresh_token}}\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
             }
           },
           "response": []
         }
-      ],
-      "id": "3f195861-6e40-48ca-bf5f-4c0efb186081"
+      ]
     },
     {
       "name": "02 Lookup",
@@ -209,8 +195,7 @@
                 "lookup",
                 "types"
               ]
-            },
-            "description": ""
+            }
           },
           "response": []
         },
@@ -235,8 +220,7 @@
                 "values",
                 "GENDER"
               ]
-            },
-            "description": ""
+            }
           },
           "response": []
         },
@@ -262,13 +246,11 @@
                 "GENDER",
                 "MALE"
               ]
-            },
-            "description": ""
+            }
           },
           "response": []
         }
-      ],
-      "id": "46c0d0ce-1ffe-4fd7-a429-cc97343da58c"
+      ]
     },
     {
       "name": "03 User",
@@ -276,6 +258,16 @@
         {
           "name": "Get My Profile",
           "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
             "method": "GET",
             "header": [
               {
@@ -293,8 +285,13 @@
                 "user",
                 "profile"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Profile",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -304,13 +301,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Update Profile",
-          "request": {
+            },
             "method": "PUT",
             "header": [
               {
@@ -319,6 +310,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Gaurav\",\n  \"lastName\": \"Shukla\",\n  \"bio\": \"Software architect and NGO volunteer\",\n  \"profilePhoto\": \"\",\n  \"dateOfBirth\": \"1985-01-15\",\n  \"genderLkpId\": 1,\n  \"occupation\": \"Project Manager\",\n  \"organisation\": \"TechCorp\",\n  \"volunteerExp\": \"Volunteered with Teach for India 2019-2021\",\n  \"educationLkpId\": 1,\n  \"fieldOfStudy\": \"Computer Science\",\n  \"workExpLkpId\": 1,\n  \"addressLine1\": \"123 Main St\",\n  \"addressLine2\": \"Apt 4\",\n  \"pincode\": \"400001\",\n  \"city\": \"Mumbai\",\n  \"state\": \"Maharashtra\",\n  \"country\": \"India\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/user/profile",
               "host": [
@@ -328,26 +328,6 @@
                 "user",
                 "profile"
               ]
-            },
-            "description": "",
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{access_token}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"firstName\": \"Gaurav\",\n  \"lastName\": \"Shukla\",\n  \"bio\": \"Software architect and NGO volunteer\",\n  \"profilePhoto\": \"\",\n  \"dateOfBirth\": \"1985-01-15\",\n  \"genderLkpId\": 1,\n  \"occupation\": \"Project Manager\",\n  \"organisation\": \"TechCorp\",\n  \"volunteerExp\": \"Volunteered with Teach for India 2019-2021\",\n  \"educationLkpId\": 1,\n  \"fieldOfStudy\": \"Computer Science\",\n  \"workExpLkpId\": 1,\n  \"addressLine1\": \"123 Main St\",\n  \"addressLine2\": \"Apt 4\",\n  \"pincode\": \"400001\",\n  \"city\": \"Mumbai\",\n  \"state\": \"Maharashtra\",\n  \"country\": \"India\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
             }
           },
           "response": []
@@ -373,14 +353,23 @@
                 "profile",
                 "1"
               ]
-            },
-            "description": ""
+            }
           },
           "response": []
         },
         {
           "name": "Update Safety Prefs",
           "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
             "method": "PUT",
             "header": [
               {
@@ -389,6 +378,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"emergVisibilityLkpId\": 1,\n  \"autoShareDurLkpId\": 2,\n  \"allowLocDuringSos\": true,\n  \"allowLocDuringProj\": false,\n  \"emergencyContactName\": \"Jane Doe\",\n  \"emergencyContactPhone\": \"9876543211\",\n  \"emergencyContactRelation\": \"Sister\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/user/safety-prefs",
               "host": [
@@ -398,8 +396,13 @@
                 "user",
                 "safety-prefs"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Save Interests",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -410,21 +413,6 @@
                 }
               ]
             },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"emergVisibilityLkpId\": 1,\n  \"autoShareDurLkpId\": 2,\n  \"allowLocDuringSos\": true,\n  \"allowLocDuringProj\": false,\n  \"emergencyContactName\": \"Jane Doe\",\n  \"emergencyContactPhone\": \"9876543211\",\n  \"emergencyContactRelation\": \"Sister\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Save Interests",
-          "request": {
             "method": "POST",
             "header": [
               {
@@ -433,6 +421,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"interestLkpIds\": [\n    265,\n    266,\n    267\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/user/interests",
               "host": [
@@ -442,8 +439,13 @@
                 "user",
                 "interests"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Upload Document",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -454,21 +456,6 @@
                 }
               ]
             },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"interestLkpIds\": [\n    1,\n    2,\n    3\n  ]\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Upload Document",
-          "request": {
             "method": "POST",
             "header": [
               {
@@ -477,6 +464,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"documentTypeLkpId\": 1,\r\n    \"fileUrl\": \"http://localhost:5000/uploads/user-documents/20260627_1_abc12345_aadhaar.pdf\",\r\n    \"fileName\": \"20260627_1_abc12345_aadhaar.pdf\",\r\n    \"fileSizeKb\": 245\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/user/documents",
               "host": [
@@ -486,8 +482,13 @@
                 "user",
                 "documents"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Skills",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -498,21 +499,6 @@
                 }
               ]
             },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"documentTypeLkpId\": 1,\n  \"fileUrl\": \"http://localhost:5000/uploads/user-documents/20260627_1_abc12345_aadhaar.pdf\",\n  \"fileName\": \"20260627_1_abc12345_aadhaar.pdf\",\n  \"fileSizeKb\": 245\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Get My Skills",
-          "request": {
             "method": "GET",
             "header": [
               {
@@ -530,8 +516,13 @@
                 "user",
                 "skills"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Add Skill",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -541,13 +532,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Add Skill",
-          "request": {
+            },
             "method": "POST",
             "header": [
               {
@@ -556,6 +541,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"skillName\": \"First Aid\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/user/skills",
               "host": [
@@ -565,8 +559,13 @@
                 "user",
                 "skills"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Remove Skill",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -577,21 +576,6 @@
                 }
               ]
             },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"skillName\": \"First Aid\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Remove Skill",
-          "request": {
             "method": "DELETE",
             "header": [
               {
@@ -610,8 +594,13 @@
                 "skills",
                 "1"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Safety Prefs",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -621,13 +610,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Get Safety Prefs",
-          "request": {
+            },
             "method": "GET",
             "header": [],
             "url": {
@@ -638,165 +621,15 @@
               "path": [
                 "user",
                 "safety-prefs"
-              ],
-              "query": []
-            },
-            "description": "Get safety preferences for Edit Profile pre-fill. Returns: emergVisibilityLkpId, emergVisibility, autoShareDurLkpId, autoShareDuration, allowLocDuringSos, allowLocDuringProj, emergencyContactName, emergencyContactPhone, emergencyContactRelation",
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{jwt_token}}",
-                  "type": "string"
-                }
               ]
-            }
-          }
+            },
+            "description": "Get safety preferences for Edit Profile pre-fill. Returns: emergVisibilityLkpId, emergVisibility, autoShareDurLkpId, autoShareDuration, allowLocDuringSos, allowLocDuringProj, emergencyContactName, emergencyContactPhone, emergencyContactRelation"
+          },
+          "response": []
         },
         {
           "name": "Get My Interests",
           "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/user/interests",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "user",
-                "interests"
-              ],
-              "query": []
-            },
-            "description": "Get saved interests for Edit Profile pre-fill. Returns: [{ interestLkpId, interestName, interestCode }]",
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{jwt_token}}",
-                  "type": "string"
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Get My Orgs",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/user/orgs",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "user",
-                "orgs"
-              ],
-              "query": []
-            },
-            "description": "Get all organisations the user is an APPROVED member of (s-my-orgs screen). Returns: [{ orgId, orgName, logoUrl, orgType, city, state, role, roleCode, memberStatusCode, orgStatusCode, memberCount, joinedAt }]",
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{jwt_token}}",
-                  "type": "string"
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Get My Badges",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/user/badges",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "user",
-                "badges"
-              ],
-              "query": []
-            },
-            "description": "Get all earned badges (s-impact screen). Returns: [{ userBadgeId, badgeLkpId, badgeName, badgeCode, orgName, projectName, awardedAt }]",
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{jwt_token}}",
-                  "type": "string"
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Get My Impact",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/user/impact",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "user",
-                "impact"
-              ],
-              "query": []
-            },
-            "description": "Get impact dashboard stats (s-impact screen). Returns: { impactScore, reliabilityPct, projectsCompleted, totalHours, badgeCount, skillCount, projectsApplied, certificateCount, memberSince }",
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{jwt_token}}",
-                  "type": "string"
-                }
-              ]
-            }
-          }
-        }
-      ],
-      "id": "5df7c2dc-b60b-47b0-b042-898ebaaea62b"
-    },
-    {
-      "name": "04 Organisation",
-      "item": [
-        {
-          "name": "Register Organisation",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/org",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "org"
-              ]
-            },
-            "description": "",
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -807,6 +640,135 @@
                 }
               ]
             },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/user/interests",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "user",
+                "interests"
+              ]
+            },
+            "description": "Get saved interests for Edit Profile pre-fill. Returns: [{ interestLkpId, interestName, interestCode }]"
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Orgs",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/user/my-orgs",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "user",
+                "my-orgs"
+              ]
+            },
+            "description": "Get all organisations the user is an APPROVED member of (s-my-orgs screen). Returns: [{ orgId, orgName, logoUrl, orgType, city, state, role, roleCode, memberCount, joinedAt }]"
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Badges",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/user/badges",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "user",
+                "badges"
+              ]
+            },
+            "description": "Get all earned badges (s-impact screen). Returns: [{ userBadgeId, badgeLkpId, badgeName, badgeCode, orgName, projectName, awardedAt }]"
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Impact",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/user/impact",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "user",
+                "impact"
+              ]
+            },
+            "description": "Get impact dashboard stats (s-impact screen). Returns: { impactScore, reliabilityPct, projectsCompleted, totalHours, badgeCount, skillCount, projectsApplied, certificateCount, memberSince }"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "04 Organisation",
+      "item": [
+        {
+          "name": "Register Organisation",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"orgName\": \"Green Earth Foundation\",\n  \"registrationNumber\": \"MH2024NGO001\",\n  \"orgTypeLkpId\": 1,\n  \"category\": \"Environment\",\n  \"contactPerson\": \"Anita Sharma\",\n  \"about\": \"A volunteer-driven NGO focused on urban greening and tree plantation drives.\",\n  \"mission\": \"Make cities greener\",\n  \"vision\": \"Green planet by 2050\",\n  \"logoUrl\": \"https://storage.example.com/logos/org1.png\",\n  \"contactEmail\": \"contact@greenearth.org\",\n  \"contactPhone\": \"+919876543210\",\n  \"website\": \"https://greenearth.org\",\n  \"addressLine1\": \"101 Park Avenue\",\n  \"addressLine2\": \"Near Central Park\",\n  \"pincode\": \"400001\",\n  \"city\": \"Mumbai\",\n  \"state\": \"Maharashtra\",\n  \"country\": \"India\"\n}",
@@ -815,6 +777,15 @@
                   "language": "json"
                 }
               }
+            },
+            "url": {
+              "raw": "{{base_url}}/org",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org"
+              ]
             }
           },
           "response": []
@@ -839,33 +810,13 @@
                 "org",
                 "1"
               ]
-            },
-            "description": ""
+            }
           },
           "response": []
         },
         {
           "name": "Update Org",
           "request": {
-            "method": "PUT",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/org/1",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "org",
-                "1"
-              ]
-            },
-            "description": "",
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -876,6 +827,14 @@
                 }
               ]
             },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"orgName\": \"Green Earth Foundation (Updated)\",\n  \"category\": \"Environment\",\n  \"contactPerson\": \"Rahul Mehta\",\n  \"about\": \"Updated description of the NGO.\",\n  \"mission\": \"Updated mission statement\",\n  \"vision\": \"Updated vision statement\",\n  \"logoUrl\": \"https://storage.example.com/logos/org1_new.png\",\n  \"contactEmail\": \"info@greenearth.org\",\n  \"contactPhone\": \"+919876543211\",\n  \"website\": \"https://greenearth.org\",\n  \"addressLine1\": \"202 Eco Lane\",\n  \"addressLine2\": \"\",\n  \"pincode\": \"400002\",\n  \"city\": \"Mumbai\",\n  \"state\": \"Maharashtra\",\n  \"country\": \"India\"\n}",
@@ -884,6 +843,16 @@
                   "language": "json"
                 }
               }
+            },
+            "url": {
+              "raw": "{{base_url}}/org/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1"
+              ]
             }
           },
           "response": []
@@ -928,14 +897,23 @@
                   "value": "20"
                 }
               ]
-            },
-            "description": ""
+            }
           },
           "response": []
         },
         {
           "name": "Get Members",
           "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
             "method": "GET",
             "header": [
               {
@@ -954,8 +932,13 @@
                 "1",
                 "members"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Add Member",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -965,13 +948,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Add Member",
-          "request": {
+            },
             "method": "POST",
             "header": [
               {
@@ -980,6 +957,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": 2,\n  \"roleLkpId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/org/1/members",
               "host": [
@@ -990,8 +976,13 @@
                 "1",
                 "members"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Remove Member",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -1002,21 +993,6 @@
                 }
               ]
             },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"userId\": 2,\n  \"roleLkpId\": 1\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Remove Member",
-          "request": {
             "method": "DELETE",
             "header": [
               {
@@ -1036,8 +1012,13 @@
                 "members",
                 "2"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Request Membership",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -1047,13 +1028,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Request Membership",
-          "request": {
+            },
             "method": "POST",
             "header": [
               {
@@ -1062,6 +1037,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"I want to join\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/org/1/membership-request",
               "host": [
@@ -1072,8 +1056,13 @@
                 "1",
                 "membership-request"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Review Membership Request",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -1084,21 +1073,6 @@
                 }
               ]
             },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"message\": \"I want to join\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Review Membership Request",
-          "request": {
             "method": "PUT",
             "header": [
               {
@@ -1107,6 +1081,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"membershipRequestId\": 1,\n  \"statusCode\": \"APPROVED\",\n  \"adminNotes\": \"Welcome!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/org/1/membership-request/review",
               "host": [
@@ -1118,8 +1101,13 @@
                 "membership-request",
                 "review"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Pending Members",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -1130,21 +1118,6 @@
                 }
               ]
             },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"membershipRequestId\": 1,\n  \"statusCode\": \"APPROVED\",\n  \"adminNotes\": \"Welcome!\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Get Pending Members",
-          "request": {
             "method": "GET",
             "header": [
               {
@@ -1164,8 +1137,13 @@
                 "members",
                 "pending"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Member Permissions",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -1175,13 +1153,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Update Member Permissions",
-          "request": {
+            },
             "method": "PUT",
             "header": [
               {
@@ -1190,6 +1162,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"memberId\": 2,\n  \"canPost\": true,\n  \"canComment\": true,\n  \"canCommunityPost\": false,\n  \"maxPostsPerDay\": 5,\n  \"locationSharingLkpId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/org/1/members/permissions",
               "host": [
@@ -1201,8 +1182,13 @@
                 "members",
                 "permissions"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Upload Org Document",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -1213,21 +1199,6 @@
                 }
               ]
             },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"memberId\": 2,\n  \"canPost\": true,\n  \"canComment\": true,\n  \"canCommunityPost\": false,\n  \"maxPostsPerDay\": 5,\n  \"locationSharingLkpId\": 1\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Upload Org Document",
-          "request": {
             "method": "POST",
             "header": [
               {
@@ -1236,6 +1207,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"documentTypeLkpId\": 1,\n  \"fileUrl\": \"http://localhost:5000/uploads/org-documents/20260627_1_def67890_regcert.pdf\",\n  \"fileName\": \"20260627_1_def67890_regcert.pdf\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/org/1/documents",
               "host": [
@@ -1246,8 +1226,13 @@
                 "1",
                 "documents"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Org Dashboard",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -1258,21 +1243,6 @@
                 }
               ]
             },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"documentTypeLkpId\": 1,\n  \"fileUrl\": \"http://localhost:5000/uploads/org-documents/20260627_1_def67890_regcert.pdf\",\n  \"fileName\": \"20260627_1_def67890_regcert.pdf\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Get Org Dashboard",
-          "request": {
             "method": "GET",
             "header": [],
             "url": {
@@ -1284,25 +1254,25 @@
                 "org",
                 "1",
                 "dashboard"
-              ],
-              "query": []
+              ]
             },
-            "description": "Admin dashboard KPIs (s-admin screen). Returns: { totalMembers, newMembersThisMonth, activeVolunteers, activeRatePct, volunteerHoursMonth, activeProjects, pendingApplications }",
+            "description": "Admin dashboard KPIs (s-admin screen). Returns: { totalMembers, newMembersThisMonth, activeVolunteers, activeRatePct, volunteerHoursMonth, activeProjects, pendingApplications }"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Recommended Orgs",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{jwt_token}}",
+                  "value": "{{access_token}}",
                   "type": "string"
                 }
               ]
-            }
-          }
-        },
-        {
-          "name": "Get Recommended Orgs",
-          "request": {
+            },
             "method": "GET",
             "header": [],
             "url": {
@@ -1313,29 +1283,29 @@
               "path": [
                 "org",
                 "recommended"
-              ],
-              "query": []
+              ]
             },
-            "description": "Recommended NGOs matched to user interests (s-explore Recommended tab). Returns: [{ orgId, orgName, category, logoUrl, city, state, memberCount, avgRating, latitude, longitude, matchScore }]",
+            "description": "Recommended NGOs matched to user interests (s-explore Recommended tab). Returns: [{ orgId, orgName, category, logoUrl, city, state, memberCount, avgRating, latitude, longitude, matchScore }]"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Trending Campaigns",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{jwt_token}}",
+                  "value": "{{access_token}}",
                   "type": "string"
                 }
               ]
-            }
-          }
-        },
-        {
-          "name": "Get Trending Campaigns",
-          "request": {
+            },
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/org/trending-campaigns",
+              "raw": "{{base_url}}/org/trending-campaigns?pageSize=10",
               "host": [
                 "{{base_url}}"
               ],
@@ -1350,15 +1320,23 @@
                 }
               ]
             },
-            "description": "Trending active campaigns (s-explore Trending tab). Returns: [{ campaignId, campaignName, orgName, orgLogoUrl, raisedAmount, targetAmount, donorCount, progressPct, endDate, isEmergency }]",
-            "auth": {
-              "type": "noauth"
-            }
-          }
+            "description": "Trending active campaigns (s-explore Trending tab). Returns: [{ campaignId, campaignName, orgName, orgLogoUrl, raisedAmount, targetAmount, donorCount, progressPct, endDate, isEmergency }]"
+          },
+          "response": []
         },
         {
           "name": "Get Donation Dashboard",
           "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
             "method": "GET",
             "header": [],
             "url": {
@@ -1370,25 +1348,25 @@
                 "org",
                 "1",
                 "donation-dashboard"
-              ],
-              "query": []
+              ]
             },
-            "description": "Donation KPIs for admin (s-admin-donations screen). Returns: { totalRaisedAllTime, thisMonthRaised, lastMonthRaised, todayRaised, todayTransactionCount, recurringMonthlyAmount, activeRecurringDonors, totalCampaigns, activeCampaigns }",
+            "description": "Donation KPIs for admin (s-admin-donations screen). Returns: { totalRaisedAllTime, thisMonthRaised, lastMonthRaised, todayRaised, todayTransactionCount, recurringMonthlyAmount, activeRecurringDonors, totalCampaigns, activeCampaigns }"
+          },
+          "response": []
+        },
+        {
+          "name": "Update Member Role",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{jwt_token}}",
+                  "value": "{{access_token}}",
                   "type": "string"
                 }
               ]
-            }
-          }
-        },
-        {
-          "name": "Update Member Role",
-          "request": {
+            },
             "method": "PUT",
             "header": [
               {
@@ -1417,22 +1395,23 @@
                 "role"
               ]
             },
-            "description": "Change a member's role (s-admin-vols screen). roleLkpId from LookupType: MEMBER_ROLE",
+            "description": "Change a member's role (s-admin-vols screen). roleLkpId from LookupType: MEMBER_ROLE"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Volunteer Profile (Admin)",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{jwt_token}}",
+                  "value": "{{access_token}}",
                   "type": "string"
                 }
               ]
-            }
-          }
-        },
-        {
-          "name": "Get Volunteer Profile (Admin)",
-          "request": {
+            },
             "method": "GET",
             "header": [],
             "url": {
@@ -1445,25 +1424,25 @@
                 "1",
                 "volunteers",
                 "2"
-              ],
-              "query": []
+              ]
             },
-            "description": "Admin view of volunteer (s-vol-profile screen). Includes reliability score. Returns: { userId, fullName, city, occupation, profilePhoto, totalHours, projectCount, orgCount, reliabilityPct, avgRating, peerRating, noShowCount, excusedCount, complaintCount, roleCode, roleName, statusCode, statusName, joinedAt }",
+            "description": "Admin view of volunteer (s-vol-profile screen). Includes reliability score. Returns: { userId, fullName, city, occupation, profilePhoto, totalHours, projectCount, orgCount, reliabilityPct, avgRating, peerRating, noShowCount, excusedCount, complaintCount, roleCode, roleName, statusCode, statusName, joinedAt }"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Member Impact (Admin)",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{jwt_token}}",
+                  "value": "{{access_token}}",
                   "type": "string"
                 }
               ]
-            }
-          }
-        },
-        {
-          "name": "Get Member Impact (Admin)",
-          "request": {
+            },
             "method": "GET",
             "header": [],
             "url": {
@@ -1477,25 +1456,25 @@
                 "members",
                 "2",
                 "impact"
-              ],
-              "query": []
+              ]
             },
-            "description": "Admin view of member impact (s-member-impact screen). Returns: { userId, fullName, occupation, city, roleName, impactScore, reliabilityPct, totalHours, projectCount, orgCount, badgeCount, noShowCount, complaintCount }",
+            "description": "Admin view of member impact (s-member-impact screen). Returns: { userId, fullName, occupation, city, roleName, impactScore, reliabilityPct, totalHours, projectCount, orgCount, badgeCount, noShowCount, complaintCount }"
+          },
+          "response": []
+        },
+        {
+          "name": "Award Badge to Volunteer",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{jwt_token}}",
+                  "value": "{{access_token}}",
                   "type": "string"
                 }
               ]
-            }
-          }
-        },
-        {
-          "name": "Award Badge to Volunteer",
-          "request": {
+            },
             "method": "POST",
             "header": [
               {
@@ -1523,22 +1502,23 @@
                 "badges"
               ]
             },
-            "description": "Award a badge to a volunteer (s-vol-profile / s-participants screens). badgeLkpId from LookupType: BADGE_TYPE",
+            "description": "Award a badge to a volunteer (s-vol-profile / s-participants screens). badgeLkpId from LookupType: BADGE_TYPE"
+          },
+          "response": []
+        },
+        {
+          "name": "Excuse No-Show",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{jwt_token}}",
+                  "value": "{{access_token}}",
                   "type": "string"
                 }
               ]
-            }
-          }
-        },
-        {
-          "name": "Excuse No-Show",
-          "request": {
+            },
             "method": "POST",
             "header": [
               {
@@ -1567,26 +1547,27 @@
                 "excuse"
               ]
             },
-            "description": "Mark a no-show as excused so it doesn't penalise reliability score (s-participants screen)",
+            "description": "Mark a no-show as excused so it doesn't penalise reliability score (s-participants screen)"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Donors (Admin)",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{jwt_token}}",
+                  "value": "{{access_token}}",
                   "type": "string"
                 }
               ]
-            }
-          }
-        },
-        {
-          "name": "Get Donors (Admin)",
-          "request": {
+            },
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/org/1/donors",
+              "raw": "{{base_url}}/org/1/donors?tab=ALL&pageNumber=1&pageSize=20",
               "host": [
                 "{{base_url}}"
               ],
@@ -1611,26 +1592,27 @@
                 }
               ]
             },
-            "description": "Paginated donor list (s-admin-donors screen). Returns: [{ userId, fullName, email, phone, totalDonated, donationCount, lastDonatedAt, isAnonymous, isRecurring }]",
+            "description": "Paginated donor list (s-admin-donors screen). Returns: [{ userId, fullName, email, phone, totalDonated, donationCount, lastDonatedAt, isAnonymous, isRecurring }]"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Transactions (Admin)",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{jwt_token}}",
+                  "value": "{{access_token}}",
                   "type": "string"
                 }
               ]
-            }
-          }
-        },
-        {
-          "name": "Get Transactions (Admin)",
-          "request": {
+            },
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/org/1/transactions",
+              "raw": "{{base_url}}/org/1/transactions?statusCode=&pageNumber=1&pageSize=20",
               "host": [
                 "{{base_url}}"
               ],
@@ -1655,21 +1637,11 @@
                 }
               ]
             },
-            "description": "Paginated transaction list (s-admin-transactions screen). Returns: [{ transactionId, readableId, donorName, amount, netAmount, campaignName, statusCode, statusName, paymentMethod, createdAt, isAnonymous }]",
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{jwt_token}}",
-                  "type": "string"
-                }
-              ]
-            }
-          }
+            "description": "Paginated transaction list (s-admin-transactions screen). Returns: [{ transactionId, readableId, donorName, amount, netAmount, campaignName, statusCode, statusName, paymentMethod, createdAt, isAnonymous }]"
+          },
+          "response": []
         }
-      ],
-      "id": "79023253-165e-4a6a-bfba-824f3c6222dc"
+      ]
     },
     {
       "name": "05 Project",
@@ -1677,24 +1649,6 @@
         {
           "name": "Create Project",
           "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/project",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "project"
-              ]
-            },
-            "description": "",
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -1705,6 +1659,14 @@
                 }
               ]
             },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"orgId\": 1,\n  \"title\": \"Beach Clean-up Drive\",\n  \"description\": \"Monthly beach clean-up\",\n  \"projectTypeLkpId\": 1,\n  \"joinTypeLkpId\": 1,\n  \"maxVolunteers\": 50,\n  \"minAge\": 18,\n  \"maxAge\": 60,\n  \"isPublic\": true,\n  \"startDate\": \"2026-07-01\",\n  \"endDate\": \"2026-12-31\",\n  \"scheduleType\": \"RECURRING\",\n  \"recurrenceDays\": \"SAT,SUN\",\n  \"startTime\": \"08:00\",\n  \"endTime\": \"12:00\",\n  \"durationMinutes\": 240,\n  \"locationTypeLkpId\": 1,\n  \"locationName\": \"Juhu Beach\",\n  \"address\": \"Juhu, Mumbai\",\n  \"latitude\": 19.099,\n  \"longitude\": 72.8267,\n  \"meetingLink\": \"\",\n  \"genderRestriction\": \"ALL\",\n  \"requiresApproval\": false,\n  \"coverImageUrl\": \"\",\n  \"city\": \"Mumbai\",\n  \"state\": \"Maharashtra\"\n}",
@@ -1713,6 +1675,15 @@
                   "language": "json"
                 }
               }
+            },
+            "url": {
+              "raw": "{{base_url}}/project",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "project"
+              ]
             }
           },
           "response": []
@@ -1737,33 +1708,13 @@
                 "project",
                 "1"
               ]
-            },
-            "description": ""
+            }
           },
           "response": []
         },
         {
           "name": "Update Project",
           "request": {
-            "method": "PUT",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/project/1",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "project",
-                "1"
-              ]
-            },
-            "description": "",
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -1774,6 +1725,14 @@
                 }
               ]
             },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"orgId\": 1,\n  \"title\": \"Beach Clean-up Drive v2\",\n  \"description\": \"Updated desc\",\n  \"projectTypeLkpId\": 1,\n  \"joinTypeLkpId\": 1,\n  \"maxVolunteers\": 60,\n  \"minAge\": 18,\n  \"maxAge\": 60,\n  \"isPublic\": true,\n  \"startDate\": \"2026-07-01\",\n  \"endDate\": \"2026-12-31\",\n  \"scheduleType\": \"RECURRING\",\n  \"recurrenceDays\": \"SAT,SUN\",\n  \"startTime\": \"08:00\",\n  \"endTime\": \"12:00\",\n  \"durationMinutes\": 240,\n  \"locationTypeLkpId\": 1,\n  \"locationName\": \"Juhu Beach\",\n  \"address\": \"Juhu, Mumbai\",\n  \"latitude\": 19.099,\n  \"longitude\": 72.8267,\n  \"meetingLink\": \"\",\n  \"genderRestriction\": \"ALL\",\n  \"requiresApproval\": false,\n  \"coverImageUrl\": \"\",\n  \"city\": \"Mumbai\",\n  \"state\": \"Maharashtra\"\n}",
@@ -1782,6 +1741,16 @@
                   "language": "json"
                 }
               }
+            },
+            "url": {
+              "raw": "{{base_url}}/project/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "project",
+                "1"
+              ]
             }
           },
           "response": []
@@ -1828,14 +1797,23 @@
                   "value": "20"
                 }
               ]
-            },
-            "description": ""
+            }
           },
           "response": []
         },
         {
           "name": "Add Skill Requirement",
           "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
             "method": "POST",
             "header": [
               {
@@ -1844,6 +1822,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"skillName\": \"Swimming\",\n  \"isRequired\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/project/1/skills",
               "host": [
@@ -1854,8 +1841,13 @@
                 "1",
                 "skills"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Session",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -1866,21 +1858,6 @@
                 }
               ]
             },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"skillName\": \"Swimming\",\n  \"isRequired\": false\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Create Session",
-          "request": {
             "method": "POST",
             "header": [
               {
@@ -1889,6 +1866,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionDate\": \"2026-07-05\",\n  \"startTime\": \"08:00\",\n  \"endTime\": \"12:00\",\n  \"maxVolunteers\": 50\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/project/1/sessions",
               "host": [
@@ -1899,26 +1885,6 @@
                 "1",
                 "sessions"
               ]
-            },
-            "description": "",
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{access_token}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"sessionDate\": \"2026-07-05\",\n  \"startTime\": \"08:00\",\n  \"endTime\": \"12:00\",\n  \"maxVolunteers\": 50\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
             }
           },
           "response": []
@@ -1944,14 +1910,23 @@
                 "1",
                 "sessions"
               ]
-            },
-            "description": ""
+            }
           },
           "response": []
         },
         {
           "name": "Get Session QR",
           "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
             "method": "GET",
             "header": [
               {
@@ -1972,8 +1947,13 @@
                 "1",
                 "qr"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "QR Check-In",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -1983,13 +1963,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "QR Check-In",
-          "request": {
+            },
             "method": "POST",
             "header": [
               {
@@ -1998,6 +1972,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"qrToken\": \"abc123token\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/project/1/sessions/checkin",
               "host": [
@@ -2009,8 +1992,13 @@
                 "sessions",
                 "checkin"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Apply to Project",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -2021,21 +2009,6 @@
                 }
               ]
             },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"qrToken\": \"abc123token\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Apply to Project",
-          "request": {
             "method": "POST",
             "header": [
               {
@@ -2054,8 +2027,13 @@
                 "1",
                 "apply"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Review Application",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -2065,13 +2043,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Review Application",
-          "request": {
+            },
             "method": "PUT",
             "header": [
               {
@@ -2080,6 +2052,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"applicationId\": 1,\n  \"statusCode\": \"APPROVED\",\n  \"adminNotes\": \"Welcome!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/project/1/applications/review",
               "host": [
@@ -2091,8 +2072,13 @@
                 "applications",
                 "review"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Applications",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -2103,21 +2089,6 @@
                 }
               ]
             },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"applicationId\": 1,\n  \"statusCode\": \"APPROVED\",\n  \"adminNotes\": \"Welcome!\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Get Applications",
-          "request": {
             "method": "GET",
             "header": [
               {
@@ -2150,8 +2121,13 @@
                   "value": "20"
                 }
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Complete Project",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -2161,13 +2137,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Complete Project",
-          "request": {
+            },
             "method": "POST",
             "header": [
               {
@@ -2176,6 +2146,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"completionNotes\": \"Successfully completed with 45 volunteers\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/project/1/complete",
               "host": [
@@ -2186,8 +2165,18 @@
                 "1",
                 "complete"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "06 Post / Feed",
+      "item": [
+        {
+          "name": "Create Post",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -2198,27 +2187,6 @@
                 }
               ]
             },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"completionNotes\": \"Successfully completed with 45 volunteers\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        }
-      ],
-      "id": "21802cb1-e426-4196-bb8f-165ca5bab58a"
-    },
-    {
-      "name": "06 Post / Feed",
-      "item": [
-        {
-          "name": "Create Post",
-          "request": {
             "method": "POST",
             "header": [
               {
@@ -2227,6 +2195,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"We just completed a beach clean-up!\",\n  \"orgId\": 1,\n  \"mediaUrls\": [\n    \"https://cdn.example.com/photo1.jpg\"\n  ],\n  \"postTypeLkpId\": 1,\n  \"visibilityLkpId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/post",
               "host": [
@@ -2235,8 +2212,13 @@
               "path": [
                 "post"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Feed",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -2247,21 +2229,6 @@
                 }
               ]
             },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"content\": \"We just completed a beach clean-up!\",\n  \"orgId\": 1,\n  \"mediaUrls\": [\n    \"https://cdn.example.com/photo1.jpg\"\n  ],\n  \"postTypeLkpId\": 1,\n  \"visibilityLkpId\": 1\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Get Feed",
-          "request": {
             "method": "GET",
             "header": [
               {
@@ -2288,17 +2255,6 @@
                   "value": "20"
                 }
               ]
-            },
-            "description": "",
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{access_token}}",
-                  "type": "string"
-                }
-              ]
             }
           },
           "response": []
@@ -2323,14 +2279,23 @@
                 "post",
                 "1"
               ]
-            },
-            "description": ""
+            }
           },
           "response": []
         },
         {
           "name": "Delete Post",
           "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
             "method": "DELETE",
             "header": [
               {
@@ -2348,8 +2313,13 @@
                 "post",
                 "1"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Pin Post",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -2359,13 +2329,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Pin Post",
-          "request": {
+            },
             "method": "POST",
             "header": [
               {
@@ -2384,8 +2348,13 @@
                 "1",
                 "pin"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Like Post",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -2395,13 +2364,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Like Post",
-          "request": {
+            },
             "method": "POST",
             "header": [
               {
@@ -2420,8 +2383,13 @@
                 "1",
                 "like"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Unlike Post",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -2431,13 +2399,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Unlike Post",
-          "request": {
+            },
             "method": "DELETE",
             "header": [
               {
@@ -2456,8 +2418,13 @@
                 "1",
                 "like"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Add Comment",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -2467,13 +2434,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Add Comment",
-          "request": {
+            },
             "method": "POST",
             "header": [
               {
@@ -2482,6 +2443,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Great work!\",\n  \"parentCommentId\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/post/1/comments",
               "host": [
@@ -2492,26 +2462,6 @@
                 "1",
                 "comments"
               ]
-            },
-            "description": "",
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{access_token}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"content\": \"Great work!\",\n  \"parentCommentId\": null\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
             }
           },
           "response": []
@@ -2547,14 +2497,23 @@
                   "value": "20"
                 }
               ]
-            },
-            "description": ""
+            }
           },
           "response": []
         },
         {
           "name": "Report Post",
           "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
             "method": "POST",
             "header": [
               {
@@ -2563,6 +2522,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reasonLkpId\": 1,\n  \"details\": \"Inappropriate content\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/post/1/report",
               "host": [
@@ -2573,8 +2541,18 @@
                 "1",
                 "report"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "07 Community",
+      "item": [
+        {
+          "name": "Create Discussion",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -2585,27 +2563,6 @@
                 }
               ]
             },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"reasonLkpId\": 1,\n  \"details\": \"Inappropriate content\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        }
-      ],
-      "id": "37d00f72-2a3d-49cd-afb4-683630cb4081"
-    },
-    {
-      "name": "07 Community",
-      "item": [
-        {
-          "name": "Create Discussion",
-          "request": {
             "method": "POST",
             "header": [
               {
@@ -2614,6 +2571,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orgId\": 1,\n  \"title\": \"Important Announcement\",\n  \"content\": \"Please attend the meeting on Saturday\",\n  \"postTypeLkpId\": 1,\n  \"audienceLkpId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/community/post",
               "host": [
@@ -2623,26 +2589,6 @@
                 "community",
                 "post"
               ]
-            },
-            "description": "",
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{access_token}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"orgId\": 1,\n  \"title\": \"Important Announcement\",\n  \"content\": \"Please attend the meeting on Saturday\",\n  \"postTypeLkpId\": 1,\n  \"audienceLkpId\": 1\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
             }
           },
           "response": []
@@ -2682,13 +2628,32 @@
                 }
               ]
             },
-            "description": ""
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
           },
           "response": []
         },
         {
           "name": "Acknowledge Post",
           "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
             "method": "POST",
             "header": [
               {
@@ -2708,8 +2673,13 @@
                 "1",
                 "acknowledge"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Poll",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -2719,13 +2689,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Create Poll",
-          "request": {
+            },
             "method": "POST",
             "header": [
               {
@@ -2734,6 +2698,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orgId\": 1,\n  \"question\": \"When should we hold the next event?\",\n  \"options\": [\n    \"Saturday\",\n    \"Sunday\",\n    \"Weekday\"\n  ],\n  \"expiresInHours\": 48\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/community/poll",
               "host": [
@@ -2743,8 +2716,13 @@
                 "community",
                 "poll"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Vote on Poll",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -2755,21 +2733,6 @@
                 }
               ]
             },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"orgId\": 1,\n  \"question\": \"When should we hold the next event?\",\n  \"options\": [\n    \"Saturday\",\n    \"Sunday\",\n    \"Weekday\"\n  ],\n  \"expiresInHours\": 48\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Vote on Poll",
-          "request": {
             "method": "POST",
             "header": [
               {
@@ -2778,6 +2741,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pollOptionId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/community/poll/1/vote",
               "host": [
@@ -2789,38 +2761,12 @@
                 "1",
                 "vote"
               ]
-            },
-            "description": "",
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{access_token}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"pollOptionId\": 1\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
             }
           },
           "response": []
-        }
-      ],
-      "id": "b9d118cd-d17d-435b-9023-fe69fbd579d0"
-    },
-    {
-      "name": "08 SOS",
-      "item": [
+        },
         {
-          "name": "Trigger SOS",
+          "name": "Add Comment",
           "request": {
             "method": "POST",
             "header": [
@@ -2831,15 +2777,18 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/sos",
+              "raw": "{{base_url}}/community/post/{{postId}}/comment",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "sos"
+                "community",
+                "post",
+                "{{postId}}",
+                "comment"
               ]
             },
-            "description": "",
+            "description": "v4.2 — Add a comment to a community post. Increments post CommentCount. Returns { communityCommentId: int }.",
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -2852,7 +2801,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"latitude\": 19.076,\n  \"longitude\": 72.8777,\n  \"description\": \"Need immediate help!\",\n  \"alertTypeLkpId\": 1\n}",
+              "raw": "{\n  \"content\": \"Great initiative! Count me in.\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2863,8 +2812,176 @@
           "response": []
         },
         {
+          "name": "Get Comments",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/community/post/{{postId}}/comments",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "community",
+                "post",
+                "{{postId}}",
+                "comments"
+              ]
+            },
+            "description": "v4.2 — Get all comments on a community post. Returns CommunityComment[] with authorName, likeCount, isLiked, timeAgo.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Like Comment (toggle)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/community/comment/{{commentId}}/like",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "community",
+                "comment",
+                "{{commentId}}",
+                "like"
+              ]
+            },
+            "description": "v4.2 — Toggle like on a comment. Returns { isLiked: bool, likeCount: int }. No body required.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Like Post (toggle)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/community/post/{{postId}}/like",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "community",
+                "post",
+                "{{postId}}",
+                "like"
+              ]
+            },
+            "description": "v4.2 — Toggle like on a community post. Returns { isLiked: bool, likeCount: int }. No body required.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "08 SOS",
+      "item": [
+        {
+          "name": "Trigger SOS",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": 19.076,\n  \"longitude\": 72.8777,\n  \"description\": \"Need immediate help!\",\n  \"alertTypeLkpId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/sos",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "sos"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
           "name": "Get Active Incidents",
           "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
             "method": "GET",
             "header": [
               {
@@ -2888,8 +3005,13 @@
                   "value": "1"
                 }
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Incident Details",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -2899,13 +3021,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Get Incident Details",
-          "request": {
+            },
             "method": "GET",
             "header": [
               {
@@ -2923,8 +3039,13 @@
                 "sos",
                 "1"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Respond to SOS",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -2934,13 +3055,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Respond to SOS",
-          "request": {
+            },
             "method": "POST",
             "header": [
               {
@@ -2959,8 +3074,13 @@
                 "1",
                 "respond"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Approve Responder",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -2970,13 +3090,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Approve Responder",
-          "request": {
+            },
             "method": "PUT",
             "header": [
               {
@@ -2985,6 +3099,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"responderId\": 2,\n  \"canViewLocation\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/sos/1/approve-responder",
               "host": [
@@ -2995,8 +3118,13 @@
                 "1",
                 "approve-responder"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Resolve SOS",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -3007,21 +3135,6 @@
                 }
               ]
             },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"responderId\": 2,\n  \"canViewLocation\": true\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Resolve SOS",
-          "request": {
             "method": "PUT",
             "header": [
               {
@@ -3030,6 +3143,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"resolvedByLkpId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/sos/1/resolve",
               "host": [
@@ -3040,8 +3162,13 @@
                 "1",
                 "resolve"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel SOS",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -3052,21 +3179,6 @@
                 }
               ]
             },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"resolvedByLkpId\": 1\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Cancel SOS",
-          "request": {
             "method": "PUT",
             "header": [
               {
@@ -3075,6 +3187,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cancelReason\": \"False alarm\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/sos/1/cancel",
               "host": [
@@ -3085,8 +3206,13 @@
                 "1",
                 "cancel"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Latest Location",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -3097,21 +3223,6 @@
                 }
               ]
             },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"cancelReason\": \"False alarm\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Get Latest Location",
-          "request": {
             "method": "GET",
             "header": [
               {
@@ -3130,8 +3241,121 @@
                 "1",
                 "location"
               ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Location",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
             },
-            "description": "",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": 19.0761,\n  \"longitude\": 72.8778,\n  \"accuracy\": 5.0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/sos/1/location",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "sos",
+                "1",
+                "location"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Decline Responder",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/sos/1/decline-responder",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "sos",
+                "1",
+                "decline-responder"
+              ]
+            },
+            "description": "Victim declines a pending responder. Only the SOS creator can call this. SP: Sos_DeclineResponder. v4.3 NEW.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sosResponderId\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Active SOS",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/sos/my-active",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "sos",
+                "my-active"
+              ]
+            },
+            "description": "v4.2 — Returns the calling user's own active SOS incident (2 result sets: incident + responders). Used by SosActiveScreen on app launch to resume an in-progress incident.",
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -3146,28 +3370,54 @@
           "response": []
         },
         {
-          "name": "Update Location",
+          "name": "Get Org SOS Alerts",
           "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "type": "text"
-              }
-            ],
+            "method": "GET",
+            "header": [],
             "url": {
-              "raw": "{{base_url}}/sos/1/location",
+              "raw": "{{base_url}}/sos/org-alerts?orgId=1&limit=20",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "sos",
-                "1",
-                "location"
+                "org-alerts"
+              ],
+              "query": [
+                {
+                  "key": "orgId",
+                  "value": "1",
+                  "description": "Organisation ID"
+                },
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "description": "Max records to return (default 20)"
+                }
               ]
             },
-            "description": "",
+            "description": "Get all SOS incidents for an organisation (active + resolved + cancelled). Returns myApprovalStatus for the authenticated user. SP: Sos_GetOrgAlerts. v4.3 NEW.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "09 Donation",
+      "item": [
+        {
+          "name": "Create Campaign",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -3178,27 +3428,6 @@
                 }
               ]
             },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"latitude\": 19.0761,\n  \"longitude\": 72.8778,\n  \"accuracy\": 5.0\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        }
-      ],
-      "id": "5c5430a9-e875-49b1-96b6-4ddc9e59ad5f"
-    },
-    {
-      "name": "09 Donation",
-      "item": [
-        {
-          "name": "Create Campaign",
-          "request": {
             "method": "POST",
             "header": [
               {
@@ -3207,6 +3436,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orgId\": 1,\n  \"title\": \"Flood Relief 2026\",\n  \"description\": \"Help flood victims in Kerala\",\n  \"goalAmount\": 500000,\n  \"startDate\": \"2026-07-01\",\n  \"endDate\": \"2026-09-30\",\n  \"bannerUrl\": \"\",\n  \"campaignTypeLkpId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/donation/campaigns",
               "host": [
@@ -3216,26 +3454,6 @@
                 "donation",
                 "campaigns"
               ]
-            },
-            "description": "",
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{access_token}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"orgId\": 1,\n  \"title\": \"Flood Relief 2026\",\n  \"description\": \"Help flood victims in Kerala\",\n  \"goalAmount\": 500000,\n  \"startDate\": \"2026-07-01\",\n  \"endDate\": \"2026-09-30\",\n  \"bannerUrl\": \"\",\n  \"campaignTypeLkpId\": 1\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
             }
           },
           "response": []
@@ -3278,8 +3496,7 @@
                   "value": "20"
                 }
               ]
-            },
-            "description": ""
+            }
           },
           "response": []
         },
@@ -3304,8 +3521,7 @@
                 "campaigns",
                 "1"
               ]
-            },
-            "description": ""
+            }
           },
           "response": []
         },
@@ -3331,14 +3547,23 @@
                 "1",
                 "donors"
               ]
-            },
-            "description": ""
+            }
           },
           "response": []
         },
         {
           "name": "Initiate Donation",
           "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
             "method": "POST",
             "header": [
               {
@@ -3347,6 +3572,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"campaignId\": 1,\n  \"amount\": 1000,\n  \"note\": \"Happy to help\",\n  \"isAnonymous\": false,\n  \"payMethodLkpId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/donation/donate",
               "host": [
@@ -3356,8 +3590,13 @@
                 "donation",
                 "donate"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Confirm Payment",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -3368,21 +3607,6 @@
                 }
               ]
             },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"campaignId\": 1,\n  \"amount\": 1000,\n  \"note\": \"Happy to help\",\n  \"isAnonymous\": false,\n  \"payMethodLkpId\": 1\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Confirm Payment",
-          "request": {
             "method": "POST",
             "header": [
               {
@@ -3391,6 +3615,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"donationRef\": \"DON-2026-000001\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/donation/confirm-payment",
               "host": [
@@ -3400,8 +3633,13 @@
                 "donation",
                 "confirm-payment"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Donation History",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -3412,21 +3650,6 @@
                 }
               ]
             },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"donationRef\": \"DON-2026-000001\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Get Donation History",
-          "request": {
             "method": "GET",
             "header": [
               {
@@ -3454,8 +3677,13 @@
                   "value": "20"
                 }
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get 80G Receipt",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -3465,13 +3693,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Get 80G Receipt",
-          "request": {
+            },
             "method": "GET",
             "header": [
               {
@@ -3490,8 +3712,13 @@
                 "receipts",
                 "1"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Setup Recurring",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -3501,13 +3728,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Setup Recurring",
-          "request": {
+            },
             "method": "POST",
             "header": [
               {
@@ -3516,6 +3737,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orgId\": 1,\n  \"campaignId\": 1,\n  \"amount\": 500,\n  \"frequencyLkpId\": 1,\n  \"startDate\": \"2026-07-01\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/donation/recurring",
               "host": [
@@ -3525,8 +3755,13 @@
                 "donation",
                 "recurring"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Pause Recurring",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -3537,21 +3772,6 @@
                 }
               ]
             },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"orgId\": 1,\n  \"campaignId\": 1,\n  \"amount\": 500,\n  \"frequencyLkpId\": 1,\n  \"startDate\": \"2026-07-01\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Pause Recurring",
-          "request": {
             "method": "PUT",
             "header": [
               {
@@ -3571,8 +3791,13 @@
                 "1",
                 "pause"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Resume Recurring",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -3582,13 +3807,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Resume Recurring",
-          "request": {
+            },
             "method": "PUT",
             "header": [
               {
@@ -3608,8 +3827,13 @@
                 "1",
                 "resume"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel Recurring",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -3619,13 +3843,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Cancel Recurring",
-          "request": {
+            },
             "method": "DELETE",
             "header": [
               {
@@ -3644,8 +3862,13 @@
                 "recurring",
                 "1"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Annual Summary",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -3655,13 +3878,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Annual Summary",
-          "request": {
+            },
             "method": "GET",
             "header": [
               {
@@ -3685,8 +3902,13 @@
                   "value": "2026"
                 }
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Supported NGOs",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -3696,13 +3918,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Supported NGOs",
-          "request": {
+            },
             "method": "GET",
             "header": [
               {
@@ -3720,8 +3936,13 @@
                 "donation",
                 "supported-ngos"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Org Transactions",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -3731,13 +3952,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Org Transactions",
-          "request": {
+            },
             "method": "GET",
             "header": [
               {
@@ -3767,8 +3982,18 @@
                   "value": "20"
                 }
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "10 Withdrawal",
+      "item": [
+        {
+          "name": "Request Withdrawal",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -3778,19 +4003,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        }
-      ],
-      "id": "1b50cc42-33bf-4b4b-ac67-2c66c7d0e61a"
-    },
-    {
-      "name": "10 Withdrawal",
-      "item": [
-        {
-          "name": "Request Withdrawal",
-          "request": {
+            },
             "method": "POST",
             "header": [
               {
@@ -3799,6 +4012,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"campaignId\": 1,\n  \"amount\": 50000,\n  \"bankAccount\": \"123456789012\",\n  \"ifscCode\": \"HDFC0001234\",\n  \"accountHolder\": \"Green Future NGO\",\n  \"purpose\": \"Program expenses\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/withdrawal/org/1",
               "host": [
@@ -3809,8 +4031,13 @@
                 "org",
                 "1"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Org Withdrawals",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -3821,21 +4048,6 @@
                 }
               ]
             },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"campaignId\": 1,\n  \"amount\": 50000,\n  \"bankAccount\": \"123456789012\",\n  \"ifscCode\": \"HDFC0001234\",\n  \"accountHolder\": \"Green Future NGO\",\n  \"purpose\": \"Program expenses\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Get Org Withdrawals",
-          "request": {
             "method": "GET",
             "header": [
               {
@@ -3864,8 +4076,13 @@
                   "value": "20"
                 }
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Admin Review Withdrawal",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -3875,13 +4092,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Admin Review Withdrawal",
-          "request": {
+            },
             "method": "PUT",
             "header": [
               {
@@ -3890,6 +4101,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"withdrawalId\": 1,\n  \"statusCode\": \"APPROVED\",\n  \"adminNotes\": \"Verified and approved\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/withdrawal/admin-review",
               "host": [
@@ -3899,8 +4119,18 @@
                 "withdrawal",
                 "admin-review"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "11 Notification",
+      "item": [
+        {
+          "name": "Get Notifications",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -3911,27 +4141,6 @@
                 }
               ]
             },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"withdrawalId\": 1,\n  \"statusCode\": \"APPROVED\",\n  \"adminNotes\": \"Verified and approved\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        }
-      ],
-      "id": "b6531276-578e-494a-9815-0373b0e09f1e"
-    },
-    {
-      "name": "11 Notification",
-      "item": [
-        {
-          "name": "Get Notifications",
-          "request": {
             "method": "GET",
             "header": [
               {
@@ -3962,8 +4171,13 @@
                   "value": "20"
                 }
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Unread Count",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -3973,13 +4187,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Get Unread Count",
-          "request": {
+            },
             "method": "GET",
             "header": [
               {
@@ -3997,8 +4205,13 @@
                 "notifications",
                 "unread-count"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Mark Read",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -4008,13 +4221,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Mark Read",
-          "request": {
+            },
             "method": "PUT",
             "header": [
               {
@@ -4033,8 +4240,13 @@
                 "1",
                 "read"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Mark All Read",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -4044,13 +4256,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Mark All Read",
-          "request": {
+            },
             "method": "PUT",
             "header": [
               {
@@ -4068,8 +4274,13 @@
                 "notifications",
                 "read-all"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Register Device Token",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -4079,13 +4290,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Register Device Token",
-          "request": {
+            },
             "method": "POST",
             "header": [
               {
@@ -4094,6 +4299,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"fcm-device-token-here\",\n  \"platform\": \"android\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/notifications/device-token",
               "host": [
@@ -4103,8 +4317,18 @@
                 "notifications",
                 "device-token"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "12 Certificates, Badges & Skills",
+      "item": [
+        {
+          "name": "Get My Certificates",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -4115,27 +4339,6 @@
                 }
               ]
             },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"token\": \"fcm-device-token-here\",\n  \"platform\": \"android\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        }
-      ],
-      "id": "0565233c-45e3-4391-9d1f-82af61deee83"
-    },
-    {
-      "name": "12 Certificates, Badges & Skills",
-      "item": [
-        {
-          "name": "Get My Certificates",
-          "request": {
             "method": "GET",
             "header": [
               {
@@ -4152,8 +4355,13 @@
               "path": [
                 "certificates"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get User Certificates",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -4163,13 +4371,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Get User Certificates",
-          "request": {
+            },
             "method": "GET",
             "header": [
               {
@@ -4188,8 +4390,13 @@
                 "1",
                 "certificates"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Rate Skill",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -4199,13 +4406,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Rate Skill",
-          "request": {
+            },
             "method": "POST",
             "header": [
               {
@@ -4214,6 +4415,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ratedUserId\": 2,\n  \"userSkillId\": 1,\n  \"rating\": 5,\n  \"review\": \"Excellent first aid skills\",\n  \"projectId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/skills/rate",
               "host": [
@@ -4223,8 +4433,13 @@
                 "skills",
                 "rate"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Award Badge",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -4235,21 +4450,6 @@
                 }
               ]
             },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"ratedUserId\": 2,\n  \"userSkillId\": 1,\n  \"rating\": 5,\n  \"review\": \"Excellent first aid skills\",\n  \"projectId\": 1\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Award Badge",
-          "request": {
             "method": "POST",
             "header": [
               {
@@ -4258,6 +4458,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": 2,\n  \"badgeLkpId\": 1,\n  \"projectId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/badges/award",
               "host": [
@@ -4267,32 +4476,11 @@
                 "badges",
                 "award"
               ]
-            },
-            "description": "",
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{access_token}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"userId\": 2,\n  \"badgeLkpId\": 1,\n  \"projectId\": 1\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
             }
           },
           "response": []
         }
-      ],
-      "id": "eedd255b-7102-4811-81bf-59065b0827bd"
+      ]
     },
     {
       "name": "13 Settings",
@@ -4317,14 +4505,23 @@
                 "settings",
                 "public"
               ]
-            },
-            "description": ""
+            }
           },
           "response": []
         },
         {
           "name": "Get Settings By Group",
           "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
             "method": "GET",
             "header": [
               {
@@ -4343,8 +4540,13 @@
                 "group",
                 "OTP"
               ]
-            },
-            "description": "",
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Setting",
+          "request": {
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -4354,13 +4556,7 @@
                   "type": "string"
                 }
               ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Update Setting",
-          "request": {
+            },
             "method": "PUT",
             "header": [
               {
@@ -4369,6 +4565,15 @@
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"value\": \"15\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/settings/OTP_EXPIRY_MINUTES",
               "host": [
@@ -4378,32 +4583,11 @@
                 "settings",
                 "OTP_EXPIRY_MINUTES"
               ]
-            },
-            "description": "",
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{access_token}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"value\": \"15\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
             }
           },
           "response": []
         }
-      ],
-      "id": "df771166-bb12-4342-9da4-9484483e55d5"
+      ]
     },
     {
       "name": "15. Media Module",
@@ -4425,19 +4609,20 @@
                 {
                   "key": "file",
                   "type": "file",
-                  "src": "",
-                  "description": "Select a file from your device. Max 10 MB."
+                  "description": "Select a file from your device. Max 10 MB.",
+                  "src": [
+                    "",
+                    "/C:/Users/gaura/Downloads/ChatGPT_Alternatives_2026_Featured_v2.jpg"
+                  ]
                 }
               ]
             },
             "url": {
-              "raw": "{{baseUrl}}/api/v1/media/upload?module=user-documents",
+              "raw": "{{base_url}}/media/upload?module=user-documents",
               "host": [
-                "{{baseUrl}}"
+                "{{base_url}}"
               ],
               "path": [
-                "api",
-                "v1",
                 "media",
                 "upload"
               ],
@@ -4454,6 +4639,39 @@
           "response": []
         }
       ]
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
     }
   ]
 }

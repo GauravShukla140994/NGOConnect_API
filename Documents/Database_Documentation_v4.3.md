@@ -1,12 +1,33 @@
-# NGOConnect Database Documentation v4.1
+# NGOConnect Database Documentation v4.3
 
 **Database:** MySQL 8.0+  
-**Version:** 4.1  
-**Tables:** 47  
-**Stored Procedures:** 115  
-**Generated:** 2026-06-29  
+**Version:** 4.3  
+**Tables:** 50  
+**Stored Procedures:** 120  
+**Generated:** 2026-07-06  
 
-**Changes from v4.0:**
+**Changes from v4.2 (v4.3):**
+
+- **Project_Create / Project_Update** — Rebuilt to match C# DAL params: `p_UserId`, `p_Title`, `p_ScheduleType VARCHAR(20)`, `p_RecurrenceDays VARCHAR(100)`, `p_StartTime/EndTime VARCHAR(10)`, `p_DurationMinutes`, `p_LocationName`, `p_Address`, `p_IsDraft` (32 params). Removed old `p_ScheduleTypeLkpId`, `p_AddressLine`, `p_Landmark` naming.
+- **Project_List** — Added `ScheduleType` (derived: `ptv.ValueCode`), `LocationName` (`p.Landmark`), `Address` (`p.AddressLine`), `ApprovedCount` (correlated subquery), `StatusCode`. Admin querying own org now sees all projects (not just `IsPublic=1`).
+- **Sos_GetById** — Rebuilt: removed `JOIN Users` (caused 0-row returns); all JOINs now LEFT; added `AlertTypeName`, `StatusName` return columns; responders list includes `ProfilePhoto`, `ApprovalStatusName`.
+- **Community_GetFeed** — Added `PollOptionsJson` (JSON_ARRAYAGG correlated subquery with `voteCount` + `isVoted`), `RoleName` (author's org role), `TimeAgo` (human-readable elapsed). DAL post-processes `PollOptionsJson` → `pollOptions` array.
+- **Sos_GetOrgAlerts** — **NEW SP** — `p_OrgId, p_UserId, p_Limit`. Returns all incidents for org (active + resolved + cancelled) with `IsActive` flag and `MyApprovalStatus` (PENDING/APPROVED/REJECTED/NULL) per viewer.
+- **Sos_DeclineResponder** — **NEW SP** — `p_SosIncidentId, p_SosResponderId, p_DeclinedBy`. Victim declines pending responder — sets `ApprovalStatusLkpId` to REJECTED. Validates caller is incident owner.
+- **LookupValues (ORG_TYPE)** — Added 6 new values: NGO (4), FOUNDATION (5), CHARITABLE_INSTITUTION (6), RELIGIOUS_TRUST (7), CSR_FOUNDATION (8), EDUCATIONAL_TRUST (9).
+- **DynamicRow.cs** — Added `public bool Remove(string key)` method for post-processing intermediate SP columns.
+- **CommunityDal.GetFeedAsync** — Post-processes `PollOptionsJson` → typed `pollOptions` array with computed `votePct`; removes raw key before returning.
+
+**Changes from v4.1 (v4.2):**
+
+- **Community Likes & Comments** — 3 new tables: `CommunityPostLikes`, `CommunityPostComments`, `CommunityCommentLikes`
+- **CommunityPosts** — Added `LikeCount INT UNSIGNED`, `CommentCount INT UNSIGNED`, `AcknowledgeCount INT UNSIGNED` denormalized count columns
+- **Community SPs** — 4 new SPs (LikePost, AddComment, GetComments, LikeComment); 4 replaced SPs (GetFeed now passes `p_UserId` for `IsLiked`; CreatePost fixed to 6 params; CreatePoll fixed to 5 params; Vote fixed to 3 params)
+- **SosIncidents** — Fixed: column is `UserId` (not `VictimUserId`); added `IsDeleted TINYINT(1)`, `CancelledAt DATETIME`
+- **SOS SPs** — New: `Sos_GetMyActive(p_UserId)` returns 2 result sets (incident row + responders list)
+- **Group 5 Content** — 9 → 12 tables
+
+**Changes from v4.0 (v4.1):**
 
 *Section 1–4 (v4.1 initial)*
 - `UserProfiles`: Added `VolunteerExp TEXT NULL` column (previous NGO/volunteer experience)
@@ -381,7 +402,7 @@
 
 ---
 
-### Group 5 — Content (9 tables)
+### Group 5 — Content (12 tables)
 
 #### Posts
 | Column | Type | Notes |
@@ -450,8 +471,53 @@
 | Content | TEXT NULL | |
 | PostTypeLkpId | INT UNSIGNED FK→LookupValues NOT NULL | |
 | AudienceLkpId | INT UNSIGNED FK→LookupValues NULL | |
+| LikeCount | INT UNSIGNED NOT NULL DEFAULT 0 | **v4.2** Denormalized — updated by Community_LikePost SP |
+| CommentCount | INT UNSIGNED NOT NULL DEFAULT 0 | **v4.2** Denormalized — updated by Community_AddComment SP |
+| AcknowledgeCount | INT UNSIGNED NOT NULL DEFAULT 0 | **v4.2** Denormalized — updated by Community_AcknowledgePost SP |
 | IsDeleted | TINYINT(1) DEFAULT 0 | |
 | CreatedAt | DATETIME DEFAULT CURRENT_TIMESTAMP | |
+
+#### CommunityPostLikes
+**v4.2 — New table**
+
+| Column | Type | Notes |
+|---|---|---|
+| CommunityPostLikeId | INT UNSIGNED PK AUTO_INCREMENT | |
+| CommunityPostId | INT UNSIGNED FK→CommunityPosts NOT NULL | |
+| UserId | INT UNSIGNED FK→Users NOT NULL | |
+| CreatedAt | DATETIME DEFAULT CURRENT_TIMESTAMP | |
+| UNIQUE | (CommunityPostId, UserId) | Prevents duplicate likes; INSERT…ON DUPLICATE KEY DELETE for toggle |
+
+**Indexes:** `idx_cpl_post (CommunityPostId)`, `idx_cpl_user (UserId)`
+
+#### CommunityPostComments
+**v4.2 — New table**
+
+| Column | Type | Notes |
+|---|---|---|
+| CommunityCommentId | INT UNSIGNED PK AUTO_INCREMENT | |
+| CommunityPostId | INT UNSIGNED FK→CommunityPosts NOT NULL | |
+| UserId | INT UNSIGNED FK→Users NOT NULL | |
+| Content | TEXT NOT NULL | Max 2000 chars enforced at API layer |
+| LikeCount | INT UNSIGNED NOT NULL DEFAULT 0 | Denormalized — updated by Community_LikeComment SP |
+| IsDeleted | TINYINT(1) DEFAULT 0 | Soft delete — deleted comments hidden but count preserved |
+| CreatedAt | DATETIME DEFAULT CURRENT_TIMESTAMP | |
+| UpdatedAt | DATETIME NULL ON UPDATE CURRENT_TIMESTAMP | |
+
+**Indexes:** `idx_cpc_post (CommunityPostId)`, `idx_cpc_user (UserId)`
+
+#### CommunityCommentLikes
+**v4.2 — New table**
+
+| Column | Type | Notes |
+|---|---|---|
+| CommunityCommentLikeId | INT UNSIGNED PK AUTO_INCREMENT | |
+| CommunityCommentId | INT UNSIGNED FK→CommunityPostComments NOT NULL | |
+| UserId | INT UNSIGNED FK→Users NOT NULL | |
+| CreatedAt | DATETIME DEFAULT CURRENT_TIMESTAMP | |
+| UNIQUE | (CommunityCommentId, UserId) | Prevents duplicate likes; toggle via INSERT…ON DUPLICATE KEY DELETE |
+
+**Indexes:** `idx_ccl_comment (CommunityCommentId)`, `idx_ccl_user (UserId)`
 
 #### PollOptions
 | Column | Type | Notes |
@@ -493,18 +559,22 @@
 | Column | Type | Notes |
 |---|---|---|
 | SosIncidentId | INT UNSIGNED PK AUTO_INCREMENT | |
-| VictimUserId | INT UNSIGNED FK→Users | |
-| OrgId | INT UNSIGNED FK→Organisations NULL | |
-| AlertTypeLkpId | INT UNSIGNED FK→LookupValues | |
-| StatusLkpId | INT UNSIGNED FK→LookupValues | ACTIVE/RESOLVED/CANCELLED |
-| Description | TEXT NULL | |
-| ApproxLocation | VARCHAR(500) NULL | |
-| Latitude | DECIMAL(10,7) NULL | Last known |
-| Longitude | DECIMAL(10,7) NULL | Last known |
-| CancelReason | TEXT NULL | v4.0 |
-| ResolvedByLkpId | INT UNSIGNED FK→LookupValues NULL | |
-| ResolvedAt | DATETIME NULL | |
+| UserId | INT UNSIGNED FK→Users NOT NULL | **v4.2 fix**: was `VictimUserId` — actual column name is `UserId` |
+| OrgId | INT UNSIGNED FK→Organisations NULL | Org the victim belongs to — used to notify members |
+| AlertTypeLkpId | INT UNSIGNED FK→LookupValues NOT NULL | LookupType: SOS_ALERT_TYPE |
+| StatusLkpId | INT UNSIGNED FK→LookupValues NOT NULL | LookupType: SOS_STATUS — ACTIVE/RESOLVED/CANCELLED |
+| Description | TEXT NULL | Optional free-text description of the situation |
+| ApproxLocation | VARCHAR(300) NULL | Human-readable location (e.g. "Koregaon Park, Pune") |
+| Latitude | DECIMAL(10,7) NULL | Initial GPS latitude at trigger time |
+| Longitude | DECIMAL(10,7) NULL | Initial GPS longitude at trigger time |
+| CancelReason | TEXT NULL | Populated by Sos_Cancel SP |
+| ResolvedByLkpId | INT UNSIGNED FK→LookupValues NULL | Kept for audit; no longer set by backend SP (v4.2 fix) |
+| ResolvedAt | DATETIME NULL | Set by Sos_Resolve SP |
+| CancelledAt | DATETIME NULL | **v4.2** Set by Sos_Cancel SP |
+| IsDeleted | TINYINT(1) DEFAULT 0 | **v4.2** Soft delete |
 | CreatedAt | DATETIME DEFAULT CURRENT_TIMESTAMP | |
+
+**Indexes:** `idx_sos_user (UserId)`, `idx_sos_org (OrgId)`, `idx_sos_status (StatusLkpId)`
 
 #### SosResponders
 | Column | Type | Notes |
@@ -708,7 +778,7 @@
 | TypeCode | Description |
 |---|---|
 | GENDER | Male, Female, Non-Binary, Prefer Not to Say |
-| ORG_TYPE | NGO, CSR, Government, Educational, Social Enterprise, Foundation |
+| ORG_TYPE | Trust, Society, Section 8 Company, **NGO** *(v4.3)*, **Foundation** *(v4.3)*, **Charitable Institution** *(v4.3)*, **Religious Trust** *(v4.3)*, **CSR Foundation** *(v4.3)*, **Educational Trust** *(v4.3)* |
 | ORG_STATUS | Pending Verification, Verified, Suspended, Rejected |
 | USER_ROLE | Super Admin, NGO Admin, Volunteer, Donor, Beneficiary, Staff |
 | ORG_MEMBER_ROLE | Admin, Staff, Member |
@@ -826,12 +896,12 @@
 | Org_UploadDocument | p_OrgId, p_UploadedBy, p_DocumentTypeLkpId, p_FileUrl, p_FileName | WRITE | Inserts into OrgDocuments; FileUrl/FileName come from POST /media/upload |
 
 ### Project (10 SPs)
-| SP Name | Type | Description |
-|---|---|---|
-| Project_Create | WRITE | All 29 params including schedule + location |
-| Project_GetById | GET | Full project with org name, status label |
-| Project_Update | WRITE | Same 29 params as Create |
-| Project_List | PAGED | orgId + keyword + projectType filter |
+| SP Name | Params | Type | Description |
+|---|---|---|---|
+| Project_Create | p_UserId, p_OrgId, p_Title, p_Description, p_Category, p_ProjectTypeLkpId, p_JoinTypeLkpId, p_StatusLkpId, p_MaxVolunteers, p_MinAge, p_MaxAge, p_IsPublic, p_StartDate, p_EndDate, p_ScheduleType, p_RecurrenceDays, p_StartTime, p_EndTime, p_DurationMinutes, p_LocationTypeLkpId, p_LocationTypeCode, p_LocationName, p_Address, p_Latitude, p_Longitude, p_GoogleMapsUrl, p_GenderRestriction, p_RequiresApproval, p_CoverImageUrl, p_City, p_State, p_IsDraft | WRITE | **v4.3 REBUILT** — 32 params matching C# DAL. Resolves `ProjectTypeLkpId` from `p_ScheduleType` string if not supplied. Maps schedule dates into correct columns (`OneTimeDate`/`RecurStart`+`RecurEnd`/`FlexFromDate`+`FlexToDate`). Defaults `IsPublic=1`, `RequiresApproval=0`. Returns `IsSuccess`, `Message`, `ProjectId` |
+| Project_GetById | p_ProjectId, p_UserId | GET | Full project details: org name, all schedule fields, location fields, status label, join type, `ApprovedVolunteers` count, `MyApplicationStatusId` for the calling user |
+| Project_Update | p_ProjectId + same 31 params as Create (minus p_OrgId) | WRITE | **v4.3 REBUILT** — 32 params matching C# DAL. COALESCE-safe partial update. Returns `IsSuccess`, `Message` |
+| Project_List | p_OrgId, p_Category, p_City, p_StatusCode, p_TypeCode, p_PageNumber, p_PageSize | PAGED | **v4.3 UPDATED** — Returns `ScheduleType` (from `ProjectTypeLkpId` lookup: ONE_TIME/RECURRING/FLEXIBLE), `LocationName` (= `Landmark` column), `Address` (= `AddressLine` column), `ApprovedCount` (correlated subquery), `StatusCode`. Admin with `p_OrgId` sees all projects; public browse (no `p_OrgId`) sees `IsPublic=1` only |
 | Project_AddSkill | WRITE | Inserts ProjectSkill |
 | Project_AddSession | WRITE | Creates session + generates QR UUID |
 | Project_GetSessions | LIST | Sessions with attendee count, QR, status |
@@ -864,27 +934,34 @@
 | Post_GetComments | PAGED | Nested comments |
 | Post_Report | WRITE | PostReports insert |
 
-### Community (5 SPs)
+### Community (9 SPs)
 | SP Name | Params | Type | Description |
 |---|---|---|---|
-| Community_CreatePost | p_UserId, p_OrgId, p_Title, p_Content, p_PostTypeLkpId, p_AudienceLkpId | WRITE | Creates org-scoped community post. `PostTypeLkpId` from TypeCode=`POST_TYPE_COMMUNITY`; `AudienceLkpId` from TypeCode=`POST_VISIBILITY`. Returns `IsSuccess`, `Message`, `CommunityPostId` |
-| Community_GetFeed | p_OrgId (nullable), p_PageNumber, p_PageSize | PAGED (Dynamic) | Returns paginated community feed as DynamicRow. `p_OrgId` optional — omit for platform-wide feed. Returns rows + `TotalCount` |
-| Community_AcknowledgePost | p_CommunityPostId, p_UserId | WRITE | Marks a post acknowledged by the calling user (used for Announcements). Returns `IsSuccess`, `Message` |
-| Community_CreatePoll | p_UserId, p_OrgId, p_Question, p_OptionsJson, p_ExpiresInHours | WRITE | Creates a CommunityPost of type POLL + inserts PollOptions from JSON string array (e.g. `["Yes","No","Maybe"]`). Returns `IsSuccess`, `Message`, `PollId` |
-| Community_Vote | p_PollId, p_UserId, p_PollOptionId | WRITE | INSERT IGNORE — one vote per user per option, prevents duplicate votes. Returns `IsSuccess`, `Message` |
+| Community_CreatePost | p_UserId, p_OrgId, p_Title, p_Content, p_PostTypeLkpId, p_AudienceLkpId | WRITE | **v4.2 REPLACED** (was 14-param). Creates org-scoped community post. Auto-defaults `AudienceLkpId` to ALL_MEMBERS if NULL. Returns `IsSuccess`, `Message`, `CommunityPostId` |
+| Community_GetFeed | p_OrgId, p_UserId, p_PageNumber, p_PageSize | PAGED (Dynamic) | **v4.3 UPDATED** — Adds `PollOptionsJson` (JSON array: `pollOptionId`, `optionText`, `voteCount`, `isVoted` per option — null for non-POLL posts), `RoleName` (author's org role: Admin/Member/etc.), `TimeAgo` (human-readable). Also returns `IsLiked`, `IsLikedByMe`, `IsAcknowledged`, `IsAcknowledgedByMe`, `LikeCount`, `CommentCount`. DAL parses `PollOptionsJson` → `pollOptions` array with computed `votePct`. Returns rows + `TotalCount` |
+| Community_AcknowledgePost | p_CommunityPostId, p_UserId | WRITE | Marks a post acknowledged by the calling user (used for Announcements). Increments `AcknowledgeCount` on first call. Returns `IsSuccess`, `Message` |
+| Community_CreatePoll | p_UserId, p_OrgId, p_Question, p_OptionsJson, p_ExpiresInHours | WRITE | **v4.2 REPLACED** (was 2-param). Creates CommunityPost of type POLL + PollOptions from JSON array (e.g. `["Yes","No","Maybe"]`). Returns `IsSuccess`, `Message`, `PollId` |
+| Community_Vote | p_PollId, p_UserId, p_PollOptionId | WRITE | **v4.2 REPLACED** (was 2-param). INSERT IGNORE — one vote per user, checks expiry. Returns `IsSuccess`, `Message` |
+| Community_LikePost | p_CommunityPostId, p_UserId | WRITE | **v4.2 NEW** Toggle like on a community post. Inserts/deletes from `CommunityPostLikes`, recalculates `CommunityPosts.LikeCount`. Returns `IsLiked INT` (1=now liked, 0=now unliked), `LikeCount INT` |
+| Community_AddComment | p_CommunityPostId, p_UserId, p_Content | WRITE | **v4.2 NEW** Inserts a comment into `CommunityPostComments`, increments `CommunityPosts.CommentCount`. Returns `IsSuccess`, `Message`, `CommunityCommentId` |
+| Community_GetComments | p_CommunityPostId, p_UserId | LIST (Dynamic) | **v4.2 NEW** Returns all non-deleted comments for a post in chronological order. Returns: `CommunityCommentId`, `CommunityPostId`, `UserId`, `AuthorName`, `ProfilePhoto`, `Content`, `LikeCount`, `IsLiked` (1/0), `IsLikedByMe`, `TimeAgo`, `CreatedAt` |
+| Community_LikeComment | p_CommunityCommentId, p_UserId | WRITE | **v4.2 NEW** Toggle like on a comment. Inserts/deletes from `CommunityCommentLikes`, recalculates `CommunityPostComments.LikeCount`. Returns `IsLiked INT`, `LikeCount INT` |
 
-### SOS (9 SPs)
-| SP Name | Type | Description |
-|---|---|---|
-| Sos_Trigger | WRITE | Creates incident, logs initial location |
-| Sos_GetActive | LIST | p_OrgId nullable filter (v4.0) |
-| Sos_GetById | GET | Incident details + responders list |
-| Sos_Respond | WRITE | Adds user to SosResponders (PENDING approval) |
-| Sos_ApproveResponder | WRITE | Sets APPROVED, sets CanViewLocation |
-| Sos_Resolve | WRITE | RESOLVED or CANCELLED via p_StatusCode |
-| Sos_Cancel | WRITE | Alias calls Sos_Resolve with CANCELLED |
-| Sos_GetLatestLocation | GET | Checks victim or approved responder before returning |
-| Sos_UpdateLocation | WRITE | Logs to SosLocationLogs every ~10 sec |
+### SOS (12 SPs)
+| SP Name | Params | Type | Description |
+|---|---|---|---|
+| Sos_Trigger | p_UserId, p_AlertTypeLkpId, p_OrgId, p_Latitude, p_Longitude, p_ApproxLocation, p_Description | WRITE | Creates SosIncident (status=ACTIVE); logs initial location. Returns `IsSuccess`, `Message`, `SosIncidentId` |
+| Sos_GetActive | p_UserId, p_OrgId | LIST (Dynamic) | Returns active incidents visible to the user for their org. `p_OrgId` nullable. DynamicRow list |
+| Sos_GetMyActive | p_UserId | GET (2 result sets) | **v4.2 NEW** Returns victim's own active incident + responders. Result set 1: incident row (same shape as Sos_GetById). Result set 2: responders list. Returns 0 rows if no active incident |
+| Sos_GetById | p_SosIncidentId, p_UserId | GET (2 result sets) | **v4.3 REBUILT** — All JOINs are now LEFT JOINs (no 0-row returns). Result set 1: incident with `AlertTypeName`, `StatusName` added. Result set 2: responders list with `ProfilePhoto`, `ApprovalStatusName`. Returns 0 rows if incident not found or soft-deleted |
+| Sos_Respond | p_SosIncidentId, p_UserId | WRITE | Inserts into SosResponders (status=PENDING). Returns `IsSuccess`, `Message`, `SosResponderId` |
+| Sos_ApproveResponder | p_SosIncidentId, p_UserId, p_SosResponderId, p_CanViewLocation | WRITE | Updates `SosResponders.ApprovalStatusLkpId` to APPROVED; sets `CanViewLocation`. Only the victim (`p_UserId` must match incident UserId) can approve. Returns `IsSuccess`, `Message` |
+| Sos_Resolve | p_SosIncidentId, p_UserId | WRITE | Sets incident status to RESOLVED, sets `ResolvedAt=NOW()`. Only victim can resolve. Returns `IsSuccess`, `Message` |
+| Sos_Cancel | p_SosIncidentId, p_UserId, p_CancelReason | WRITE | Sets status to CANCELLED, sets `CancelledAt=NOW()`, stores `CancelReason`. Only victim can cancel. Returns `IsSuccess`, `Message` |
+| Sos_GetLatestLocation | p_SosIncidentId, p_UserId | GET | Returns latest row from SosLocationLogs for the incident. Access gate: caller must be victim or APPROVED responder with `CanViewLocation=1`. Returns `Latitude`, `Longitude`, `Accuracy`, `LoggedAt` |
+| Sos_UpdateLocation | p_SosIncidentId, p_UserId, p_Latitude, p_Longitude, p_Accuracy | WRITE | Inserts into SosLocationLogs (called every ~10s by victim's device). Returns `IsSuccess`, `Message` |
+| Sos_GetOrgAlerts | p_OrgId, p_UserId, p_Limit | LIST (Dynamic) | **v4.3 NEW** — Returns all SOS incidents for an org (ACTIVE + RESOLVED + CANCELLED), newest first. Includes `IsActive` (1/0), `AlertTypeName`, `StatusName`, `MyApprovalStatus` (PENDING/APPROVED/REJECTED/NULL — the calling user's responder status for each incident). Used by CommunityScreen to show active alerts at top and history below |
+| Sos_DeclineResponder | p_SosIncidentId, p_SosResponderId, p_DeclinedBy | WRITE | **v4.3 NEW** — Victim declines a pending responder. Sets `SosResponders.ApprovalStatusLkpId` to REJECTED. Validates `p_DeclinedBy` must equal the incident owner `UserId`. Returns `IsSuccess`, `Message` |
 
 ### Donation (14 SPs)
 | SP Name | Type | Description |
@@ -959,5 +1036,6 @@ SP pattern: `SELECT ... FOR UPDATE` on IdSequences, increment, format, use in IN
 
 ---
 
-*NGOConnect v4.1 — 47 Tables, 115 Stored Procedures, 44 LookupTypes*  
-*Patch v4.1 Sections 1–7 applied. Run `NGOConnect_Patch_v4.1.sql` to upgrade from v4.0.*
+*NGOConnect v4.3 — 50 Tables, 120 Stored Procedures, 45 LookupTypes*  
+*v4.3 adds: Project_Create/Update rebuilt (32 params, DAL-matching); Project_List: ScheduleType/LocationName/Address/ApprovedCount added; Sos_GetById robust (LEFT JOINs, AlertTypeName); Community_GetFeed: PollOptionsJson/RoleName/TimeAgo; 2 new SPs (Sos_GetOrgAlerts, Sos_DeclineResponder); 6 new ORG_TYPE lookup values.*  
+*Run `NGOConnect_Complete_Setup_v4.3.sql` to upgrade. For incremental: run `NGOConnect_Patch_ProjectCreate_SP_Only.sql`, `NGOConnect_Patch_ProjectList_v2.sql`, `NGOConnect_Patch_PollOptions_Feed.sql`, `NGOConnect_Patch_SosFix_GetById.sql`, `NGOConnect_Patch_SosGetOrgAlertsWithUserId.sql`, `NGOConnect_Patch_SosDeclineResponder.sql`, `NGOConnect_Patch_OrgType_Seed.sql`.*

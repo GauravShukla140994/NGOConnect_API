@@ -19,9 +19,9 @@ namespace NGOConnect.API.Controllers
         public async Task<ApiResponse<DynamicRow>> Register([FromBody] RegisterOrgRequest request)
             => await _org.RegisterAsync(GetUserId(), request);
 
-        [HttpGet("{orgId:int}")]
+        [HttpGet("{orgId:int}")] [Authorize]
         public async Task<ApiResponse<DynamicRow>> GetProfile(int orgId)
-            => await _org.GetProfileAsync(orgId);
+            => await _org.GetProfileAsync(orgId, GetUserId());
 
         // Admin dashboard KPIs — Total Members, Active Volunteers, Hours, Active Projects, Pending
         [HttpGet("{orgId:int}/dashboard")] [Authorize]
@@ -135,6 +135,24 @@ namespace NGOConnect.API.Controllers
         [HttpPost("{orgId:int}/documents")] [Authorize]
         public async Task<ApiResponse> UploadDocument(int orgId, [FromBody] UploadOrgDocumentRequest request)
             => await _org.UploadDocumentAsync(orgId, GetUserId(), request);
+
+        // ── Admin Posts (s-admin-vols Posts tab) ──────────────────────────────────
+
+        [HttpGet("{orgId:int}/community-posts/admin")] [Authorize]
+        public async Task<ApiResponse<List<DynamicRow>>> GetAdminPosts(int orgId)
+            => await _org.GetAdminPostsAsync(orgId);
+
+        [HttpPost("{orgId:int}/community-posts/{postId:int}/pin")] [Authorize]
+        public async Task<ApiResponse> PinPost(int orgId, int postId)
+            => await _org.PinPostAsync(orgId, postId, GetUserId());
+
+        [HttpDelete("{orgId:int}/community-posts/{postId:int}")] [Authorize]
+        public async Task<ApiResponse> DeletePost(int orgId, int postId)
+            => await _org.DeletePostAsync(orgId, postId, GetUserId());
+
+        [HttpPost("{orgId:int}/community-posts/{postId:int}/moderate")] [Authorize]
+        public async Task<ApiResponse> ModeratePost(int orgId, int postId, [FromBody] ModeratePostRequest request)
+            => await _org.ModeratePostAsync(orgId, postId, GetUserId(), request.Action);
 
         private int GetUserId()
         {

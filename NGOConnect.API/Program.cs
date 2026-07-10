@@ -2,6 +2,7 @@ using Microsoft.Extensions.FileProviders;
 using Serilog;
 using Serilog.Events;
 using NGOConnect.API.Extensions;
+using NGOConnect.API.Hubs;
 using NGOConnect.API.Middleware;
 
 // ── Serilog Bootstrap Logger ─────────────────────────────────
@@ -49,6 +50,9 @@ try
     builder.Services.AddJwtAuthentication(builder.Configuration);
     builder.Services.AddSwaggerWithJwt();
     builder.Services.AddNgoConnectCors(builder.Configuration);
+
+    // SignalR — real-time SOS location + events
+    builder.Services.AddSignalR();
 
     // Rate limiting (ASP.NET Core built-in, no extra package needed)
     builder.Services.AddRateLimiter(options =>
@@ -130,6 +134,9 @@ try
 
     // 11. Controllers
     app.MapControllers();
+
+    // 12. SignalR hub
+    app.MapHub<SosHub>("/hubs/sos");
 
     Log.Information("NGO Connect API started. Swagger: /swagger");
     app.Run();

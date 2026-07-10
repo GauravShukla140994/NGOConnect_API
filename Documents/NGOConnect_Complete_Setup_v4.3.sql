@@ -1,7 +1,7 @@
 -- ============================================================
 -- NGO CONNECT — COMPLETE DATABASE SETUP
--- Version    : 4.1
--- Date       : 2026-07-01
+-- Version    : 4.2
+-- Date       : 2026-07-04
 -- Database   : MySQL 8.0+  |  utf8mb4_unicode_ci
 -- Run on a BLANK MySQL instance. This drops and recreates NGOConnect.
 --
@@ -3946,12 +3946,1067 @@ VALUES ('v4.1', 'v4.1 complete setup: 47 tables, 45 LookupTypes (added INTEREST_
 
 COMMIT;
 
--- ── VERIFICATION QUERIES ─────────────────────────────────────────
--- Run these to confirm the script executed correctly
+-- ════════════════════════════════════════════════════════════════
+-- v4.2 UPGRADE BLOCK
+-- Date: 2026-07-04
+-- Changes:
+--   Tables:  +3 (CommunityPostLikes, CommunityPostComments, CommunityCommentLikes)
+--   Altered: CommunityPosts (+LikeCount, +CommentCount, +AcknowledgeCount)
+--            SosIncidents (fix: UserId not VictimUserId, +IsDeleted, +CancelledAt)
+--   SPs:     +5 new, 4 replaced (Community_GetFeed, _CreatePost, _CreatePoll, _Vote)
+-- ════════════════════════════════════════════════════════════════
 
-SELECT 'TABLES' AS Check_Type, COUNT(*) AS Count FROM information_schema.TABLES WHERE TABLE_SCHEMA = 'NGOConnect' AND TABLE_TYPE = 'BASE TABLE'
+-- ── ALTER CommunityPosts ─────────────────────────────────────────
+ALTER TABLE CommunityPosts
+    ADD COLUMN LikeCount       INT UNSIGNED NOT NULL DEFAULT 0 AFTER AudienceLkpId,
+    ADD COLUMN CommentCount    INT UNSIGNED NOT NULL DEFAULT 0 AFTER LikeCount,
+    ADD COLUMN AcknowledgeCount INT UNSIGNED NOT NULL DEFAULT 0 AFTER CommentCount;
+
+-- ── ALTER SosIncidents (v4.2 fixes) ─────────────────────────────
+-- Note: If the column is already named UserId, skip the RENAME statement.
+-- The schema fix changes VictimUserId → UserId and adds IsDeleted, CancelledAt.
+ALTER TABLE SosIncidents
+    ADD COLUMN IsDeleted   TINYINT(1) NOT NULL DEFAULT 0 AFTER Longitude,
+    ADD COLUMN CancelledAt DATETIME NULL AFTER ResolvedAt;
+-- If column is named VictimUserId, uncomment the next line:
+-- ALTER TABLE SosIncidents CHANGE VictimUserId UserId INT UNSIGNED NOT NULL;
+
+-- ── NEW TABLE: CommunityPostLikes ────────────────────────────────
+CREATE TABLE IF NOT EXISTS CommunityPostLikes (
+    CommunityPostLikeId INT UNSIGNED      NOT NULL AUTO_INCREMENT,
+    CommunityPostId     INT UNSIGNED      NOT NULL,
+    UserId              INT UNSIGNED      NOT NULL,
+    CreatedAt           DATETIME          NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (CommunityPostLikeId),
+    UNIQUE KEY uq_cpl_post_user (CommunityPostId, UserId),
+    KEY idx_cpl_post (CommunityPostId),
+    KEY idx_cpl_user (UserId),
+    CONSTRAINT fk_cpl_post FOREIGN KEY (CommunityPostId) REFERENCES CommunityPosts(CommunityPostId) ON DELETE CASCADE,
+    CONSTRAINT fk_cpl_user FOREIGN KEY (UserId) REFERENCES Users(UserId) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ── NEW TABLE: CommunityPostComments ────────────────────────────
+CREATE TABLE IF NOT EXISTS CommunityPostComments (
+    CommunityCommentId INT UNSIGNED      NOT NULL AUTO_INCREMENT,
+    CommunityPostId    INT UNSIGNED      NOT NULL,
+    UserId             INT UNSIGNED      NOT NULL,
+    Content            TEXT              NOT NULL,
+    LikeCount          INT UNSIGNED      NOT NULL DEFAULT 0,
+    IsDeleted          TINYINT(1)        NOT NULL DEFAULT 0,
+    CreatedAt          DATETIME          NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UpdatedAt          DATETIME          NULL     ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (CommunityCommentId),
+    KEY idx_cpc_post (CommunityPostId),
+    KEY idx_cpc_user (UserId),
+    CONSTRAINT fk_cpc_post FOREIGN KEY (CommunityPostId) REFERENCES CommunityPosts(CommunityPostId) ON DELETE CASCADE,
+    CONSTRAINT fk_cpc_user FOREIGN KEY (UserId) REFERENCES Users(UserId) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ── NEW TABLE: CommunityCommentLikes ────────────────────────────
+CREATE TABLE IF NOT EXISTS CommunityCommentLikes (
+    CommunityCommentLikeId INT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    CommunityCommentId     INT UNSIGNED  NOT NULL,
+    UserId                 INT UNSIGNED  NOT NULL,
+    CreatedAt              DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (CommunityCommentLikeId),
+    UNIQUE KEY uq_ccl_comment_user (CommunityCommentId, UserId),
+    KEY idx_ccl_comment (CommunityCommentId),
+    KEY idx_ccl_user    (UserId),
+    CONSTRAINT fk_ccl_comment FOREIGN KEY (CommunityCommentId) REFERENCES CommunityPostComments(CommunityCommentId) ON DELETE CASCADE,
+    CONSTRAINT fk_ccl_user    FOREIGN KEY (UserId) REFERENCES Users(UserId) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+DELIMITER //
+
+-- ── REPLACED SP: Community_GetFeed ──────────────────────────────
+-- v4.2: Added p_UserId to compute IsLiked/IsLikedByMe per viewer.
+--        Added LikeCount, CommentCount, AcknowledgeCount, IsAcknowledged.
+DROP PROCEDURE IF EXISTS Community_GetFeed //
+CREATE PROCEDURE Community_GetFeed(
+    IN p_OrgId      INT UNSIGNED,
+    IN p_UserId     INT UNSIGNED,
+    IN p_PageNumber INT,
+    IN p_PageSize   INT
+)
+BEGIN
+    DECLARE v_Offset INT DEFAULT (p_PageNumber - 1) * p_PageSize;
+
+    SELECT
+        cp.CommunityPostId,
+        cp.OrgId,
+        cp.UserId,
+        CONCAT(COALESCE(up.FirstName,''), ' ', COALESCE(up.LastName,'')) AS AuthorName,
+        up.ProfilePhoto,
+        lv_role.ValueName AS RoleName,
+        cp.Title,
+        cp.Content,
+        lv_type.ValueCode  AS PostType,
+        lv_type.ValueCode  AS PostTypeLkpCode,
+        lv_type.ValueName  AS PostTypeName,
+        lv_aud.ValueCode   AS AudienceCode,
+        cp.LikeCount,
+        cp.CommentCount,
+        cp.AcknowledgeCount,
+        CASE WHEN cpl.CommunityPostLikeId IS NOT NULL THEN 1 ELSE 0 END AS IsLiked,
+        CASE WHEN cpl.CommunityPostLikeId IS NOT NULL THEN 1 ELSE 0 END AS IsLikedByMe,
+        CASE WHEN ack.AcknowledgeId IS NOT NULL THEN 1 ELSE 0 END       AS IsAcknowledged,
+        CASE WHEN ack.AcknowledgeId IS NOT NULL THEN 1 ELSE 0 END       AS IsAcknowledgedByMe,
+        cp.CreatedAt,
+        CASE
+            WHEN TIMESTAMPDIFF(MINUTE, cp.CreatedAt, NOW()) < 60
+                THEN CONCAT(TIMESTAMPDIFF(MINUTE, cp.CreatedAt, NOW()), 'm ago')
+            WHEN TIMESTAMPDIFF(HOUR, cp.CreatedAt, NOW()) < 24
+                THEN CONCAT(TIMESTAMPDIFF(HOUR, cp.CreatedAt, NOW()), 'h ago')
+            ELSE CONCAT(TIMESTAMPDIFF(DAY, cp.CreatedAt, NOW()), 'd ago')
+        END AS TimeAgo
+    FROM CommunityPosts cp
+    JOIN UserProfiles up ON up.UserId = cp.UserId AND up.IsDeleted = 0
+    LEFT JOIN OrgMembers om      ON om.OrgId = cp.OrgId AND om.UserId = cp.UserId AND om.IsDeleted = 0
+    LEFT JOIN LookupValues lv_role ON lv_role.LookupValueId = om.RoleLkpId
+    LEFT JOIN LookupValues lv_type ON lv_type.LookupValueId = cp.PostTypeLkpId
+    LEFT JOIN LookupValues lv_aud  ON lv_aud.LookupValueId  = cp.AudienceLkpId
+    LEFT JOIN CommunityPostLikes cpl
+           ON cpl.CommunityPostId = cp.CommunityPostId AND cpl.UserId = p_UserId
+    LEFT JOIN CommunityPostAcknowledgements ack
+           ON ack.CommunityPostId = cp.CommunityPostId AND ack.UserId = p_UserId
+    WHERE cp.IsDeleted = 0
+      AND (p_OrgId IS NULL OR cp.OrgId = p_OrgId)
+    ORDER BY cp.CreatedAt DESC
+    LIMIT p_PageSize OFFSET v_Offset;
+
+    SELECT COUNT(*) AS TotalCount
+    FROM CommunityPosts cp
+    WHERE cp.IsDeleted = 0
+      AND (p_OrgId IS NULL OR cp.OrgId = p_OrgId);
+END //
+
+-- ── REPLACED SP: Community_CreatePost ───────────────────────────
+-- v4.2: Fixed from 14-param to 6-param (matches DAL).
+DROP PROCEDURE IF EXISTS Community_CreatePost //
+CREATE PROCEDURE Community_CreatePost(
+    IN p_UserId         INT UNSIGNED,
+    IN p_OrgId          INT UNSIGNED,
+    IN p_Title          VARCHAR(300),
+    IN p_Content        TEXT,
+    IN p_PostTypeLkpId  INT UNSIGNED,
+    IN p_AudienceLkpId  INT UNSIGNED
+)
+BEGIN
+    DECLARE v_AllMembersLkpId INT UNSIGNED DEFAULT NULL;
+
+    -- Default audience to ALL_MEMBERS if not provided
+    IF p_AudienceLkpId IS NULL THEN
+        SELECT lv.LookupValueId INTO v_AllMembersLkpId
+        FROM LookupValues lv
+        JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+        WHERE lt.TypeCode = 'POST_VISIBILITY' AND lv.ValueCode = 'ALL_MEMBERS'
+        LIMIT 1;
+        SET p_AudienceLkpId = v_AllMembersLkpId;
+    END IF;
+
+    INSERT INTO CommunityPosts (OrgId, UserId, Title, Content, PostTypeLkpId, AudienceLkpId, CreatedAt)
+    VALUES (p_OrgId, p_UserId, p_Title, p_Content, p_PostTypeLkpId, p_AudienceLkpId, NOW());
+
+    SELECT 1 AS IsSuccess, 'Post created successfully.' AS Message, LAST_INSERT_ID() AS CommunityPostId;
+END //
+
+-- ── REPLACED SP: Community_CreatePoll ───────────────────────────
+-- v4.2: Fixed from 2-param to 5-param.
+DROP PROCEDURE IF EXISTS Community_CreatePoll //
+CREATE PROCEDURE Community_CreatePoll(
+    IN p_UserId         INT UNSIGNED,
+    IN p_OrgId          INT UNSIGNED,
+    IN p_Question       VARCHAR(300),
+    IN p_OptionsJson    JSON,
+    IN p_ExpiresInHours INT
+)
+BEGIN
+    DECLARE v_PollTypeLkpId  INT UNSIGNED DEFAULT NULL;
+    DECLARE v_CommunityPostId INT UNSIGNED DEFAULT NULL;
+    DECLARE v_ExpiresAt DATETIME DEFAULT NULL;
+    DECLARE v_Idx INT DEFAULT 0;
+    DECLARE v_OptionCount INT DEFAULT 0;
+
+    SELECT lv.LookupValueId INTO v_PollTypeLkpId
+    FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE lt.TypeCode = 'COMMUNITY_POST_TYPE' AND lv.ValueCode = 'POLL' LIMIT 1;
+
+    IF p_ExpiresInHours IS NOT NULL AND p_ExpiresInHours > 0 THEN
+        SET v_ExpiresAt = DATE_ADD(NOW(), INTERVAL p_ExpiresInHours HOUR);
+    END IF;
+
+    INSERT INTO CommunityPosts (OrgId, UserId, Title, Content, PostTypeLkpId, CreatedAt)
+    VALUES (p_OrgId, p_UserId, p_Question, NULL, v_PollTypeLkpId, NOW());
+
+    SET v_CommunityPostId = LAST_INSERT_ID();
+    SET v_OptionCount = JSON_LENGTH(p_OptionsJson);
+
+    WHILE v_Idx < v_OptionCount DO
+        INSERT INTO PollOptions (CommunityPostId, OptionText, PollEndsAt)
+        VALUES (v_CommunityPostId, JSON_UNQUOTE(JSON_EXTRACT(p_OptionsJson, CONCAT('$[', v_Idx, ']'))), v_ExpiresAt);
+        SET v_Idx = v_Idx + 1;
+    END WHILE;
+
+    SELECT 1 AS IsSuccess, 'Poll created successfully.' AS Message, v_CommunityPostId AS PollId;
+END //
+
+-- ── REPLACED SP: Community_Vote ─────────────────────────────────
+-- v4.2: Fixed from 2-param to 3-param; checks expiry + duplicate.
+DROP PROCEDURE IF EXISTS Community_Vote //
+CREATE PROCEDURE Community_Vote(
+    IN p_PollId        INT UNSIGNED,
+    IN p_UserId        INT UNSIGNED,
+    IN p_PollOptionId  INT UNSIGNED
+)
+BEGIN
+    DECLARE v_ExpiredAt DATETIME DEFAULT NULL;
+    DECLARE v_AlreadyVoted INT DEFAULT 0;
+
+    SELECT PollEndsAt INTO v_ExpiredAt
+    FROM PollOptions WHERE PollOptionId = p_PollOptionId LIMIT 1;
+
+    IF v_ExpiredAt IS NOT NULL AND v_ExpiredAt < NOW() THEN
+        SELECT 0 AS IsSuccess, 'This poll has expired.' AS Message;
+    ELSE
+        SELECT COUNT(*) INTO v_AlreadyVoted
+        FROM PollVotes
+        WHERE UserId = p_UserId
+          AND PollOptionId IN (SELECT PollOptionId FROM PollOptions WHERE CommunityPostId = p_PollId);
+
+        IF v_AlreadyVoted > 0 THEN
+            SELECT 0 AS IsSuccess, 'You have already voted on this poll.' AS Message;
+        ELSE
+            INSERT INTO PollVotes (PollOptionId, UserId, VotedAt) VALUES (p_PollOptionId, p_UserId, NOW());
+            UPDATE PollOptions SET VoteCount = VoteCount + 1 WHERE PollOptionId = p_PollOptionId;
+            SELECT 1 AS IsSuccess, 'Vote recorded.' AS Message;
+        END IF;
+    END IF;
+END //
+
+-- ── NEW SP: Community_LikePost ───────────────────────────────────
+CREATE PROCEDURE Community_LikePost(
+    IN p_CommunityPostId INT UNSIGNED,
+    IN p_UserId          INT UNSIGNED
+)
+BEGIN
+    DECLARE v_Exists INT DEFAULT 0;
+
+    SELECT COUNT(*) INTO v_Exists
+    FROM CommunityPostLikes
+    WHERE CommunityPostId = p_CommunityPostId AND UserId = p_UserId;
+
+    IF v_Exists > 0 THEN
+        DELETE FROM CommunityPostLikes
+        WHERE CommunityPostId = p_CommunityPostId AND UserId = p_UserId;
+        UPDATE CommunityPosts
+        SET LikeCount = GREATEST(0, LikeCount - 1)
+        WHERE CommunityPostId = p_CommunityPostId;
+    ELSE
+        INSERT INTO CommunityPostLikes (CommunityPostId, UserId, CreatedAt)
+        VALUES (p_CommunityPostId, p_UserId, NOW());
+        UPDATE CommunityPosts
+        SET LikeCount = LikeCount + 1
+        WHERE CommunityPostId = p_CommunityPostId;
+    END IF;
+
+    SELECT
+        CASE WHEN v_Exists > 0 THEN 0 ELSE 1 END AS IsLiked,
+        LikeCount
+    FROM CommunityPosts WHERE CommunityPostId = p_CommunityPostId;
+END //
+
+-- ── NEW SP: Community_AddComment ─────────────────────────────────
+CREATE PROCEDURE Community_AddComment(
+    IN p_CommunityPostId INT UNSIGNED,
+    IN p_UserId          INT UNSIGNED,
+    IN p_Content         TEXT
+)
+BEGIN
+    INSERT INTO CommunityPostComments (CommunityPostId, UserId, Content, CreatedAt)
+    VALUES (p_CommunityPostId, p_UserId, p_Content, NOW());
+
+    UPDATE CommunityPosts
+    SET CommentCount = CommentCount + 1
+    WHERE CommunityPostId = p_CommunityPostId;
+
+    SELECT 1 AS IsSuccess, 'Comment added.' AS Message, LAST_INSERT_ID() AS CommunityCommentId;
+END //
+
+-- ── NEW SP: Community_GetComments ────────────────────────────────
+CREATE PROCEDURE Community_GetComments(
+    IN p_CommunityPostId INT UNSIGNED,
+    IN p_UserId          INT UNSIGNED
+)
+BEGIN
+    SELECT
+        c.CommunityCommentId,
+        c.CommunityPostId,
+        c.UserId,
+        CONCAT(COALESCE(up.FirstName,''), ' ', COALESCE(up.LastName,'')) AS AuthorName,
+        up.ProfilePhoto,
+        c.Content,
+        c.LikeCount,
+        CASE WHEN cl.CommunityCommentLikeId IS NOT NULL THEN 1 ELSE 0 END AS IsLiked,
+        CASE WHEN cl.CommunityCommentLikeId IS NOT NULL THEN 1 ELSE 0 END AS IsLikedByMe,
+        CASE
+            WHEN TIMESTAMPDIFF(MINUTE, c.CreatedAt, NOW()) < 60
+                THEN CONCAT(TIMESTAMPDIFF(MINUTE, c.CreatedAt, NOW()), 'm ago')
+            WHEN TIMESTAMPDIFF(HOUR, c.CreatedAt, NOW()) < 24
+                THEN CONCAT(TIMESTAMPDIFF(HOUR, c.CreatedAt, NOW()), 'h ago')
+            ELSE CONCAT(TIMESTAMPDIFF(DAY, c.CreatedAt, NOW()), 'd ago')
+        END AS TimeAgo,
+        c.CreatedAt
+    FROM CommunityPostComments c
+    JOIN UserProfiles up ON up.UserId = c.UserId AND up.IsDeleted = 0
+    LEFT JOIN CommunityCommentLikes cl
+           ON cl.CommunityCommentId = c.CommunityCommentId AND cl.UserId = p_UserId
+    WHERE c.CommunityPostId = p_CommunityPostId
+      AND c.IsDeleted = 0
+    ORDER BY c.CreatedAt ASC;
+END //
+
+-- ── NEW SP: Community_LikeComment ────────────────────────────────
+CREATE PROCEDURE Community_LikeComment(
+    IN p_CommunityCommentId INT UNSIGNED,
+    IN p_UserId             INT UNSIGNED
+)
+BEGIN
+    DECLARE v_Exists INT DEFAULT 0;
+
+    SELECT COUNT(*) INTO v_Exists
+    FROM CommunityCommentLikes
+    WHERE CommunityCommentId = p_CommunityCommentId AND UserId = p_UserId;
+
+    IF v_Exists > 0 THEN
+        DELETE FROM CommunityCommentLikes
+        WHERE CommunityCommentId = p_CommunityCommentId AND UserId = p_UserId;
+        UPDATE CommunityPostComments
+        SET LikeCount = GREATEST(0, LikeCount - 1)
+        WHERE CommunityCommentId = p_CommunityCommentId;
+    ELSE
+        INSERT INTO CommunityCommentLikes (CommunityCommentId, UserId, CreatedAt)
+        VALUES (p_CommunityCommentId, p_UserId, NOW());
+        UPDATE CommunityPostComments
+        SET LikeCount = LikeCount + 1
+        WHERE CommunityCommentId = p_CommunityCommentId;
+    END IF;
+
+    SELECT
+        CASE WHEN v_Exists > 0 THEN 0 ELSE 1 END AS IsLiked,
+        LikeCount
+    FROM CommunityPostComments WHERE CommunityCommentId = p_CommunityCommentId;
+END //
+
+-- ── NEW SP: Sos_GetMyActive ──────────────────────────────────────
+DROP PROCEDURE IF EXISTS Sos_GetMyActive //
+CREATE PROCEDURE Sos_GetMyActive(
+    IN p_UserId INT UNSIGNED
+)
+BEGIN
+    DECLARE v_ActiveLkpId INT UNSIGNED DEFAULT 0;
+
+    SELECT lv.LookupValueId INTO v_ActiveLkpId
+    FROM LookupValues lv
+    JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE lt.TypeCode = 'SOS_STATUS' AND lv.ValueCode = 'ACTIVE'
+    LIMIT 1;
+
+    -- Result set 1: victim's own active incident
+    SELECT
+        si.SosIncidentId,
+        si.OrgId,
+        o.OrgName,
+        atv.ValueCode  AS AlertType,
+        atv.ValueName  AS AlertTypeName,
+        si.Description,
+        si.ApproxLocation,
+        si.Latitude,
+        si.Longitude,
+        si.CreatedAt,
+        sv.ValueCode   AS Status,
+        sv.ValueName   AS StatusName
+    FROM SosIncidents si
+    LEFT JOIN Organisations o   ON si.OrgId          = o.OrgId
+    LEFT JOIN LookupValues atv  ON si.AlertTypeLkpId = atv.LookupValueId
+    LEFT JOIN LookupValues sv   ON si.StatusLkpId    = sv.LookupValueId
+    WHERE si.UserId      = p_UserId
+      AND si.StatusLkpId = v_ActiveLkpId
+      AND si.IsDeleted   = 0
+    ORDER BY si.CreatedAt DESC
+    LIMIT 1;
+
+    -- Result set 2: responders for that incident
+    SELECT
+        sr.SosResponderId,
+        sr.UserId,
+        CONCAT(up.FirstName, ' ', up.LastName) AS ResponderName,
+        up.ProfilePhoto,
+        rv.ValueCode  AS ApprovalStatus,
+        rv.ValueName  AS ApprovalStatusName,
+        sr.RespondedAt,
+        sr.CanViewLocation
+    FROM SosResponders sr
+    JOIN SosIncidents si2 ON sr.SosIncidentId = si2.SosIncidentId
+    JOIN UserProfiles up  ON sr.UserId        = up.UserId AND up.IsDeleted = 0
+    LEFT JOIN LookupValues rv ON sr.ApprovalStatusLkpId = rv.LookupValueId
+    WHERE si2.UserId      = p_UserId
+      AND si2.StatusLkpId = v_ActiveLkpId
+      AND si2.IsDeleted   = 0;
+END //
+
+DELIMITER ;
+
+-- ── v4.2 SchemaVersions entry ────────────────────────────────────
+INSERT INTO SchemaVersions (Version, Description, AppliedBy)
+VALUES ('v4.2', 'v4.2 upgrade: +3 tables (CommunityPostLikes, CommunityPostComments, CommunityCommentLikes), +3 columns on CommunityPosts (LikeCount, CommentCount, AcknowledgeCount), +2 columns on SosIncidents (IsDeleted, CancelledAt), +5 new SPs (Community_LikePost, _AddComment, _GetComments, _LikeComment, Sos_GetMyActive), 4 SPs replaced (Community_GetFeed, _CreatePost, _CreatePoll, _Vote). Total: 50 tables, 118 SPs.', 'System');
+
+COMMIT;
+
+
+-- ============================================================
+-- v4.3 CHANGES (applied on top of v4.2)
+-- Effective: 2026-07-06
+-- Summary: Project SPs rebuilt to match DAL params; Project_List
+--   adds ScheduleType, LocationName, Address columns; Community_GetFeed
+--   adds PollOptionsJson/RoleName/TimeAgo; Sos_GetById made robust;
+--   new SPs Sos_GetOrgAlerts + Sos_DeclineResponder; ORG_TYPE seed.
+-- ============================================================
+
+DELIMITER //
+
+-- ── Project_Create: rebuilt to match C# DAL params ──────────
+DROP PROCEDURE IF EXISTS Project_Create //
+CREATE PROCEDURE Project_Create(
+    IN p_UserId            INT UNSIGNED,
+    IN p_OrgId             INT UNSIGNED,
+    IN p_Title             VARCHAR(200),
+    IN p_Description       TEXT,
+    IN p_Category          VARCHAR(100),
+    IN p_ProjectTypeLkpId  INT UNSIGNED,
+    IN p_JoinTypeLkpId     INT UNSIGNED,
+    IN p_StatusLkpId       INT UNSIGNED,
+    IN p_MaxVolunteers     INT UNSIGNED,
+    IN p_MinAge            INT UNSIGNED,
+    IN p_MaxAge            INT UNSIGNED,
+    IN p_IsPublic          TINYINT(1),
+    IN p_StartDate         DATE,
+    IN p_EndDate           DATE,
+    IN p_ScheduleType      VARCHAR(20),
+    IN p_RecurrenceDays    VARCHAR(100),
+    IN p_StartTime         VARCHAR(10),
+    IN p_EndTime           VARCHAR(10),
+    IN p_DurationMinutes   INT UNSIGNED,
+    IN p_LocationTypeLkpId INT UNSIGNED,
+    IN p_LocationTypeCode  VARCHAR(20),
+    IN p_LocationName      VARCHAR(200),
+    IN p_Address           VARCHAR(500),
+    IN p_Latitude          DECIMAL(10,7),
+    IN p_Longitude         DECIMAL(10,7),
+    IN p_GoogleMapsUrl     VARCHAR(500),
+    IN p_GenderRestriction VARCHAR(20),
+    IN p_RequiresApproval  TINYINT(1),
+    IN p_CoverImageUrl     VARCHAR(255),
+    IN p_City              VARCHAR(100),
+    IN p_State             VARCHAR(100),
+    IN p_IsDraft           TINYINT(1)
+)
+BEGIN
+    DECLARE v_ProjectTypeLkpId  INT UNSIGNED DEFAULT NULL;
+    DECLARE v_LocationTypeLkpId INT UNSIGNED DEFAULT NULL;
+    DECLARE v_JoinTypeLkpId     INT UNSIGNED DEFAULT NULL;
+    DECLARE v_StatusLkpId       INT UNSIGNED DEFAULT NULL;
+
+    -- Resolve ProjectTypeLkpId from ScheduleType string if not supplied directly
+    IF p_ProjectTypeLkpId IS NOT NULL THEN
+        SET v_ProjectTypeLkpId = p_ProjectTypeLkpId;
+    ELSE
+        SELECT lv.LookupValueId INTO v_ProjectTypeLkpId
+        FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+        WHERE lt.TypeCode = 'PROJECT_TYPE' AND lv.ValueCode = COALESCE(p_ScheduleType, 'ONE_TIME')
+        LIMIT 1;
+    END IF;
+
+    -- Resolve LocationTypeLkpId
+    IF p_LocationTypeLkpId IS NOT NULL THEN
+        SET v_LocationTypeLkpId = p_LocationTypeLkpId;
+    ELSEIF p_LocationTypeCode IS NOT NULL THEN
+        SELECT lv.LookupValueId INTO v_LocationTypeLkpId
+        FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+        WHERE lt.TypeCode = 'LOCATION_TYPE' AND lv.ValueCode = p_LocationTypeCode
+        LIMIT 1;
+    END IF;
+    IF v_LocationTypeLkpId IS NULL THEN
+        SELECT lv.LookupValueId INTO v_LocationTypeLkpId
+        FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+        WHERE lt.TypeCode = 'LOCATION_TYPE' AND lv.ValueCode = 'IN_PERSON'
+        LIMIT 1;
+    END IF;
+
+    -- Resolve JoinTypeLkpId
+    IF p_JoinTypeLkpId IS NOT NULL THEN
+        SET v_JoinTypeLkpId = p_JoinTypeLkpId;
+    ELSE
+        SELECT lv.LookupValueId INTO v_JoinTypeLkpId
+        FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+        WHERE lt.TypeCode = 'PROJECT_JOIN_TYPE'
+          AND lv.ValueCode = IF(COALESCE(p_RequiresApproval, 0) = 1, 'APPROVE_REQ', 'OPEN_SIGNUP')
+        LIMIT 1;
+    END IF;
+
+    -- Resolve StatusLkpId
+    IF p_StatusLkpId IS NOT NULL THEN
+        SET v_StatusLkpId = p_StatusLkpId;
+    ELSEIF COALESCE(p_IsDraft, 0) = 1 THEN
+        SELECT lv.LookupValueId INTO v_StatusLkpId
+        FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+        WHERE lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'DRAFT' LIMIT 1;
+    ELSE
+        SELECT lv.LookupValueId INTO v_StatusLkpId
+        FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+        WHERE lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'UPCOMING' LIMIT 1;
+    END IF;
+
+    INSERT INTO Projects (
+        OrgId, ProjectName, Category, Description,
+        ProjectTypeLkpId,
+        OneTimeDate, RecurStart, RecurEnd, RecurDays,
+        FlexFromDate, FlexToDate,
+        MinHoursRequired,
+        SessionStartTime, SessionEndTime,
+        LocationTypeLkpId, AddressLine, Landmark, City, State,
+        Latitude, Longitude, GoogleMapsUrl,
+        MaxVolunteers, JoinTypeLkpId, IsPublic,
+        AgeRestriction, IdVerRequired, MinReliability,
+        RequiresApproval, GenderRestriction, CoverImageUrl,
+        StatusLkpId, CreatedBy
+    ) VALUES (
+        p_OrgId,
+        p_Title,
+        p_Category,
+        p_Description,
+        v_ProjectTypeLkpId,
+        IF(p_ScheduleType = 'ONE_TIME',  p_StartDate, NULL),
+        IF(p_ScheduleType = 'RECURRING', p_StartDate, NULL),
+        IF(p_ScheduleType = 'RECURRING', p_EndDate,   NULL),
+        IF(p_ScheduleType = 'RECURRING', p_RecurrenceDays, NULL),
+        IF(p_ScheduleType = 'FLEXIBLE',  p_StartDate, NULL),
+        IF(p_ScheduleType = 'FLEXIBLE',  p_EndDate,   NULL),
+        IF(p_DurationMinutes IS NOT NULL, GREATEST(1, ROUND(p_DurationMinutes / 60)), NULL),
+        p_StartTime, p_EndTime,
+        v_LocationTypeLkpId,
+        p_Address,
+        p_LocationName,
+        p_City, p_State,
+        p_Latitude, p_Longitude, p_GoogleMapsUrl,
+        p_MaxVolunteers,
+        v_JoinTypeLkpId,
+        COALESCE(p_IsPublic, 1),
+        IF(COALESCE(p_MinAge, 0) >= 18, 1, 0),
+        0,
+        0.00,
+        COALESCE(p_RequiresApproval, 0),
+        p_GenderRestriction,
+        p_CoverImageUrl,
+        v_StatusLkpId,
+        p_UserId
+    );
+
+    SELECT 1 AS IsSuccess, 'Project created successfully.' AS Message, LAST_INSERT_ID() AS ProjectId;
+END //
+
+-- ── Project_Update: rebuilt to match C# DAL params ──────────
+DROP PROCEDURE IF EXISTS Project_Update //
+CREATE PROCEDURE Project_Update(
+    IN p_ProjectId         INT UNSIGNED,
+    IN p_UserId            INT UNSIGNED,
+    IN p_Title             VARCHAR(200),
+    IN p_Description       TEXT,
+    IN p_Category          VARCHAR(100),
+    IN p_ProjectTypeLkpId  INT UNSIGNED,
+    IN p_JoinTypeLkpId     INT UNSIGNED,
+    IN p_StatusLkpId       INT UNSIGNED,
+    IN p_MaxVolunteers     INT UNSIGNED,
+    IN p_MinAge            INT UNSIGNED,
+    IN p_MaxAge            INT UNSIGNED,
+    IN p_IsPublic          TINYINT(1),
+    IN p_StartDate         DATE,
+    IN p_EndDate           DATE,
+    IN p_ScheduleType      VARCHAR(20),
+    IN p_RecurrenceDays    VARCHAR(100),
+    IN p_StartTime         VARCHAR(10),
+    IN p_EndTime           VARCHAR(10),
+    IN p_DurationMinutes   INT UNSIGNED,
+    IN p_LocationTypeLkpId INT UNSIGNED,
+    IN p_LocationTypeCode  VARCHAR(20),
+    IN p_LocationName      VARCHAR(200),
+    IN p_Address           VARCHAR(500),
+    IN p_Latitude          DECIMAL(10,7),
+    IN p_Longitude         DECIMAL(10,7),
+    IN p_GoogleMapsUrl     VARCHAR(500),
+    IN p_GenderRestriction VARCHAR(20),
+    IN p_RequiresApproval  TINYINT(1),
+    IN p_CoverImageUrl     VARCHAR(255),
+    IN p_City              VARCHAR(100),
+    IN p_State             VARCHAR(100),
+    IN p_IsDraft           TINYINT(1)
+)
+BEGIN
+    DECLARE v_ProjectTypeLkpId  INT UNSIGNED DEFAULT NULL;
+    DECLARE v_LocationTypeLkpId INT UNSIGNED DEFAULT NULL;
+    DECLARE v_JoinTypeLkpId     INT UNSIGNED DEFAULT NULL;
+    DECLARE v_StatusLkpId       INT UNSIGNED DEFAULT NULL;
+
+    IF p_ProjectTypeLkpId IS NOT NULL THEN
+        SET v_ProjectTypeLkpId = p_ProjectTypeLkpId;
+    ELSEIF p_ScheduleType IS NOT NULL THEN
+        SELECT lv.LookupValueId INTO v_ProjectTypeLkpId
+        FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+        WHERE lt.TypeCode = 'PROJECT_TYPE' AND lv.ValueCode = p_ScheduleType LIMIT 1;
+    END IF;
+
+    IF p_LocationTypeLkpId IS NOT NULL THEN
+        SET v_LocationTypeLkpId = p_LocationTypeLkpId;
+    ELSEIF p_LocationTypeCode IS NOT NULL THEN
+        SELECT lv.LookupValueId INTO v_LocationTypeLkpId
+        FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+        WHERE lt.TypeCode = 'LOCATION_TYPE' AND lv.ValueCode = p_LocationTypeCode LIMIT 1;
+    END IF;
+
+    IF p_JoinTypeLkpId IS NOT NULL THEN
+        SET v_JoinTypeLkpId = p_JoinTypeLkpId;
+    ELSEIF p_RequiresApproval IS NOT NULL THEN
+        SELECT lv.LookupValueId INTO v_JoinTypeLkpId
+        FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+        WHERE lt.TypeCode = 'PROJECT_JOIN_TYPE'
+          AND lv.ValueCode = IF(p_RequiresApproval = 1, 'APPROVE_REQ', 'OPEN_SIGNUP') LIMIT 1;
+    END IF;
+
+    IF p_StatusLkpId IS NOT NULL THEN
+        SET v_StatusLkpId = p_StatusLkpId;
+    ELSEIF p_IsDraft IS NOT NULL THEN
+        SELECT lv.LookupValueId INTO v_StatusLkpId
+        FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+        WHERE lt.TypeCode = 'PROJECT_STATUS'
+          AND lv.ValueCode = IF(p_IsDraft = 1, 'DRAFT', 'UPCOMING') LIMIT 1;
+    END IF;
+
+    UPDATE Projects SET
+        ProjectName       = COALESCE(p_Title,             ProjectName),
+        Category          = COALESCE(p_Category,          Category),
+        Description       = COALESCE(p_Description,       Description),
+        ProjectTypeLkpId  = COALESCE(v_ProjectTypeLkpId,  ProjectTypeLkpId),
+        OneTimeDate       = IF(p_ScheduleType = 'ONE_TIME',  p_StartDate, OneTimeDate),
+        RecurStart        = IF(p_ScheduleType = 'RECURRING', p_StartDate, RecurStart),
+        RecurEnd          = IF(p_ScheduleType = 'RECURRING', p_EndDate,   RecurEnd),
+        RecurDays         = IF(p_ScheduleType = 'RECURRING', p_RecurrenceDays, RecurDays),
+        FlexFromDate      = IF(p_ScheduleType = 'FLEXIBLE',  p_StartDate, FlexFromDate),
+        FlexToDate        = IF(p_ScheduleType = 'FLEXIBLE',  p_EndDate,   FlexToDate),
+        MinHoursRequired  = COALESCE(IF(p_DurationMinutes IS NOT NULL, GREATEST(1, ROUND(p_DurationMinutes / 60)), NULL), MinHoursRequired),
+        SessionStartTime  = COALESCE(p_StartTime,         SessionStartTime),
+        SessionEndTime    = COALESCE(p_EndTime,           SessionEndTime),
+        LocationTypeLkpId = COALESCE(v_LocationTypeLkpId, LocationTypeLkpId),
+        AddressLine       = COALESCE(p_Address,           AddressLine),
+        Landmark          = COALESCE(p_LocationName,      Landmark),
+        City              = COALESCE(p_City,              City),
+        State             = COALESCE(p_State,             State),
+        Latitude          = COALESCE(p_Latitude,          Latitude),
+        Longitude         = COALESCE(p_Longitude,         Longitude),
+        GoogleMapsUrl     = COALESCE(p_GoogleMapsUrl,     GoogleMapsUrl),
+        MaxVolunteers     = COALESCE(p_MaxVolunteers,     MaxVolunteers),
+        JoinTypeLkpId     = COALESCE(v_JoinTypeLkpId,     JoinTypeLkpId),
+        IsPublic          = COALESCE(p_IsPublic,          IsPublic),
+        AgeRestriction    = IF(p_MinAge IS NOT NULL, IF(p_MinAge >= 18, 1, 0), AgeRestriction),
+        RequiresApproval  = COALESCE(p_RequiresApproval,  RequiresApproval),
+        GenderRestriction = COALESCE(p_GenderRestriction, GenderRestriction),
+        CoverImageUrl     = COALESCE(p_CoverImageUrl,     CoverImageUrl),
+        StatusLkpId       = COALESCE(v_StatusLkpId,       StatusLkpId),
+        UpdatedBy         = p_UserId,
+        UpdatedAt         = NOW()
+    WHERE ProjectId = p_ProjectId AND IsDeleted = 0;
+
+    SELECT 1 AS IsSuccess, 'Project updated successfully.' AS Message;
+END //
+
+-- ── Project_List: v4.3 — adds ScheduleType, LocationName, Address,
+--   ApprovedCount; admin org sees all projects (not just IsPublic=1)
+DROP PROCEDURE IF EXISTS Project_List //
+CREATE PROCEDURE Project_List(
+    IN p_OrgId      INT UNSIGNED,
+    IN p_Category   VARCHAR(100),
+    IN p_City       VARCHAR(100),
+    IN p_StatusCode VARCHAR(50),
+    IN p_TypeCode   VARCHAR(50),
+    IN p_PageNumber INT,
+    IN p_PageSize   INT
+)
+BEGIN
+    DECLARE v_Offset      INT;
+    DECLARE v_StatusLkpId INT UNSIGNED DEFAULT NULL;
+    DECLARE v_TypeLkpId   INT UNSIGNED DEFAULT NULL;
+
+    SET v_Offset = (p_PageNumber - 1) * p_PageSize;
+
+    IF p_StatusCode IS NOT NULL THEN
+        SELECT LookupValueId INTO v_StatusLkpId
+        FROM LookupValues lv
+        JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+        WHERE lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = p_StatusCode
+        LIMIT 1;
+    END IF;
+
+    IF p_TypeCode IS NOT NULL THEN
+        SELECT LookupValueId INTO v_TypeLkpId
+        FROM LookupValues lv
+        JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+        WHERE lt.TypeCode = 'PROJECT_TYPE' AND lv.ValueCode = p_TypeCode
+        LIMIT 1;
+    END IF;
+
+    SELECT
+        p.ProjectId,
+        p.OrgId,
+        o.OrgName,
+        p.ProjectName,
+        p.Category,
+        ptv.ValueCode   AS ScheduleType,         -- ONE_TIME | RECURRING | FLEXIBLE (derived from ProjectTypeLkpId)
+        ptv.ValueCode   AS ProjectTypeCode,
+        ptv.ValueName   AS ProjectType,
+        ltv.ValueCode   AS LocationTypeCode,
+        ltv.ValueName   AS LocationType,
+        p.Landmark      AS LocationName,          -- actual column is Landmark
+        p.AddressLine   AS Address,               -- actual column is AddressLine
+        sv.ValueCode    AS StatusCode,
+        sv.ValueName    AS Status,
+        p.City,
+        p.State,
+        p.MaxVolunteers,
+        p.IsPublic,
+        p.OneTimeDate,
+        p.RecurStart,
+        p.RecurEnd,
+        p.RecurDays,
+        p.SessionStartTime,
+        p.SessionEndTime,
+        p.FlexFromDate,
+        p.FlexToDate,
+        p.MinHoursRequired,
+        p.CancelReason,
+        p.CancelledAt,
+        p.ImpactSummary,
+        p.BeneficiaryCount,
+        (SELECT COUNT(*) FROM ProjectApplications pa
+         JOIN LookupValues alv ON pa.StatusLkpId = alv.LookupValueId
+         WHERE pa.ProjectId = p.ProjectId
+           AND alv.ValueCode = 'APPROVED'
+           AND pa.IsDeleted  = 0
+        ) AS ApprovedCount,
+        p.CreatedAt
+    FROM Projects p
+    JOIN Organisations o        ON p.OrgId             = o.OrgId
+    LEFT JOIN LookupValues ptv  ON p.ProjectTypeLkpId  = ptv.LookupValueId
+    LEFT JOIN LookupValues ltv  ON p.LocationTypeLkpId = ltv.LookupValueId
+    LEFT JOIN LookupValues sv   ON p.StatusLkpId       = sv.LookupValueId
+    WHERE p.IsDeleted = 0
+      -- Admin querying their own org sees ALL projects (public + private)
+      -- Public browsing (no orgId) sees only IsPublic=1
+      AND (p_OrgId IS NOT NULL OR p.IsPublic = 1)
+      AND (p_OrgId       IS NULL OR p.OrgId            = p_OrgId)
+      AND (p_Category    IS NULL OR p.Category         = p_Category)
+      AND (p_City        IS NULL OR p.City LIKE CONCAT('%', p_City, '%'))
+      AND (v_StatusLkpId IS NULL OR p.StatusLkpId      = v_StatusLkpId)
+      AND (v_TypeLkpId   IS NULL OR p.ProjectTypeLkpId = v_TypeLkpId)
+    ORDER BY p.CreatedAt DESC
+    LIMIT p_PageSize OFFSET v_Offset;
+
+    SELECT COUNT(*) AS TotalCount
+    FROM Projects p
+    WHERE p.IsDeleted = 0
+      AND (p_OrgId IS NOT NULL OR p.IsPublic = 1)
+      AND (p_OrgId       IS NULL OR p.OrgId            = p_OrgId)
+      AND (p_Category    IS NULL OR p.Category         = p_Category)
+      AND (p_City        IS NULL OR p.City LIKE CONCAT('%', p_City, '%'))
+      AND (v_StatusLkpId IS NULL OR p.StatusLkpId      = v_StatusLkpId)
+      AND (v_TypeLkpId   IS NULL OR p.ProjectTypeLkpId = v_TypeLkpId);
+END //
+
+-- ── Sos_GetById: v4.3 — robust LEFT JOINs, AlertTypeName + StatusName
+DROP PROCEDURE IF EXISTS Sos_GetById //
+CREATE PROCEDURE Sos_GetById(
+    IN p_SosIncidentId INT UNSIGNED,
+    IN p_UserId        INT UNSIGNED      -- kept for future auth checks
+)
+BEGIN
+    -- Result set 1: incident details
+    SELECT
+        si.SosIncidentId,
+        si.UserId,
+        CONCAT(COALESCE(up.FirstName,''), ' ', COALESCE(up.LastName,'')) AS UserName,
+        up.ProfilePhoto,
+        atv.ValueCode  AS AlertType,
+        atv.ValueName  AS AlertTypeName,
+        sv.ValueCode   AS Status,
+        sv.ValueName   AS StatusName,
+        si.Description,
+        si.ApproxLocation,
+        si.Latitude,
+        si.Longitude,
+        si.CancelReason,
+        si.ResolvedAt,
+        si.CreatedAt,
+        si.OrgId,
+        o.OrgName
+    FROM  SosIncidents si
+    LEFT  JOIN UserProfiles  up  ON si.UserId         = up.UserId AND up.IsDeleted = 0
+    LEFT  JOIN Organisations o   ON si.OrgId          = o.OrgId
+    LEFT  JOIN LookupValues  atv ON si.AlertTypeLkpId = atv.LookupValueId
+    LEFT  JOIN LookupValues  sv  ON si.StatusLkpId    = sv.LookupValueId
+    WHERE  si.SosIncidentId = p_SosIncidentId
+      AND  si.IsDeleted     = 0;
+
+    -- Result set 2: responders list
+    SELECT
+        sr.SosResponderId,
+        sr.UserId,
+        CONCAT(COALESCE(up2.FirstName,''), ' ', COALESCE(up2.LastName,'')) AS ResponderName,
+        up2.ProfilePhoto,
+        rv.ValueCode   AS ApprovalStatus,
+        rv.ValueName   AS ApprovalStatusName,
+        sr.RespondedAt,
+        sr.CanViewLocation
+    FROM  SosResponders  sr
+    LEFT  JOIN UserProfiles  up2 ON sr.UserId              = up2.UserId AND up2.IsDeleted = 0
+    LEFT  JOIN LookupValues  rv  ON sr.ApprovalStatusLkpId = rv.LookupValueId
+    WHERE  sr.SosIncidentId = p_SosIncidentId
+    ORDER  BY sr.RespondedAt ASC;
+END //
+
+-- ── Community_GetFeed: v4.3 — adds PollOptionsJson, RoleName, TimeAgo
+DROP PROCEDURE IF EXISTS Community_GetFeed //
+CREATE PROCEDURE Community_GetFeed(
+    IN p_OrgId      INT UNSIGNED,
+    IN p_UserId     INT UNSIGNED,
+    IN p_PageNumber INT,
+    IN p_PageSize   INT
+)
+BEGIN
+    DECLARE v_Offset INT;
+    SET v_Offset = (p_PageNumber - 1) * p_PageSize;
+
+    SELECT
+        cp.CommunityPostId,
+        cp.Title,
+        cp.Content,
+        ptv.ValueCode  AS PostType,
+        ptv.ValueCode  AS PostTypeLkpCode,
+        ptv.ValueName  AS PostTypeName,
+        av.ValueCode   AS AudienceCode,
+        cp.IsPinned,
+        cp.AcknowledgeCount,
+        cp.LikeCount,
+        cp.CommentCount,
+        cp.AssignedToUserId,
+        CONCAT(aup.FirstName, ' ', aup.LastName) AS AssignedToName,
+        cp.DueDate,
+        tsv.ValueCode  AS TaskStatus,
+        cp.PollEndsAt,
+        cp.PollIsMultiChoice,
+        cp.VolunteersNeeded,
+        cp.ResourceFileUrl,
+        cp.EventRef,
+        cp.CreatedAt,
+        cp.UserId,
+        CONCAT(up.FirstName, ' ', up.LastName) AS AuthorName,
+        CONCAT(up.FirstName, ' ', up.LastName) AS FullName,
+        up.ProfilePhoto,
+        IF(cpa.CommunityPostId IS NOT NULL, 1, 0) AS IsAcknowledged,
+        IF(cpa.CommunityPostId IS NOT NULL, 1, 0) AS IsAcknowledgedByMe,
+        IF(cpl.CommunityPostLikeId IS NOT NULL, 1, 0) AS IsLiked,
+        IF(cpl.CommunityPostLikeId IS NOT NULL, 1, 0) AS IsLikedByMe,
+        rv.ValueName AS RoleName,
+        CASE
+            WHEN TIMESTAMPDIFF(MINUTE, cp.CreatedAt, NOW()) < 60
+                THEN CONCAT(TIMESTAMPDIFF(MINUTE, cp.CreatedAt, NOW()), 'm ago')
+            WHEN TIMESTAMPDIFF(HOUR,   cp.CreatedAt, NOW()) < 24
+                THEN CONCAT(TIMESTAMPDIFF(HOUR,   cp.CreatedAt, NOW()), 'h ago')
+            WHEN TIMESTAMPDIFF(DAY,    cp.CreatedAt, NOW()) < 7
+                THEN CONCAT(TIMESTAMPDIFF(DAY,    cp.CreatedAt, NOW()), 'd ago')
+            ELSE DATE_FORMAT(cp.CreatedAt, '%d %b')
+        END AS TimeAgo,
+        (
+            SELECT JSON_ARRAYAGG(
+                JSON_OBJECT(
+                    'pollOptionId', po.PollOptionId,
+                    'optionText',   po.OptionText,
+                    'voteCount',    po.VoteCount,
+                    'isVoted',      IF(pv.PollVoteId IS NOT NULL, 1, 0)
+                )
+            )
+            FROM   PollOptions po
+            LEFT   JOIN PollVotes pv
+                       ON po.PollOptionId = pv.PollOptionId
+                      AND pv.UserId       = p_UserId
+            WHERE  po.CommunityPostId = cp.CommunityPostId
+        ) AS PollOptionsJson
+
+    FROM   CommunityPosts cp
+    JOIN   UserProfiles up   ON cp.UserId           = up.UserId  AND up.IsDeleted  = 0
+    LEFT   JOIN UserProfiles aup
+                             ON cp.AssignedToUserId = aup.UserId AND aup.IsDeleted = 0
+    LEFT   JOIN LookupValues ptv ON cp.PostTypeLkpId   = ptv.LookupValueId
+    LEFT   JOIN LookupValues av  ON cp.AudienceLkpId   = av.LookupValueId
+    LEFT   JOIN LookupValues tsv ON cp.TaskStatusLkpId = tsv.LookupValueId
+    LEFT   JOIN CommunityPostAcknowledgements cpa
+                             ON cp.CommunityPostId = cpa.CommunityPostId
+                            AND cpa.UserId         = p_UserId
+    LEFT   JOIN CommunityPostLikes cpl
+                             ON cp.CommunityPostId = cpl.CommunityPostId
+                            AND cpl.UserId         = p_UserId
+    LEFT   JOIN OrgMembers om ON om.OrgId    = cp.OrgId
+                             AND om.UserId   = cp.UserId
+                             AND om.IsDeleted = 0
+    LEFT   JOIN LookupValues rv ON om.RoleLkpId = rv.LookupValueId
+
+    WHERE  cp.OrgId    = p_OrgId
+      AND  cp.IsDeleted = 0
+    ORDER  BY cp.IsPinned DESC, cp.CreatedAt DESC
+    LIMIT  p_PageSize OFFSET v_Offset;
+
+    SELECT COUNT(*) AS TotalCount
+    FROM   CommunityPosts
+    WHERE  OrgId      = p_OrgId
+      AND  IsDeleted  = 0;
+END //
+
+-- ── NEW SP: Sos_GetOrgAlerts (v4.3)
+--   Returns all SOS incidents for an org with per-user MyApprovalStatus
+DROP PROCEDURE IF EXISTS Sos_GetOrgAlerts //
+CREATE PROCEDURE Sos_GetOrgAlerts(
+    IN p_OrgId  INT UNSIGNED,
+    IN p_UserId INT UNSIGNED,
+    IN p_Limit  INT UNSIGNED
+)
+BEGIN
+    DECLARE v_ActiveLkpId INT UNSIGNED DEFAULT 0;
+
+    SELECT lv.LookupValueId INTO v_ActiveLkpId
+    FROM   LookupValues lv
+    JOIN   LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE  lt.TypeCode = 'SOS_STATUS' AND lv.ValueCode = 'ACTIVE'
+    LIMIT  1;
+
+    SELECT
+        si.SosIncidentId,
+        si.OrgId,
+        si.UserId,
+        CONCAT(COALESCE(up.FirstName,''), ' ', COALESCE(up.LastName,'')) AS UserName,
+        up.ProfilePhoto,
+        atv.ValueCode  AS AlertType,
+        atv.ValueName  AS AlertTypeName,
+        sv.ValueCode   AS Status,
+        sv.ValueName   AS StatusName,
+        CASE WHEN si.StatusLkpId = v_ActiveLkpId THEN 1 ELSE 0 END AS IsActive,
+        si.Description,
+        si.ApproxLocation,
+        si.Latitude,
+        si.Longitude,
+        si.CancelReason,
+        si.ResolvedAt,
+        si.CreatedAt,
+        arv.ValueCode  AS MyApprovalStatus
+    FROM   SosIncidents si
+    LEFT   JOIN UserProfiles up  ON si.UserId         = up.UserId AND up.IsDeleted = 0
+    LEFT   JOIN LookupValues atv ON si.AlertTypeLkpId = atv.LookupValueId
+    LEFT   JOIN LookupValues sv  ON si.StatusLkpId    = sv.LookupValueId
+    LEFT   JOIN SosResponders sr ON sr.SosIncidentId  = si.SosIncidentId
+                                 AND sr.UserId         = p_UserId
+    LEFT   JOIN LookupValues arv ON sr.ApprovalStatusLkpId = arv.LookupValueId
+    WHERE  si.OrgId     = p_OrgId
+      AND  si.IsDeleted = 0
+    ORDER  BY si.CreatedAt DESC
+    LIMIT  p_Limit;
+END //
+
+-- ── NEW SP: Sos_DeclineResponder (v4.3)
+--   Victim declines a pending responder request
+DROP PROCEDURE IF EXISTS Sos_DeclineResponder //
+CREATE PROCEDURE Sos_DeclineResponder(
+    IN p_SosIncidentId  INT UNSIGNED,
+    IN p_SosResponderId INT UNSIGNED,
+    IN p_DeclinedBy     INT UNSIGNED
+)
+main_block: BEGIN
+    DECLARE v_RejectedLkpId INT UNSIGNED DEFAULT NULL;
+    DECLARE v_OwnerUserId   INT UNSIGNED DEFAULT NULL;
+
+    SELECT lv.LookupValueId
+    INTO   v_RejectedLkpId
+    FROM   LookupValues  lv
+    JOIN   LookupTypes   lt ON lt.LookupTypeId = lv.LookupTypeId
+    WHERE  lt.TypeCode   = 'RESPONDER_STATUS'
+      AND  lv.ValueCode  = 'REJECTED'
+    LIMIT 1;
+
+    IF v_RejectedLkpId IS NULL THEN
+        SELECT 0 AS IsSuccess, 'REJECTED status lookup not configured.' AS Message;
+        LEAVE main_block;
+    END IF;
+
+    SELECT UserId INTO v_OwnerUserId
+    FROM   SosIncidents
+    WHERE  SosIncidentId = p_SosIncidentId
+      AND  IsDeleted     = 0
+    LIMIT 1;
+
+    IF v_OwnerUserId IS NULL THEN
+        SELECT 0 AS IsSuccess, 'SOS incident not found.' AS Message;
+        LEAVE main_block;
+    END IF;
+
+    IF v_OwnerUserId <> p_DeclinedBy THEN
+        SELECT 0 AS IsSuccess, 'Only the SOS victim can decline responders.' AS Message;
+        LEAVE main_block;
+    END IF;
+
+    UPDATE SosResponders
+    SET    ApprovalStatusLkpId = v_RejectedLkpId
+    WHERE  SosResponderId = p_SosResponderId
+      AND  SosIncidentId  = p_SosIncidentId;
+
+    IF ROW_COUNT() = 0 THEN
+        SELECT 0 AS IsSuccess, 'Responder record not found.' AS Message;
+    ELSE
+        SELECT 1 AS IsSuccess, 'Responder declined.' AS Message;
+    END IF;
+END //
+
+DELIMITER ;
+
+-- ── v4.3 Seed: ORG_TYPE lookup values ─────────────────────────
+-- Adds 6 new legal entity types (INSERT IGNORE = idempotent)
+-- Existing: TRUST (1), SOCIETY (2), SECTION_8 (3)
+INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsActive, IsSystemValue)
+SELECT lt.LookupTypeId, v.ValueCode, v.ValueName, v.OrderNo, 1, 1
+FROM LookupTypes lt
+JOIN (
+    SELECT 'NGO'                     AS ValueCode, 'NGO'                      AS ValueName, 4  AS OrderNo UNION ALL
+    SELECT 'FOUNDATION',                           'Foundation',                              5           UNION ALL
+    SELECT 'CHARITABLE_INSTITUTION',               'Charitable Institution',                  6           UNION ALL
+    SELECT 'RELIGIOUS_TRUST',                      'Religious Trust',                         7           UNION ALL
+    SELECT 'CSR_FOUNDATION',                       'CSR Foundation',                          8           UNION ALL
+    SELECT 'EDUCATIONAL_TRUST',                    'Educational Trust',                        9
+) v ON 1=1
+WHERE lt.TypeCode = 'ORG_TYPE';
+
+-- ── v4.3 SchemaVersions entry ────────────────────────────────────
+INSERT INTO SchemaVersions (Version, Description, AppliedBy)
+VALUES ('v4.3', 'v4.3 upgrade: Project_Create/Update rebuilt to match DAL params; Project_List adds ScheduleType/LocationName/Address/ApprovedCount, admin visibility fix; Sos_GetById made robust (LEFT JOINs, AlertTypeName, StatusName); Community_GetFeed adds PollOptionsJson/RoleName/TimeAgo; 2 new SPs (Sos_GetOrgAlerts with MyApprovalStatus, Sos_DeclineResponder); 6 new ORG_TYPE lookup values. Total: 50 tables, 120 SPs.', 'System');
+
+COMMIT;
+
+-- ── VERIFICATION QUERIES ─────────────────────────────────────────
+SELECT 'TABLES' AS Check_Type, COUNT(*) AS Count FROM information_schema.TABLES WHERE TABLE_SCHEMA = 'ngoconnect' AND TABLE_TYPE = 'BASE TABLE'
 UNION ALL
-SELECT 'STORED_PROCEDURES', COUNT(*) FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = 'NGOConnect' AND ROUTINE_TYPE = 'PROCEDURE'
+SELECT 'STORED_PROCEDURES', COUNT(*) FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = 'ngoconnect' AND ROUTINE_TYPE = 'PROCEDURE'
 UNION ALL
 SELECT 'LOOKUP_TYPES', COUNT(*) FROM LookupTypes
 UNION ALL
@@ -3961,6 +5016,6 @@ SELECT 'SETTINGS', COUNT(*) FROM Settings
 UNION ALL
 SELECT 'SCHEMA_VERSION', Version FROM (SELECT Version FROM SchemaVersions ORDER BY VersionId DESC LIMIT 1) sv;
 
--- Expected: TABLES=47, STORED_PROCEDURES=113, LOOKUP_TYPES=45, LOOKUP_VALUES=168+, SETTINGS=21, SCHEMA_VERSION=v4.1
+-- Expected: TABLES=50, STORED_PROCEDURES=120, LOOKUP_TYPES=45, LOOKUP_VALUES=174+, SETTINGS=21, SCHEMA_VERSION=v4.3
 
--- ── END OF NGOConnect_Complete_Setup_v4.1.sql ────────────────────
+-- ── END OF NGOConnect_Complete_Setup_v4.3.sql ────────────────────

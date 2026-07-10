@@ -70,6 +70,10 @@ namespace NGOConnect.Core.Models.Common
         /// <summary>Raw dictionary — used by DynamicRowConverter for JSON serialization.</summary>
         public Dictionary<string, object?> AsDictionary() => _store;
 
+        /// <summary>Remove a key from the store. Useful in DAL post-processing to strip
+        /// intermediate columns (e.g. PollOptionsJson) before serialization.</summary>
+        public bool Remove(string key) => _store.Remove(ToCamelCase(key));
+
         private static string ToCamelCase(string s) =>
             string.IsNullOrEmpty(s) ? s : char.ToLowerInvariant(s[0]) + s[1..];
     }

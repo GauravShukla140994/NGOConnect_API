@@ -4,7 +4,8 @@ namespace NGOConnect.Core.Models.Application
 {
     /// <summary>
     /// DB column mapping notes:
-    ///   Motivation (not Note) — SP takes p_Note, inserts into Motivation column
+    ///   Motivation — SP takes p_Motivation, inserts into Motivation column
+    ///   RequestedSessions — SP takes p_RequestedSessions (comma-separated day codes e.g. "TUE,FRI")
     ///   StatusLkpId INT FK (not Status VARCHAR) — RejectionReason (not Note for reviews)
     /// </summary>
     public class ApplicationModel
@@ -22,8 +23,15 @@ namespace NGOConnect.Core.Models.Application
 
     public class ApplyRequest
     {
-        /// <summary>Maps to DB column: Motivation</summary>
-        public string? Note { get; set; }
+        /// <summary>Volunteer's reason for applying. Maps to DB column: Motivation</summary>
+        public string? Motivation { get; set; }
+
+        /// <summary>
+        /// For RECURRING projects: comma-separated day codes the volunteer wants to attend.
+        /// E.g. "TUE", "FRI", or "TUE,FRI" for both days.
+        /// Maps to DB column: RequestedSessions
+        /// </summary>
+        public string? RequestedSessions { get; set; }
     }
 
     public class ReviewApplicationRequest

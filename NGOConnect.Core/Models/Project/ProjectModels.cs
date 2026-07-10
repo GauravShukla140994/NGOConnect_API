@@ -29,13 +29,20 @@ namespace NGOConnect.Core.Models.Project
         [MaxLength(500)]public string? Address       { get; set; }
         public decimal? Latitude           { get; set; }
         public decimal? Longitude          { get; set; }
-        [MaxLength(500)]public string? MeetingLink   { get; set; }
+        [MaxLength(500)]public string? GoogleMapsUrl { get; set; }
+        // Restrictions
+        // Category stored as string in DB
+        [MaxLength(100)]public string? Category         { get; set; }
+        // Location type code resolved to LkpId inside the SP (IN_PERSON | REMOTE | HYBRID)
+        [MaxLength(20)] public string? LocationTypeCode { get; set; }
         // Restrictions
         [MaxLength(20)] public string? GenderRestriction { get; set; }
         public bool?    RequiresApproval   { get; set; }
         [MaxLength(255)]public string? CoverImageUrl  { get; set; }
         [MaxLength(100)]public string? City           { get; set; }
         [MaxLength(100)]public string? State          { get; set; }
+        // Status: true = save as DRAFT, false/null = UPCOMING
+        public bool?    IsDraft            { get; set; }
     }
 
     public class UpdateProjectRequest : CreateProjectRequest { }
@@ -68,6 +75,18 @@ namespace NGOConnect.Core.Models.Project
     public class CompleteProjectRequest
     {
         [MaxLength(1000)] public string? CompletionNotes { get; set; }
+    }
+
+    // ── Cancel Project ────────────────────────────────────────────────────────────
+    public class CancelProjectRequest
+    {
+        [MaxLength(500)] public string? CancelReason { get; set; }
+    }
+
+    // ── Manual Attendance (admin override) ────────────────────────────────────────
+    public class ManualAttendanceRequest
+    {
+        public int ApplicationId { get; set; }
     }
 
     // ── Review Application (v4.0) ───────────────────────────────────────────────

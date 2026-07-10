@@ -18,15 +18,6 @@ namespace NGOConnect.API.Controllers
         public async Task<IActionResult> Apply(int projectId, [FromBody] ApplyRequest request)
             => Ok(await _app.ApplyAsync(projectId, GetCurrentUserId(), request));
 
-        /// <summary>Get applications for a project. Org admin only. Filter by status.</summary>
-        [HttpGet("project/{projectId:int}/applications")]
-        public async Task<IActionResult> GetByProject(
-            int projectId,
-            [FromQuery] int? statusLkpId,        // INT FK — filter by LookupValueId (was string status)
-            [FromQuery] int pageNumber = 1,
-            [FromQuery] int pageSize   = 20)
-            => Ok(await _app.GetByProjectAsync(projectId, statusLkpId, pageNumber, pageSize));
-
         /// <summary>Approve or reject an application.</summary>
         [HttpPut("applications/{applicationId:int}")]
         public async Task<IActionResult> Review(int applicationId, [FromBody] ReviewApplicationRequest request)

@@ -52,12 +52,15 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
-        public async Task<ApiResponse<DynamicRow>> GetProfileAsync(int orgId)
+        public async Task<ApiResponse<DynamicRow>> GetProfileAsync(int orgId, int userId)
         {
             try
             {
-                var row = await ExecuteDynamicGetAsync("Org_GetProfile",
-                    cmd => _db.AddParameter(cmd, "p_OrgId", orgId));
+                var row = await ExecuteDynamicGetAsync("Org_GetProfile", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_OrgId",  orgId);
+                    _db.AddParameter(cmd, "p_UserId", userId);
+                });
                 return row is null
                     ? ApiResponse<DynamicRow>.Failure("Organisation not found.", "NOT_FOUND")
                     : ApiResponse<DynamicRow>.Success(row);
@@ -116,7 +119,8 @@ namespace NGOConnect.Infrastructure.DAL
                         ActiveRatePct       = Col<decimal>(r, "ActiveRatePct"),
                         VolunteerHoursMonth = Col<decimal>(r, "VolunteerHoursMonth"),
                         ActiveProjects      = Col<int>(r,     "ActiveProjects"),
-                        PendingApplications = Col<int>(r,     "PendingApplications"),
+                        PendingApplications        = Col<int>(r, "PendingApplications"),
+                        PendingProjectApplications = Col<int>(r, "PendingProjectApplications"),
                     },
                     cmd => _db.AddParameter(cmd, "p_OrgId", orgId));
 
@@ -533,9 +537,12 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var result = await ExecuteWriteAsync("Org_RequestMembership", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_OrgId",   orgId);
-                    _db.AddParameter(cmd, "p_UserId",  userId);
-                    _db.AddParameter(cmd, "p_Message", request.Message);
+                    _db.AddParameter(cmd, "p_OrgId",             orgId);
+                    _db.AddParameter(cmd, "p_UserId",            userId);
+                    _db.AddParameter(cmd, "p_PrevNgoExperience", request.PrevNgoExperience);
+                    _db.AddParameter(cmd, "p_VolunteerSkills",   request.VolunteerSkills);
+                    _db.AddParameter(cmd, "p_AreasOfInterest",   request.AreasOfInterest);
+                    _db.AddParameter(cmd, "p_WhyJoin",           request.WhyJoin);
                 });
                 return result.ToApiResponse();
             }
@@ -601,6 +608,79 @@ namespace NGOConnect.Infrastructure.DAL
             catch (Exception ex)
             {
                 Log.Error(ex, "UpdateMemberPermissionsAsync failed OrgId={OrgId}", orgId);
+                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        public async Task<ApiResponse<List<DynamicRow>>> GetAdminPostsAsync(int orgId)
+        {
+            try
+            {
+                var rows = await ExecuteDynamicListAsync("Org_GetAdminPosts",
+                    cmd => _db.AddParameter(cmd, "p_OrgId", orgId));
+                return ApiResponse<List<DynamicRow>>.Success(rows);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetAdminPostsAsync failed OrgId={OrgId}", orgId);
+                return ApiResponse<List<DynamicRow>>.Failure("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        public async Task<ApiResponse> PinPostAsync(int orgId, int postId, int userId)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("Org_PinPost", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_PostId",   postId);
+                    _db.AddParameter(cmd, "p_OrgId",    orgId);
+                    _db.AddParameter(cmd, "p_PinnedBy", userId);
+                });
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "PinPostAsync failed OrgId={OrgId} PostId={PostId}", orgId, postId);
+                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        public async Task<ApiResponse> DeletePostAsync(int orgId, int postId, int userId)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("Org_DeletePost", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_PostId",    postId);
+                    _db.AddParameter(cmd, "p_OrgId",     orgId);
+                    _db.AddParameter(cmd, "p_DeletedBy", userId);
+                });
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "DeletePostAsync failed OrgId={OrgId} PostId={PostId}", orgId, postId);
+                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        public async Task<ApiResponse> ModeratePostAsync(int orgId, int postId, int userId, string action)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("Org_ModeratePost", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_PostId",     postId);
+                    _db.AddParameter(cmd, "p_OrgId",      orgId);
+                    _db.AddParameter(cmd, "p_ReviewedBy", userId);
+                    _db.AddParameter(cmd, "p_Action",     action);
+                });
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "ModeratePostAsync failed OrgId={OrgId} PostId={PostId}", orgId, postId);
                 return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
             }
         }

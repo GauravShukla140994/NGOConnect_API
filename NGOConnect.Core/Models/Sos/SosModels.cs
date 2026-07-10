@@ -4,8 +4,10 @@ namespace NGOConnect.Core.Models.Sos
 {
     /// <summary>
     /// DB column mapping notes:
-    ///   SosIncidents.AlertTypeLkpId INT FK (not SosType VARCHAR)
-    ///   SosIncidents.StatusLkpId INT FK (not Status VARCHAR)
+    ///   SosIncidents.AlertTypeLkpId INT FK (TypeCode='SOS_ALERT_TYPE')
+    ///   SosIncidents.StatusLkpId INT FK (TypeCode='SOS_STATUS')
+    ///   SosIncidents.OrgId — the NGO the victim belongs to at time of trigger
+    ///   SosIncidents.ApproxLocation — reverse-geocoded address string
     /// </summary>
     public class TriggerSosRequest
     {
@@ -19,11 +21,17 @@ namespace NGOConnect.Core.Models.Sos
 
         public string? Description { get; set; }
 
-        /// <summary>LookupValueId from TypeCode='SOS_ALERT_TYPE' (SOS / HELP_REQUEST / MISSING_VOL / SAFE_ARRIVAL)
-        /// DB column: AlertTypeLkpId (was SosType string)</summary>
+        /// <summary>LookupValueId from TypeCode='SOS_ALERT_TYPE'
+        /// (SOS_ALERT / HELP_REQUEST / MISSING_VOLUNTEER / SAFE_ARRIVAL)</summary>
         [Required(ErrorMessage = "AlertTypeLkpId is required")]
         [Range(1, int.MaxValue, ErrorMessage = "Invalid AlertTypeLkpId")]
         public int AlertTypeLkpId { get; set; }
+
+        /// <summary>OrgId the victim belongs to — sent to SP so org members can be notified.</summary>
+        public int? OrgId { get; set; }
+
+        /// <summary>Reverse-geocoded address string, e.g. "Whitefield, Bengaluru"</summary>
+        public string? ApproxLocation { get; set; }
     }
 
     public class UpdateLocationRequest
@@ -36,25 +44,14 @@ namespace NGOConnect.Core.Models.Sos
         [Range(-180, 180)]
         public decimal Longitude { get; set; }
 
-        /// <summary>GPS accuracy in metres (DB column: Accuracy)</summary>
+        /// <summary>GPS accuracy in metres</summary>
         public decimal? Accuracy { get; set; }
     }
 
-    public class ResolveSosRequest
-    {
-        /// <summary>LookupValueId from TypeCode='SOS_RESOLUTION_TYPE' (DB column: ResolvedByLkpId)</summary>
-        [Required(ErrorMessage = "ResolvedByLkpId is required")]
-        [Range(1, int.MaxValue, ErrorMessage = "Invalid ResolvedByLkpId")]
-        public int ResolvedByLkpId { get; set; }
-    }
+    /// <summary>No request body needed — victim just hits PUT /resolve.
+    /// SP derives ResolvedByLkpId internally based on p_StatusCode = 'RESOLVED'.</summary>
+    // ResolveSosRequest intentionally removed — use no-body endpoint
 
-    /// <summary>Respond to an active SOS — SP takes only p_SosIncidentId + p_UserId, no Note param.</summary>
-    public class RespondSosRequest
-    {
-        // No properties — body is empty; UserId comes from JWT, SosIncidentId from route
-    }
-
-    // v4.0 NEW
     public class CancelSosRequest
     {
         [MaxLength(500)] public string? CancelReason { get; set; }
@@ -62,7 +59,14 @@ namespace NGOConnect.Core.Models.Sos
 
     public class ApproveResponderRequest
     {
-        [Required] public int  ResponderId      { get; set; }
+        /// <summary>SosResponders.SosResponderId — renamed from ResponderId to match SP param p_SosResponderId.</summary>
+        [Required] public int  SosResponderId   { get; set; }
         public bool            CanViewLocation  { get; set; } = true;
+    }
+
+    public class DeclineResponderRequest
+    {
+        /// <summary>SosResponders.SosResponderId of the responder being declined.</summary>
+        [Required] public int SosResponderId { get; set; }
     }
 }

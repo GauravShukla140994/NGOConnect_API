@@ -15,8 +15,12 @@ namespace NGOConnect.Core.Models.Post
 
         public int?    OrgId     { get; set; }
 
-        /// <summary>Comma-separated Azure Blob URLs for media attachments</summary>
-        public string? MediaUrls { get; set; }
+        /// <summary>
+        /// One or more media URLs. Stored as comma-separated string in DB (Posts.MediaUrls).
+        /// Accepts a JSON array from the client — DAL joins to CSV before passing to SP.
+        /// Supports up to 5 URLs (Instagram-style carousel).
+        /// </summary>
+        public List<string>? MediaUrls { get; set; }
 
         /// <summary>LookupValueId from TypeCode='POST_TYPE_FEED' (DB column: PostTypeLkpId)</summary>
         public int? PostTypeLkpId { get; set; }  // was PostType string
@@ -35,10 +39,9 @@ namespace NGOConnect.Core.Models.Post
 
     public class ReportPostRequest
     {
-        /// <summary>LookupValueId from TypeCode='REPORT_REASON' (DB column: ReasonLkpId)</summary>
-        [Required(ErrorMessage = "ReasonLkpId is required")]
-        [Range(1, int.MaxValue, ErrorMessage = "Invalid ReasonLkpId")]
-        public int ReasonLkpId { get; set; }  // was Reason string
+        /// <summary>ValueCode from LookupType REPORT_REASON: SPAM | HATE | INAPPROPRIATE | SCAM | OTHER</summary>
+        [Required(ErrorMessage = "ReasonCode is required")]
+        public string ReasonCode { get; set; } = string.Empty;
 
         public string? Details { get; set; }
     }

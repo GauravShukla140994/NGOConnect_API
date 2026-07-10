@@ -16,7 +16,9 @@ namespace NGOConnect.Core.Interfaces
         Task<ApiResponse<List<UserInterestModel>>>  GetInterestsAsync(int userId);
         Task<ApiResponse>                           SaveInterestsAsync(int userId, SaveInterestsRequest request);
         // Documents
-        Task<ApiResponse>                           UploadDocumentAsync(int userId, UploadDocumentRequest request);
+        Task<ApiResponse>                              UploadDocumentAsync(int userId, UploadDocumentRequest request);
+        Task<ApiResponse<List<UserDocumentModel>>>     GetDocumentsAsync(int userId);
+        Task<ApiResponse>                              DeleteDocumentAsync(int userId, int userDocumentId);
         // Skills
         Task<ApiResponse<List<UserSkillModel>>>     GetSkillsAsync(int userId);
         Task<ApiResponse>                           AddSkillAsync(int userId, AddSkillRequest request);

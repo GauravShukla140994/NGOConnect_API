@@ -149,6 +149,52 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
+        public async Task<ApiResponse<List<UserDocumentModel>>> GetDocumentsAsync(int userId)
+        {
+            try
+            {
+                var docs = await ExecuteReaderListAsync("User_GetDocuments", MapDocument,
+                    cmd => _db.AddParameter(cmd, "p_UserId", userId));
+                return ApiResponse<List<UserDocumentModel>>.Success(docs);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetDocumentsAsync failed UserId={UserId}", userId);
+                return ApiResponse<List<UserDocumentModel>>.Failure("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        public async Task<ApiResponse> DeleteDocumentAsync(int userId, int userDocumentId)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("User_DeleteDocument", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_UserDocumentId", userDocumentId);
+                    _db.AddParameter(cmd, "p_UserId",         userId);
+                });
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "DeleteDocumentAsync failed UserId={UserId} DocId={DocId}", userId, userDocumentId);
+                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        private static UserDocumentModel MapDocument(IDataReader r) => new()
+        {
+            UserDocumentId    = Convert.ToInt32(r["UserDocumentId"]),
+            DocumentTypeLkpId = Convert.ToInt32(r["DocumentTypeLkpId"]),
+            DocTypeCode       = r["DocTypeCode"]?.ToString() ?? string.Empty,
+            DocTypeName       = r["DocTypeName"]?.ToString() ?? string.Empty,
+            FileUrl           = r["FileUrl"]?.ToString()     ?? string.Empty,
+            FileName          = r["FileName"]?.ToString()    ?? string.Empty,
+            FileSizeKb        = r["FileSizeKb"] == DBNull.Value ? null : Convert.ToInt32(r["FileSizeKb"]),
+            IsVerified        = r["IsVerified"]  != DBNull.Value && Convert.ToBoolean(r["IsVerified"]),
+            UploadedAt        = r["UploadedAt"]  == DBNull.Value ? DateTime.MinValue : Convert.ToDateTime(r["UploadedAt"]),
+        };
+
         public async Task<ApiResponse<List<UserSkillModel>>> GetSkillsAsync(int userId)
         {
             try
@@ -383,15 +429,25 @@ namespace NGOConnect.Infrastructure.DAL
 
         private static UserImpactModel MapImpact(DataRow row) => new()
         {
-            ImpactScore       = Col<int>(row,     "ImpactScore"),
-            ReliabilityPct    = Col<decimal>(row, "ReliabilityPct"),
-            ProjectsCompleted = Col<int>(row,     "ProjectsCompleted"),
-            TotalHours        = Col<decimal>(row, "TotalHours"),
-            BadgeCount        = Col<int>(row,     "BadgeCount"),
-            SkillCount        = Col<int>(row,     "SkillCount"),
-            ProjectsApplied   = Col<int>(row,     "ProjectsApplied"),
-            CertificateCount  = Col<int>(row,     "CertificateCount"),
-            MemberSince       = Col<DateTime>(row,"MemberSince"),
+            ImpactScore          = Col<int>(row,      "ImpactScore"),
+            ReliabilityPct       = Col<decimal>(row,  "ReliabilityPct"),
+            ProjectsCompleted    = Col<int>(row,      "ProjectsCompleted"),
+            TotalHours           = Col<decimal>(row,  "TotalHours"),
+            BadgeCount           = Col<int>(row,      "BadgeCount"),
+            SkillCount           = Col<int>(row,      "SkillCount"),
+            ProjectsApplied      = Col<int>(row,      "ProjectsApplied"),
+            CertificateCount     = Col<int>(row,      "CertificateCount"),
+            MemberSince          = Col<DateTime>(row, "MemberSince"),
+            RankName             = Col<string>(row,   "RankName")  ?? "Newcomer",
+            RankNumber           = Col<int>(row,      "RankNumber"),
+            TotalRanked          = Col<int>(row,      "TotalRanked"),
+            NgosJoined           = Col<int>(row,      "NgosJoined"),
+            PendingApplications  = Col<int>(row,      "PendingApplications"),
+            ApprovedApplications = Col<int>(row,      "ApprovedApplications"),
+            FirstName            = Col<string>(row,   "FirstName"),
+            LastName             = Col<string>(row,   "LastName"),
+            ProfilePhoto         = Col<string>(row,   "ProfilePhoto"),
+            Bio                  = Col<string>(row,   "Bio"),
         };
     }
 }

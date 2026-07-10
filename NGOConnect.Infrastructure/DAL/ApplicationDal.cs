@@ -15,9 +15,10 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var result = await ExecuteWriteAsync("Application_Apply", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_ProjectId", projectId);
-                    _db.AddParameter(cmd, "p_UserId",    userId);
-                    _db.AddParameter(cmd, "p_Note",      request.Note);
+                    _db.AddParameter(cmd, "p_ProjectId",         projectId);
+                    _db.AddParameter(cmd, "p_UserId",            userId);
+                    _db.AddParameter(cmd, "p_Motivation",        request.Motivation);
+                    _db.AddParameter(cmd, "p_RequestedSessions", request.RequestedSessions);
                 });
                 return result.ToApiResponse();
             }
@@ -73,8 +74,14 @@ namespace NGOConnect.Infrastructure.DAL
         {
             try
             {
-                var list = await ExecuteDynamicListAsync("Application_GetByUser",
-                    cmd => _db.AddParameter(cmd, "p_UserId", userId));
+                // page=1 size=200 loads all for impact screen client-side tab filtering.
+                // SP returns a second TotalCount result set which ExecuteDynamicListAsync ignores.
+                var list = await ExecuteDynamicListAsync("Application_GetByUser", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_UserId",     userId);
+                    _db.AddParameter(cmd, "p_PageNumber", 1);
+                    _db.AddParameter(cmd, "p_PageSize",   200);
+                });
                 return ApiResponse<List<DynamicRow>>.Success(list);
             }
             catch (Exception ex)

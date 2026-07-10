@@ -19,6 +19,7 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_OrgId",              request.OrgId);
                     _db.AddParameter(cmd, "p_Title",              request.Title);
                     _db.AddParameter(cmd, "p_Description",        request.Description);
+                    _db.AddParameter(cmd, "p_Category",           request.Category);
                     _db.AddParameter(cmd, "p_ProjectTypeLkpId",   request.ProjectTypeLkpId);
                     _db.AddParameter(cmd, "p_JoinTypeLkpId",      request.JoinTypeLkpId);
                     _db.AddParameter(cmd, "p_StatusLkpId",        request.StatusLkpId);
@@ -34,24 +35,29 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_EndTime",            request.EndTime);
                     _db.AddParameter(cmd, "p_DurationMinutes",    request.DurationMinutes);
                     _db.AddParameter(cmd, "p_LocationTypeLkpId",  request.LocationTypeLkpId);
+                    _db.AddParameter(cmd, "p_LocationTypeCode",   request.LocationTypeCode);
                     _db.AddParameter(cmd, "p_LocationName",       request.LocationName);
                     _db.AddParameter(cmd, "p_Address",            request.Address);
                     _db.AddParameter(cmd, "p_Latitude",           request.Latitude);
                     _db.AddParameter(cmd, "p_Longitude",          request.Longitude);
-                    _db.AddParameter(cmd, "p_MeetingLink",        request.MeetingLink);
+                    _db.AddParameter(cmd, "p_GoogleMapsUrl",      request.GoogleMapsUrl);
                     _db.AddParameter(cmd, "p_GenderRestriction",  request.GenderRestriction);
                     _db.AddParameter(cmd, "p_RequiresApproval",   request.RequiresApproval);
                     _db.AddParameter(cmd, "p_CoverImageUrl",      request.CoverImageUrl);
                     _db.AddParameter(cmd, "p_City",               request.City);
                     _db.AddParameter(cmd, "p_State",              request.State);
+                    _db.AddParameter(cmd, "p_IsDraft",            request.IsDraft);
                 });
 
                 if (!result.Succeeded)
                     return ApiResponse<DynamicRow>.Failure(result.Message, "PROJECT_CREATE_FAILED");
 
                 var projectId = Col<int>(result.Row!, "ProjectId");
-                var row = await ExecuteDynamicGetAsync("Project_GetById",
-                    cmd => _db.AddParameter(cmd, "p_ProjectId", projectId));
+                var row = await ExecuteDynamicGetAsync("Project_GetById", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_ProjectId", projectId);
+                    _db.AddParameter(cmd, "p_UserId",    userId);
+                });
 
                 return ApiResponse<DynamicRow>.Success(row!, result.Message);
             }
@@ -62,12 +68,15 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
-        public async Task<ApiResponse<DynamicRow>> GetByIdAsync(int projectId)
+        public async Task<ApiResponse<DynamicRow>> GetByIdAsync(int projectId, int userId = 0)
         {
             try
             {
-                var row = await ExecuteDynamicGetAsync("Project_GetById",
-                    cmd => _db.AddParameter(cmd, "p_ProjectId", projectId));
+                var row = await ExecuteDynamicGetAsync("Project_GetById", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_ProjectId", projectId);
+                    _db.AddParameter(cmd, "p_UserId",    userId);
+                });
                 return row is null
                     ? ApiResponse<DynamicRow>.Failure("Project not found.", "NOT_FOUND")
                     : ApiResponse<DynamicRow>.Success(row);
@@ -89,6 +98,7 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_UserId",             userId);
                     _db.AddParameter(cmd, "p_Title",              request.Title);
                     _db.AddParameter(cmd, "p_Description",        request.Description);
+                    _db.AddParameter(cmd, "p_Category",           request.Category);
                     _db.AddParameter(cmd, "p_ProjectTypeLkpId",   request.ProjectTypeLkpId);
                     _db.AddParameter(cmd, "p_JoinTypeLkpId",      request.JoinTypeLkpId);
                     _db.AddParameter(cmd, "p_StatusLkpId",        request.StatusLkpId);
@@ -104,16 +114,18 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_EndTime",            request.EndTime);
                     _db.AddParameter(cmd, "p_DurationMinutes",    request.DurationMinutes);
                     _db.AddParameter(cmd, "p_LocationTypeLkpId",  request.LocationTypeLkpId);
+                    _db.AddParameter(cmd, "p_LocationTypeCode",   request.LocationTypeCode);
                     _db.AddParameter(cmd, "p_LocationName",       request.LocationName);
                     _db.AddParameter(cmd, "p_Address",            request.Address);
                     _db.AddParameter(cmd, "p_Latitude",           request.Latitude);
                     _db.AddParameter(cmd, "p_Longitude",          request.Longitude);
-                    _db.AddParameter(cmd, "p_MeetingLink",        request.MeetingLink);
+                    _db.AddParameter(cmd, "p_GoogleMapsUrl",      request.GoogleMapsUrl);
                     _db.AddParameter(cmd, "p_GenderRestriction",  request.GenderRestriction);
                     _db.AddParameter(cmd, "p_RequiresApproval",   request.RequiresApproval);
                     _db.AddParameter(cmd, "p_CoverImageUrl",      request.CoverImageUrl);
                     _db.AddParameter(cmd, "p_City",               request.City);
                     _db.AddParameter(cmd, "p_State",              request.State);
+                    _db.AddParameter(cmd, "p_IsDraft",            request.IsDraft);
                 });
                 return result.ToApiResponse();
             }
@@ -125,7 +137,7 @@ namespace NGOConnect.Infrastructure.DAL
         }
 
         public async Task<ApiResponse<PagedResult<DynamicRow>>> ListAsync(
-            int pageNumber, int pageSize, int? orgId = null, string? category = null, string? city = null, string? statusCode = null, string? typeCode = null)
+            int pageNumber, int pageSize, int? orgId = null, string? category = null, string? city = null, string? statusCode = null, string? typeCode = null, decimal? userLat = null, decimal? userLon = null)
         {
             try
             {
@@ -138,6 +150,8 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_TypeCode",   typeCode);
                     _db.AddParameter(cmd, "p_PageNumber", pageNumber);
                     _db.AddParameter(cmd, "p_PageSize",   pageSize);
+                    _db.AddParameter(cmd, "p_UserLat",    userLat);
+                    _db.AddParameter(cmd, "p_UserLon",    userLon);
                 });
                 return ApiResponse<PagedResult<DynamicRow>>.Success(paged);
             }
@@ -174,11 +188,11 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var result = await ExecuteWriteAsync("Project_AddSession", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_ProjectId",    projectId);
-                    _db.AddParameter(cmd, "p_UserId",       userId);
-                    _db.AddParameter(cmd, "p_SessionDate",  request.SessionDate);
-                    _db.AddParameter(cmd, "p_StartTime",    request.StartTime);
-                    _db.AddParameter(cmd, "p_EndTime",      request.EndTime);
+                    _db.AddParameter(cmd, "p_ProjectId",     projectId);
+                    _db.AddParameter(cmd, "p_CreatedBy",     userId);
+                    _db.AddParameter(cmd, "p_SessionDate",   request.SessionDate);
+                    _db.AddParameter(cmd, "p_StartTime",     request.StartTime);
+                    _db.AddParameter(cmd, "p_EndTime",       request.EndTime);
                     _db.AddParameter(cmd, "p_MaxVolunteers", request.MaxVolunteers);
                 });
 
@@ -204,8 +218,12 @@ namespace NGOConnect.Infrastructure.DAL
         {
             try
             {
-                var rows = await ExecuteDynamicListAsync("Project_GetSessions",
-                    cmd => _db.AddParameter(cmd, "p_ProjectId", projectId));
+                var rows = await ExecuteDynamicListAsync("Project_GetSessions", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_ProjectId",   projectId);
+                    _db.AddParameter(cmd, "p_PageNumber",  1);
+                    _db.AddParameter(cmd, "p_PageSize",    100);
+                });
                 return ApiResponse<List<DynamicRow>>.Success(rows);
             }
             catch (Exception ex)
@@ -275,12 +293,12 @@ namespace NGOConnect.Infrastructure.DAL
         {
             try
             {
-                var result = await ExecuteWriteAsync("Project_ReviewApplication", cmd =>
+                var result = await ExecuteWriteAsync("Application_Review", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_ApplicationId", request.ApplicationId);
-                    _db.AddParameter(cmd, "p_ReviewedBy",    reviewedBy);
-                    _db.AddParameter(cmd, "p_StatusCode",    request.StatusCode);
-                    _db.AddParameter(cmd, "p_AdminNotes",    request.AdminNotes);
+                    _db.AddParameter(cmd, "p_ApplicationId",    request.ApplicationId);
+                    _db.AddParameter(cmd, "p_ReviewedBy",       reviewedBy);
+                    _db.AddParameter(cmd, "p_StatusCode",       request.StatusCode);
+                    _db.AddParameter(cmd, "p_RejectionReason",  request.AdminNotes);
                 });
                 return result.ToApiResponse();
             }
@@ -296,7 +314,7 @@ namespace NGOConnect.Infrastructure.DAL
         {
             try
             {
-                var paged = await ExecuteDynamicPagedListAsync("Project_GetApplications", pageNumber, pageSize, cmd =>
+                var paged = await ExecuteDynamicPagedListAsync("Application_GetByProject", pageNumber, pageSize, cmd =>
                 {
                     _db.AddParameter(cmd, "p_ProjectId",  projectId);
                     _db.AddParameter(cmd, "p_StatusCode", statusCode);
@@ -327,6 +345,43 @@ namespace NGOConnect.Infrastructure.DAL
             catch (Exception ex)
             {
                 Log.Error(ex, "CompleteAsync failed ProjectId={ProjectId}", projectId);
+                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        public async Task<ApiResponse> CancelAsync(int projectId, int userId, CancelProjectRequest request)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("Project_Cancel", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_ProjectId",    projectId);
+                    _db.AddParameter(cmd, "p_UserId",       userId);
+                    _db.AddParameter(cmd, "p_CancelReason", request.CancelReason);
+                });
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "CancelAsync failed ProjectId={ProjectId}", projectId);
+                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        public async Task<ApiResponse> ManualAttendanceAsync(int markedBy, ManualAttendanceRequest request)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("Project_ManualAttendance", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_ApplicationId", request.ApplicationId);
+                    _db.AddParameter(cmd, "p_MarkedBy",      markedBy);
+                });
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "ManualAttendanceAsync failed ApplicationId={ApplicationId}", request.ApplicationId);
                 return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
             }
         }

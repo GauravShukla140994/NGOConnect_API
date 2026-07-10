@@ -43,9 +43,17 @@ namespace NGOConnect.API.Controllers
         public async Task<ApiResponse> SaveInterests([FromBody] SaveInterestsRequest request)
             => await _userDal.SaveInterestsAsync(GetUserId(), request);
 
+        [HttpGet("documents")] [Authorize]
+        public async Task<ApiResponse<List<UserDocumentModel>>> GetDocuments()
+            => await _userDal.GetDocumentsAsync(GetUserId());
+
         [HttpPost("documents")] [Authorize]
         public async Task<ApiResponse> UploadDocument([FromBody] UploadDocumentRequest request)
             => await _userDal.UploadDocumentAsync(GetUserId(), request);
+
+        [HttpDelete("documents/{userDocumentId:int}")] [Authorize]
+        public async Task<ApiResponse> DeleteDocument(int userDocumentId)
+            => await _userDal.DeleteDocumentAsync(GetUserId(), userDocumentId);
 
         [HttpGet("skills")] [Authorize]
         public async Task<ApiResponse<List<UserSkillModel>>> GetSkills()

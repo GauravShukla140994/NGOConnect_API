@@ -42,7 +42,7 @@ namespace NGOConnect.Infrastructure.DAL
             try
             {
                 using var conn = await _db.CreateConnectionAsync();
-                using var cmd  = _db.CreateCommand("Lookup_GetValuesByTypeCode", conn);   // correct SP name
+                using var cmd  = _db.CreateCommand("Lookup_GetValuesByTypeCode", conn);
                 _db.AddParameter(cmd, "p_TypeCode", typeCode);
 
                 var ds = await _db.FillDataSetAsync(cmd);
@@ -63,7 +63,7 @@ namespace NGOConnect.Infrastructure.DAL
 
         /// <summary>
         /// No Lookup_GetValueByCode SP exists in DB.
-        /// Calls Lookup_GetValuesByType then filters in C# — avoids an extra SP round-trip.
+        /// Calls Lookup_GetValuesByTypeCode then filters in C# — avoids an extra SP round-trip.
         /// </summary>
         public async Task<ApiResponse<LookupValueModel>> GetValueByCodeAsync(
             string typeCode, string valueCode)
@@ -106,7 +106,7 @@ namespace NGOConnect.Infrastructure.DAL
         private static LookupValueModel MapValue(DataRow row) => new()
         {
             LookupValueId = Convert.ToInt32(row["LookupValueId"]),
-            // LookupTypeId not returned by Lookup_GetValuesByType — left as 0 default
+            // LookupTypeId not returned by Lookup_GetValuesByTypeCode — left as 0 default
             ValueCode     = row["ValueCode"].ToString()!,
             ValueName     = row["ValueName"].ToString()!,
             Description   = row["Description"] == DBNull.Value ? null : row["Description"].ToString(),

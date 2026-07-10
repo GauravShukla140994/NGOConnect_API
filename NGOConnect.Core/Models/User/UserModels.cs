@@ -101,6 +101,20 @@ namespace NGOConnect.Core.Models.User
         [Required] public int    FileSizeKb        { get; set; }                   // from /media/upload
     }
 
+    // ── Document ────────────────────────────────────────────────────────────────
+    public class UserDocumentModel
+    {
+        public int      UserDocumentId     { get; set; }
+        public int      DocumentTypeLkpId  { get; set; }
+        public string   DocTypeCode        { get; set; } = string.Empty;
+        public string   DocTypeName        { get; set; } = string.Empty;
+        public string   FileUrl            { get; set; } = string.Empty;
+        public string   FileName           { get; set; } = string.Empty;
+        public int?     FileSizeKb         { get; set; }
+        public bool     IsVerified         { get; set; }
+        public DateTime UploadedAt         { get; set; }
+    }
+
     // ── Skill ───────────────────────────────────────────────────────────────────
     public class UserSkillModel
     {
@@ -166,20 +180,62 @@ namespace NGOConnect.Core.Models.User
         public DateTime AwardedAt      { get; set; }
     }
 
+    // ── User Application list — GET response (s-all-projects screen) ──────────
+    public class UserApplicationModel
+    {
+        public int      ApplicationId      { get; set; }
+        public int      ProjectId          { get; set; }
+        public string   ProjectName        { get; set; } = string.Empty;
+        public string   OrgName            { get; set; } = string.Empty;
+        public string?  OrgLogoUrl         { get; set; }
+        // Application status
+        public string   StatusCode         { get; set; } = string.Empty;  // PENDING | APPROVED | REJECTED | WITHDRAWN
+        public string   Status             { get; set; } = string.Empty;  // Human-readable
+        public DateTime CreatedAt          { get; set; }
+        public DateTime? StatusUpdatedAt   { get; set; }
+        // Project schedule
+        public string?  ScheduleTypeCode   { get; set; }  // ONE_TIME | RECURRING | FLEXIBLE
+        public string?  ScheduleTypeName   { get; set; }
+        public DateTime? RecurStart        { get; set; }
+        public DateTime? RecurEnd          { get; set; }
+        public string?  RecurDays          { get; set; }  // comma-separated day names
+        public TimeSpan? SessionStartTime  { get; set; }
+        public TimeSpan? SessionEndTime    { get; set; }
+        public string?  Landmark           { get; set; }
+        public string?  City               { get; set; }
+        // Project status (drives tab routing on mobile)
+        public string?  ProjectStatusCode  { get; set; }  // UPCOMING | ACTIVE | COMPLETED | EXPIRED | CANCELLED
+        public string?  ProjectStatus      { get; set; }
+    }
+
     // ── Impact Dashboard — GET response ────────────────────────────────────────
     public class UserImpactModel
     {
         // Scores
-        public int     ImpactScore       { get; set; }
-        public decimal ReliabilityPct    { get; set; }
+        public int      ImpactScore          { get; set; }
+        public decimal  ReliabilityPct       { get; set; }
         // Activity totals
-        public int     ProjectsCompleted { get; set; }
-        public decimal TotalHours        { get; set; }
-        public int     BadgeCount        { get; set; }
-        public int     SkillCount        { get; set; }
+        public int      ProjectsCompleted    { get; set; }
+        public decimal  TotalHours           { get; set; }
+        public int      BadgeCount           { get; set; }
+        public int      SkillCount           { get; set; }
         // Volunteer history
-        public int     ProjectsApplied   { get; set; }
-        public int     CertificateCount  { get; set; }
-        public DateTime MemberSince      { get; set; }
+        public int      ProjectsApplied      { get; set; }
+        public int      CertificateCount     { get; set; }
+        public DateTime MemberSince          { get; set; }
+        // Rank
+        public string   RankName             { get; set; } = "Newcomer";
+        public int      RankNumber           { get; set; }
+        public int      TotalRanked          { get; set; }
+        // NGOs
+        public int      NgosJoined           { get; set; }
+        // Application summary counts
+        public int      PendingApplications  { get; set; }
+        public int      ApprovedApplications { get; set; }
+        // Profile fields (avoids a second API call on Impact screen)
+        public string?  FirstName            { get; set; }
+        public string?  LastName             { get; set; }
+        public string?  ProfilePhoto         { get; set; }
+        public string?  Bio                  { get; set; }
     }
 }

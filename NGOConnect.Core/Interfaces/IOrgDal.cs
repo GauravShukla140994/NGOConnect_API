@@ -7,7 +7,7 @@ namespace NGOConnect.Core.Interfaces
     {
         // ── Core CRUD ───────────────────────────────────────────────────────────
         Task<ApiResponse<DynamicRow>>                      RegisterAsync(int userId, RegisterOrgRequest request);
-        Task<ApiResponse<DynamicRow>>                      GetProfileAsync(int orgId);
+        Task<ApiResponse<DynamicRow>>                      GetProfileAsync(int orgId, int userId);
         Task<ApiResponse>                                  UpdateAsync(int orgId, int userId, UpdateOrgRequest request);
         // ── Explore (s-explore screen) ──────────────────────────────────────────
         Task<ApiResponse<PagedResult<OrgListItemModel>>>   ListAsync(int pageNumber, int pageSize, string? keyword = null, string? category = null, decimal? lat = null, decimal? lng = null);
@@ -33,6 +33,11 @@ namespace NGOConnect.Core.Interfaces
         // ── Donors & Transactions (s-admin-donors, s-admin-transactions) ────────
         Task<ApiResponse<PagedResult<OrgDonorModel>>>      GetDonorsAsync(int orgId, string tab, int pageNumber, int pageSize);
         Task<ApiResponse<PagedResult<OrgTransactionModel>>>GetTransactionsAsync(int orgId, string? statusCode, int pageNumber, int pageSize);
+        // ── Admin Posts (s-admin-vols Posts tab) ────────────────────────────────
+        Task<ApiResponse<List<DynamicRow>>>                GetAdminPostsAsync(int orgId);
+        Task<ApiResponse>                                  PinPostAsync(int orgId, int postId, int userId);
+        Task<ApiResponse>                                  DeletePostAsync(int orgId, int postId, int userId);
+        Task<ApiResponse>                                  ModeratePostAsync(int orgId, int postId, int userId, string action);
         // ── Documents ───────────────────────────────────────────────────────────
         Task<ApiResponse>                                  UploadDocumentAsync(int orgId, int userId, UploadOrgDocumentRequest request);
     }

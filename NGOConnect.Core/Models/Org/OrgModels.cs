@@ -58,7 +58,8 @@ namespace NGOConnect.Core.Models.Org
         public decimal ActiveRatePct       { get; set; }   // ActiveVolunteers / TotalMembers * 100
         public decimal VolunteerHoursMonth { get; set; }   // SUM of session hours attended this month
         public int     ActiveProjects      { get; set; }   // Projects with ACTIVE status
-        public int     PendingApplications { get; set; }   // Membership requests awaiting review
+        public int     PendingApplications        { get; set; }   // Membership requests awaiting review
+        public int     PendingProjectApplications { get; set; }   // Volunteer project applications awaiting review
     }
 
     // ── Add Member ──────────────────────────────────────────────────────────────
@@ -71,7 +72,10 @@ namespace NGOConnect.Core.Models.Org
     // ── Request Membership (v4.0) ───────────────────────────────────────────────
     public class RequestMembershipRequest
     {
-        [MaxLength(500)] public string? Message { get; set; }
+        public string? PrevNgoExperience { get; set; }  // p_PrevNgoExperience
+        public string? VolunteerSkills   { get; set; }  // p_VolunteerSkills (comma-separated)
+        public string? AreasOfInterest   { get; set; }  // p_AreasOfInterest
+        public string? WhyJoin           { get; set; }  // p_WhyJoin
     }
 
     // ── Review Membership (v4.0) ────────────────────────────────────────────────
@@ -214,8 +218,11 @@ namespace NGOConnect.Core.Models.Org
         public int      UserId          { get; set; }
         public string?  FullName        { get; set; }
         public string?  City            { get; set; }
+        public string?  State           { get; set; }
         public string?  Occupation      { get; set; }
         public string?  ProfilePhoto    { get; set; }
+        public string?  Bio             { get; set; }   // about text from UserProfiles
+        public string?  VolunteerExp    { get; set; }   // volunteer experience text
         // Public impact stats
         public decimal  TotalHours      { get; set; }
         public int      ProjectCount    { get; set; }
@@ -233,6 +240,19 @@ namespace NGOConnect.Core.Models.Org
         public string?  StatusCode      { get; set; }
         public string?  StatusName      { get; set; }
         public DateTime? JoinedAt       { get; set; }
+        // Membership request (what the volunteer submitted when applying)
+        public string?   PrevNgoExperience { get; set; }
+        public string?   VolunteerSkills   { get; set; }
+        public string?   AreasOfInterest   { get; set; }
+        public string?   WhyJoin           { get; set; }
+        public DateTime? RequestedAt       { get; set; }
+    }
+
+    // ── Admin Posts requests ─────────────────────────────────────────────────────
+    public class ModeratePostRequest
+    {
+        /// <summary>KEEP (clear reports) or REMOVE (delete post + clear reports)</summary>
+        public string Action { get; set; } = "KEEP";
     }
 
     // ── Admin Member Impact (s-member-impact screen — admin view) ────────────────

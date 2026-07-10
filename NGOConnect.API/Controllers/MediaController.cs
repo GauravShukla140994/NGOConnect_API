@@ -14,11 +14,12 @@ namespace NGOConnect.API.Controllers
     ///   2. Use those values in the entity endpoint (POST /user/documents, PUT /user/profile, etc.)
     ///
     /// Supported modules:
-    ///   user-documents  — Aadhaar, PAN, Passport, Driving License
-    ///   user-photos     — Profile photo
-    ///   org-documents   — Registration cert, 80G, 12A, FCRA
-    ///   org-logos       — NGO logo
-    ///   certificates    — Volunteer completion certificates
+    ///   user-documents  — Aadhaar, PAN, Passport, Driving License   (max 10 MB, jpg/jpeg/png/pdf)
+    ///   user-photos     — Profile photo                              (max  5 MB, jpg/jpeg/png)
+    ///   org-documents   — Registration cert, 80G, 12A, FCRA          (max 10 MB, jpg/jpeg/png/pdf)
+    ///   org-logos       — NGO logo                                   (max  5 MB, jpg/jpeg/png/svg)
+    ///   certificates    — Volunteer completion certificates           (max  5 MB, pdf)
+    ///   post-media      — Feed post images and short videos           (max 50 MB, jpg/jpeg/png/mp4/mov/webm/mkv/m4v)
     /// </summary>
     [ApiController]
     [Route("api/v1/media")]
@@ -41,7 +42,7 @@ namespace NGOConnect.API.Controllers
         /// </param>
         [HttpPost("upload")]
         [Authorize]
-        [RequestSizeLimit(10 * 1024 * 1024)]   // 10 MB hard limit at HTTP level
+        [RequestSizeLimit(50 * 1024 * 1024)]   // 50 MB — covers post-media videos; per-module limits enforced in LocalFileService
         [Consumes("multipart/form-data")]
         public async Task<ApiResponse<BlobUploadResult>> Upload([FromQuery] string module, IFormFile file)
         {

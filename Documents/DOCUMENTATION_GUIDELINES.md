@@ -13,10 +13,10 @@ change must be applied carefully before releasing a new version.
 
 | File | Purpose |
 |---|---|
-| `NGOConnect_Complete_Setup_v4.1.sql` | Single-run DB script — tables, seed data, all SPs |
-| `Database_Documentation_v4.1.md` | Full DB reference — tables, columns, indexes, SP signatures, parameters, return values |
-| `API_Documentation_v4.1.docx` | API reference for frontend/mobile teams — endpoints, request bodies, responses, auth |
-| `NGOConnect_Postman_Collection_v4.1.json` | Ready-to-import Postman collection — all endpoints with sample request bodies |
+| `NGOConnect_Complete_Setup_v4.4.sql` | Single-run DB script — tables, seed data, all SPs |
+| `Database_Documentation_v4.4.md` | Full DB reference — tables, columns, indexes, SP signatures, parameters, return values |
+| `API_Documentation_v4.4.docx` | API reference for frontend/mobile teams — endpoints, request bodies, responses, auth |
+| `NGOConnect_Postman_Collection_v4.4.json` | Ready-to-import Postman collection — all endpoints with sample request bodies |
 
 ---
 
@@ -155,19 +155,9 @@ When there is a conflict between files, this priority order applies:
 
 ## Current Pending Document Updates
 
-_Last updated: 2026-07-04. All changes applied — no pending updates._
+<!-- Accumulated since: 2026-07-10 (v4.4 released — all prior pending changes applied) -->
 
-_Applied in this session (2026-07-04):_
-- `Database_Documentation_v4.1.md`: Community SP table — added `Params` column with exact SP signatures for all 5 SPs (`Community_CreatePost`, `Community_GetFeed`, `Community_AcknowledgePost`, `Community_CreatePoll`, `Community_Vote`)
-- `Database_Documentation_v4.1.md`: `User_GetMyOrgs` — added `MemberStatusCode`, `OrgStatusCode` to return column list
-- `API_Documentation_v4.1.docx`: `GET /user/my-orgs` route corrected to `GET /user/orgs` (matches actual `UserController` route `[HttpGet("orgs")]`)
-- `NGOConnect_Postman_Collection_v4.1.json`: `GET /user/my-orgs` corrected to `GET /user/orgs`; description updated with `memberStatusCode`, `orgStatusCode` fields
-
-_Previously applied (created v4.1 from v4.0):_
-- `User_GetProfile` SP: `p_RequestingUserId` param added; full column list expanded (IsVerified, VolunteerExp, GenderLkpId, Gender/Code, EducationLkpId, Education/Code, FieldOfStudy, WorkExpLkpId, WorkExperience/Code, AddressLine1/2, Pincode, UpdatedAt, MemberSince, IsProfileComplete)
-- `User_UpdateProfile` SP: `p_VolunteerExp` param added (19 params total)
-- `User_GetSafetyPrefs`, `User_GetInterests`, `User_GetMyOrgs`, `User_GetBadges`, `User_GetImpact` SPs: all new, documented in v4.1 Section 5
-- `GET /user/profile` response model expanded with all new fields above
+_No pending changes. All changes from sessions 2026-07-07 through 2026-07-10 were applied in v4.4._
 
 ---
 

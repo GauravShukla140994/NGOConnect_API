@@ -65,10 +65,13 @@ namespace NGOConnect.API.Extensions
         /// Register the file storage provider.
         /// Phase 1: LocalFileService (server disk)
         /// TO SWITCH TO AZURE: replace LocalFileService with AzureBlobService — that's all.
+        /// IHttpContextAccessor is required by LocalFileService to build dynamic file URLs
+        /// that reflect the actual IP/port the API is running on (LAN, dev, staging, prod).
         /// </summary>
         public static IServiceCollection AddBlobService(
             this IServiceCollection services)
         {
+            services.AddHttpContextAccessor();
             services.AddScoped<IBlobService, LocalFileService>();
             return services;
         }

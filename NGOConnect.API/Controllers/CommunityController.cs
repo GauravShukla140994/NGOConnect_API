@@ -19,12 +19,12 @@ namespace NGOConnect.API.Controllers
         public async Task<ApiResponse<DynamicRow>> CreatePost([FromBody] CreateCommunityPostRequest request)
             => await _community.CreatePostAsync(GetUserId(), request);
 
-        [HttpGet("feed")]
+        [HttpGet("feed")] [Authorize]
         public async Task<ApiResponse<PagedResult<DynamicRow>>> GetFeed(
             [FromQuery] int? orgId      = null,
             [FromQuery] int  pageNumber = 1,
             [FromQuery] int  pageSize   = 20)
-            => await _community.GetFeedAsync(orgId, pageNumber, pageSize);
+            => await _community.GetFeedAsync(GetUserId(), orgId, pageNumber, pageSize);
 
         [HttpPost("post/{communityPostId:int}/acknowledge")] [Authorize]
         public async Task<ApiResponse> AcknowledgePost(int communityPostId)
@@ -37,6 +37,22 @@ namespace NGOConnect.API.Controllers
         [HttpPost("poll/{pollId:int}/vote")] [Authorize]
         public async Task<ApiResponse> Vote(int pollId, [FromBody] VoteRequest request)
             => await _community.VoteAsync(pollId, GetUserId(), request);
+
+        [HttpPost("post/{communityPostId:int}/like")] [Authorize]
+        public async Task<ApiResponse<DynamicRow>> LikePost(int communityPostId)
+            => await _community.LikePostAsync(communityPostId, GetUserId());
+
+        [HttpGet("post/{communityPostId:int}/comments")] [Authorize]
+        public async Task<ApiResponse<List<DynamicRow>>> GetComments(int communityPostId)
+            => await _community.GetCommentsAsync(communityPostId, GetUserId());
+
+        [HttpPost("post/{communityPostId:int}/comment")] [Authorize]
+        public async Task<ApiResponse<DynamicRow>> AddComment(int communityPostId, [FromBody] AddCommentRequest request)
+            => await _community.AddCommentAsync(communityPostId, GetUserId(), request);
+
+        [HttpPost("comment/{commentId:int}/like")] [Authorize]
+        public async Task<ApiResponse<DynamicRow>> LikeComment(int commentId)
+            => await _community.LikeCommentAsync(commentId, GetUserId());
 
         private int GetUserId()
         {

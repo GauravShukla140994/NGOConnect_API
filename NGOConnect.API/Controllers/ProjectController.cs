@@ -21,7 +21,7 @@ namespace NGOConnect.API.Controllers
 
         [HttpGet("{projectId:int}")]
         public async Task<ApiResponse<DynamicRow>> GetById(int projectId)
-            => await _project.GetByIdAsync(projectId);
+            => await _project.GetByIdAsync(projectId, GetUserId());
 
         [HttpPut("{projectId:int}")] [Authorize]
         public async Task<ApiResponse> Update(int projectId, [FromBody] UpdateProjectRequest request)
@@ -29,14 +29,16 @@ namespace NGOConnect.API.Controllers
 
         [HttpGet("list")]
         public async Task<ApiResponse<PagedResult<DynamicRow>>> List(
-            [FromQuery] int?    orgId      = null,
-            [FromQuery] string? category   = null,
-            [FromQuery] string? city       = null,
-            [FromQuery] string? statusCode = null,
-            [FromQuery] string? typeCode   = null,
-            [FromQuery] int     pageNumber = 1,
-            [FromQuery] int     pageSize   = 20)
-            => await _project.ListAsync(pageNumber, pageSize, orgId, category, city, statusCode, typeCode);
+            [FromQuery] int?     orgId      = null,
+            [FromQuery] string?  category   = null,
+            [FromQuery] string?  city       = null,
+            [FromQuery] string?  statusCode = null,
+            [FromQuery] string?  typeCode   = null,
+            [FromQuery] int      pageNumber = 1,
+            [FromQuery] int      pageSize   = 20,
+            [FromQuery] decimal? userLat    = null,
+            [FromQuery] decimal? userLon    = null)
+            => await _project.ListAsync(pageNumber, pageSize, orgId, category, city, statusCode, typeCode, userLat, userLon);
 
         [HttpPost("{projectId:int}/skills")] [Authorize]
         public async Task<ApiResponse> AddSkill(int projectId, [FromBody] AddProjectSkillRequest request)
@@ -59,11 +61,7 @@ namespace NGOConnect.API.Controllers
         public async Task<ApiResponse> CheckIn(int projectId, [FromBody] CheckInRequest request)
             => await _project.CheckInAsync(GetUserId(), request);
 
-        // Applications
-        [HttpPost("{projectId:int}/apply")] [Authorize]
-        public async Task<ApiResponse> Apply(int projectId)
-            => await _project.ApplyAsync(projectId, GetUserId());
-
+        // Applications — Apply is handled by ApplicationController (POST api/v1/project/{projectId}/apply)
         [HttpPut("{projectId:int}/applications/review")] [Authorize]
         public async Task<ApiResponse> ReviewApplication(int projectId, [FromBody] ReviewApplicationRequest request)
             => await _project.ReviewApplicationAsync(GetUserId(), request);
@@ -80,6 +78,16 @@ namespace NGOConnect.API.Controllers
         [HttpPost("{projectId:int}/complete")] [Authorize]
         public async Task<ApiResponse> Complete(int projectId, [FromBody] CompleteProjectRequest request)
             => await _project.CompleteAsync(projectId, GetUserId(), request);
+
+        // Cancel
+        [HttpPost("{projectId:int}/cancel")] [Authorize]
+        public async Task<ApiResponse> Cancel(int projectId, [FromBody] CancelProjectRequest request)
+            => await _project.CancelAsync(projectId, GetUserId(), request);
+
+        // Manual attendance override (admin marks a volunteer as attended)
+        [HttpPost("{projectId:int}/attendance/manual")] [Authorize]
+        public async Task<ApiResponse> ManualAttendance(int projectId, [FromBody] ManualAttendanceRequest request)
+            => await _project.ManualAttendanceAsync(GetUserId(), request);
 
         private int GetUserId()
         {

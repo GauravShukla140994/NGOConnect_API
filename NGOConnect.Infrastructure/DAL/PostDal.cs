@@ -17,10 +17,13 @@ namespace NGOConnect.Infrastructure.DAL
                 {
                     _db.AddParameter(cmd, "p_UserId",          userId);
                     _db.AddParameter(cmd, "p_OrgId",           request.OrgId);
+                    _db.AddParameter(cmd, "p_PostTypeLkpId",   request.PostTypeLkpId);   // SP defaults to GENERAL if null
                     _db.AddParameter(cmd, "p_Content",         request.Content);
-                    _db.AddParameter(cmd, "p_MediaUrls",       request.MediaUrls);
-                    _db.AddParameter(cmd, "p_PostTypeLkpId",   request.PostTypeLkpId);
-                    _db.AddParameter(cmd, "p_VisibilityLkpId", request.VisibilityLkpId);
+                    _db.AddParameter(cmd, "p_VisibilityLkpId", request.VisibilityLkpId); // SP defaults to PUBLIC if null
+                    _db.AddParameter(cmd, "p_MediaUrls",       request.MediaUrls?.Count > 0
+                                                                       ? string.Join(",", request.MediaUrls)
+                                                                       : null);
+                    _db.AddParameter(cmd, "p_MediaType",       (object?)null);            // always null — SP uses COALESCE → 'IMAGE'
                 });
 
                 if (!result.Succeeded)
@@ -48,6 +51,7 @@ namespace NGOConnect.Infrastructure.DAL
                 var paged = await ExecuteDynamicPagedListAsync("Post_GetFeed", pageNumber, pageSize, cmd =>
                 {
                     _db.AddParameter(cmd, "p_UserId",     userId);
+                    _db.AddParameter(cmd, "p_OrgId",      (object?)null);  // null = show all orgs
                     _db.AddParameter(cmd, "p_PageNumber", pageNumber);
                     _db.AddParameter(cmd, "p_PageSize",   pageSize);
                 });
@@ -208,7 +212,7 @@ namespace NGOConnect.Infrastructure.DAL
                 {
                     _db.AddParameter(cmd, "p_PostId",      postId);
                     _db.AddParameter(cmd, "p_UserId",      userId);
-                    _db.AddParameter(cmd, "p_ReasonLkpId", request.ReasonLkpId);
+                    _db.AddParameter(cmd, "p_ReasonCode",  request.ReasonCode);
                     _db.AddParameter(cmd, "p_Details",     request.Details);
                 });
                 return result.ToApiResponse();
