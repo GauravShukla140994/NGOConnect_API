@@ -15,5 +15,15 @@
 *.user
 *.suo
 
-# Local secrets — never commit
+# ── Secret config files — NEVER commit these ──────────────────────────────────
+# appsettings.json            → base config, safe to commit (no secrets)
+# appsettings.Staging.json    → structural staging config, safe to commit (no secrets)
+# appsettings.example.json    → template, safe to commit (no real values)
+# Everything below is gitignored because it contains real credentials:
 appsettings.Development.json
+appsettings.Production.json
+appsettings.*.Local.json
+
+# ── Upload files — never commit user-uploaded content ─────────────────────────
+/NGOConnect.API/UploadFiles/
+UploadFiles/

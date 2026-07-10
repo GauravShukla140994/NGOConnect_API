@@ -7,6 +7,7 @@ using NGOConnect.Infrastructure.Cache;
 using NGOConnect.Infrastructure.DAL;
 using NGOConnect.Infrastructure.DbProvider;
 using NGOConnect.Infrastructure.Services;
+using Serilog;
 // v4.0 new namespaces registered below (models live in Core, DALs in Infrastructure)
 
 namespace NGOConnect.API.Extensions
@@ -62,17 +63,33 @@ namespace NGOConnect.API.Extensions
 
         // ── Blob / File Storage ──────────────────────────────────
         /// <summary>
-        /// Register the file storage provider.
-        /// Phase 1: LocalFileService (server disk)
-        /// TO SWITCH TO AZURE: replace LocalFileService with AzureBlobService — that's all.
-        /// IHttpContextAccessor is required by LocalFileService to build dynamic file URLs
-        /// that reflect the actual IP/port the API is running on (LAN, dev, staging, prod).
+        /// Register the file storage provider based on appsettings.json "StorageProvider" key.
+        ///
+        ///   "local"      → LocalFileService       (server disk, good for dev + VPS)
+        ///   "cloudinary" → CloudinaryBlobService  (Cloudinary CDN, good for staging + prod)
+        ///
+        /// TO SWITCH: change StorageProvider value in appsettings.json. Zero code changes needed.
+        /// IHttpContextAccessor is always registered — required by LocalFileService to build
+        /// dynamic file URLs that reflect the actual IP/port (LAN, dev, staging, prod).
         /// </summary>
         public static IServiceCollection AddBlobService(
-            this IServiceCollection services)
+            this IServiceCollection services, IConfiguration config)
         {
             services.AddHttpContextAccessor();
-            services.AddScoped<IBlobService, LocalFileService>();
+
+            var provider = (config["StorageProvider"] ?? "local").Trim().ToLowerInvariant();
+
+            if (provider == "cloudinary")
+            {
+                services.AddScoped<IBlobService, CloudinaryBlobService>();
+                Log.Information("BlobService: CloudinaryBlobService (CDN)");
+            }
+            else
+            {
+                services.AddScoped<IBlobService, LocalFileService>();
+                Log.Information("BlobService: LocalFileService (disk)");
+            }
+
             return services;
         }
 

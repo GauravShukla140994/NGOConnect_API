@@ -46,7 +46,7 @@ try
     // Extension methods — each group in its own method for clarity
     builder.Services.AddDatabaseProvider();              // IDbProvider → MySqlDbProvider
     builder.Services.AddDataAccessLayer();               // All DAL registrations
-    builder.Services.AddBlobService();                   // IBlobService → LocalFileService (Phase 1)
+    builder.Services.AddBlobService(builder.Configuration); // IBlobService → driven by StorageProvider in appsettings
     builder.Services.AddJwtAuthentication(builder.Configuration);
     builder.Services.AddSwaggerWithJwt();
     builder.Services.AddNgoConnectCors(builder.Configuration);

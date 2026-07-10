@@ -15,15 +15,15 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var result = await ExecuteWriteAsync("Post_Create", cmd =>
                 {
+                    // Order must match SP: p_UserId, p_OrgId, p_Content, p_MediaUrls, p_PostTypeLkpId, p_VisibilityLkpId
                     _db.AddParameter(cmd, "p_UserId",          userId);
                     _db.AddParameter(cmd, "p_OrgId",           request.OrgId);
-                    _db.AddParameter(cmd, "p_PostTypeLkpId",   request.PostTypeLkpId);   // SP defaults to GENERAL if null
                     _db.AddParameter(cmd, "p_Content",         request.Content);
-                    _db.AddParameter(cmd, "p_VisibilityLkpId", request.VisibilityLkpId); // SP defaults to PUBLIC if null
                     _db.AddParameter(cmd, "p_MediaUrls",       request.MediaUrls?.Count > 0
                                                                        ? string.Join(",", request.MediaUrls)
                                                                        : null);
-                    _db.AddParameter(cmd, "p_MediaType",       (object?)null);            // always null — SP uses COALESCE → 'IMAGE'
+                    _db.AddParameter(cmd, "p_PostTypeLkpId",   request.PostTypeLkpId);   // SP defaults to GENERAL if null
+                    _db.AddParameter(cmd, "p_VisibilityLkpId", request.VisibilityLkpId); // SP defaults to PUBLIC if null
                 });
 
                 if (!result.Succeeded)

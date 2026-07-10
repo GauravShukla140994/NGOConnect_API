@@ -157,7 +157,8 @@ When there is a conflict between files, this priority order applies:
 
 <!-- Accumulated since: 2026-07-10 (v4.4 released — all prior pending changes applied) -->
 
-_No pending changes. All changes from sessions 2026-07-07 through 2026-07-10 were applied in v4.4._
+**`NGOConnect_Complete_Setup_v4.4.sql`**
+- `Post_Create`: Remove duplicate 7-param definition at line ~2695 (old version with `p_MediaType`). The canonical 6-param version at line ~6243 (from `NGOConnect_Patch_PostFeed_VideoSupport.sql`, auto-detects IMAGE/VIDEO from URL extension) is the one running in DB — the duplicate causes confusion.
 
 ---
 
