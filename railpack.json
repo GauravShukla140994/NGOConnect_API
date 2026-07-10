@@ -4,7 +4,19 @@
   "packages": {
     "dotnet": "8"
   },
+  "steps": {
+    "install": {
+      "commands": [
+        "dotnet restore NGOConnect.API/NGOConnect.API.csproj"
+      ]
+    },
+    "build": {
+      "commands": [
+        "dotnet publish NGOConnect.API/NGOConnect.API.csproj -c Release -o /app/out --no-restore"
+      ]
+    }
+  },
   "deploy": {
-    "startCommand": "dotnet NGOConnect.API.dll"
+    "startCommand": "dotnet /app/out/NGOConnect.API.dll"
   }
 }
