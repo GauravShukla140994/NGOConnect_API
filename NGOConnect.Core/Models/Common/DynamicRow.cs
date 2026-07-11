@@ -64,7 +64,22 @@ namespace NGOConnect.Core.Models.Common
         {
             if (!_store.TryGetValue(key, out var v) || v is null) return default;
             if (v is T typed) return typed;
-            return (T)Convert.ChangeType(v, typeof(T));
+
+            // Convert.ChangeType throws InvalidCastException ("Invalid cast from 'X' to
+            // 'System.Nullable`1[...]'") if given a Nullable<T> target type directly — it
+            // does not unwrap nullable types on its own. Convert against the underlying
+            // type instead; the (T) cast below is a legal unboxing conversion from object
+            // to Nullable<T> as long as the boxed value's type matches the underlying type,
+            // which it now does.
+            //
+            // This specifically matters for MySqlConnector, which returns MySQL numeric
+            // columns using their closest CLR type rather than always widening to the type
+            // a caller asks for — e.g. INT UNSIGNED comes back as System.UInt32, not Int32,
+            // so Get<int?>("someUnsignedIntColumn") would otherwise throw even though the
+            // value fits comfortably in an int.
+            var targetType = Nullable.GetUnderlyingType(typeof(T)) ?? typeof(T);
+            var converted  = Convert.ChangeType(v, targetType);
+            return (T)converted;
         }
 
         /// <summary>Raw dictionary — used by DynamicRowConverter for JSON serialization.</summary>

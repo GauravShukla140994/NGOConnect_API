@@ -1,7 +1,7 @@
 {
   "info": {
     "_postman_id": "cf67ebfb-3b0e-44a5-870c-88ca443951b8",
-    "name": "NGOConnect API v4.4 (v4.5 SuperAdmin)",
+    "name": "NGOConnect API v4.5",
     "description": "Complete REST API collection for NGOConnect platform v4.0\n\nBase URL: https://api.ngoconnect.app/api/v1\n\n14 Modules | 80+ Endpoints | 100 Stored Procedures | 47 DB Tables\n\nAuthentication: OTP-based login \u2192 JWT Bearer token\n\nSetup:\n1. Run '01 Auth > Send OTP' with your mobile number\n2. Run '01 Auth > Verify OTP' \u2192 copy access_token to collection variable\n3. All authenticated endpoints use {{access_token}} automatically",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "_exporter_id": "29560704"

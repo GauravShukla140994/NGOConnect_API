@@ -32,6 +32,12 @@ namespace NGOConnect.API.Controllers
         public async Task<ApiResponse> Update(int orgId, [FromBody] UpdateOrgRequest request)
             => await _org.UpdateAsync(orgId, GetUserId(), request);
 
+        // v4.5 — founder resubmits after Super Admin rejection. Only works when the
+        // org is currently REJECTED and the caller is the founder (enforced in Org_Resubmit).
+        [HttpPut("{orgId:int}/resubmit")] [Authorize]
+        public async Task<ApiResponse> Resubmit(int orgId, [FromBody] ResubmitOrgRequest request)
+            => await _org.ResubmitAsync(orgId, GetUserId(), request);
+
         // s-explore → All NGOs tab (paginated, filterable by keyword + category)
         // lat/lng optional — when provided, SP sorts nearest-first via server-side Haversine
         [HttpGet("list")]

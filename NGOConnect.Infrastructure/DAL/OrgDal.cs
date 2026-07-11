@@ -106,6 +106,42 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
+        // v4.5 — founder resubmits a rejected org for another review. Brand-new SP
+        // (Org_Resubmit) — does not touch Org_Update.
+        public async Task<ApiResponse> ResubmitAsync(int orgId, int userId, ResubmitOrgRequest request)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("Org_Resubmit", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_OrgId",         orgId);
+                    _db.AddParameter(cmd, "p_UserId",        userId);
+                    _db.AddParameter(cmd, "p_OrgName",       request.OrgName);
+                    _db.AddParameter(cmd, "p_Category",      request.Category);
+                    _db.AddParameter(cmd, "p_ContactPerson", request.ContactPerson);
+                    _db.AddParameter(cmd, "p_About",         request.About);
+                    _db.AddParameter(cmd, "p_Mission",       request.Mission);
+                    _db.AddParameter(cmd, "p_Vision",        request.Vision);
+                    _db.AddParameter(cmd, "p_LogoUrl",       request.LogoUrl);
+                    _db.AddParameter(cmd, "p_ContactEmail",  request.Email);
+                    _db.AddParameter(cmd, "p_ContactPhone",  request.Phone);
+                    _db.AddParameter(cmd, "p_Website",       request.Website);
+                    _db.AddParameter(cmd, "p_AddressLine1",  request.AddressLine1);
+                    _db.AddParameter(cmd, "p_AddressLine2",  request.AddressLine2);
+                    _db.AddParameter(cmd, "p_City",          request.City);
+                    _db.AddParameter(cmd, "p_State",         request.State);
+                    _db.AddParameter(cmd, "p_Pincode",       request.Pincode);
+                    _db.AddParameter(cmd, "p_Country",       request.Country);
+                });
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "ResubmitAsync failed OrgId={OrgId}", orgId);
+                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
         public async Task<ApiResponse<OrgDashboardModel>> GetDashboardAsync(int orgId)
         {
             try

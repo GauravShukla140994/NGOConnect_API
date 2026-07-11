@@ -58,6 +58,8 @@ namespace NGOConnect.API.Extensions
             services.AddScoped<ICertificateDal,   CertificateDal>();
             services.AddScoped<ISkillRatingDal,   SkillRatingDal>();
             services.AddScoped<IBadgeDal,         BadgeDal>();
+            // v4.5 — Super Admin module (new SPs only, see SuperAdminDal for isolation notes)
+            services.AddScoped<ISuperAdminDal,    SuperAdminDal>();
             return services;
         }
 

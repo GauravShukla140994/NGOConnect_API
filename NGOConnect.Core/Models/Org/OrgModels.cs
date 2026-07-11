@@ -49,6 +49,27 @@ namespace NGOConnect.Core.Models.Org
         [MaxLength(100)] public string? Country       { get; set; }
     }
 
+    // ── Resubmit Org after rejection (v4.5) — founder-side, new SP Org_Resubmit ──
+    public class ResubmitOrgRequest
+    {
+        [Required][MaxLength(200)] public string  OrgName       { get; set; } = string.Empty;
+        [MaxLength(100)]            public string? Category      { get; set; }
+        [MaxLength(100)]            public string? ContactPerson { get; set; }
+        [MaxLength(500)]            public string? About         { get; set; }
+        [MaxLength(500)]            public string? Mission       { get; set; }
+        [MaxLength(500)]            public string? Vision        { get; set; }
+        [MaxLength(255)]            public string? LogoUrl       { get; set; }
+        [MaxLength(20)]             public string? Phone         { get; set; }
+        [MaxLength(150)]            public string? Email         { get; set; }
+        [MaxLength(255)]            public string? Website       { get; set; }
+        [MaxLength(255)]            public string? AddressLine1  { get; set; }
+        [MaxLength(255)]            public string? AddressLine2  { get; set; }
+        [MaxLength(20)]             public string? Pincode       { get; set; }
+        [MaxLength(100)]            public string? City          { get; set; }
+        [MaxLength(100)]            public string? State         { get; set; }
+        [MaxLength(100)]            public string? Country       { get; set; }
+    }
+
     // ── Admin Dashboard KPIs (s-admin screen) ──────────────────────────────────
     public class OrgDashboardModel
     {

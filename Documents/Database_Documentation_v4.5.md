@@ -1,7 +1,7 @@
-# NGOConnect Database Documentation v4.4
+# NGOConnect Database Documentation v4.5
 
 **Database:** MySQL 8.0+  
-**Version:** 4.4  
+**Version:** 4.5  
 **Tables:** 50  
 **Stored Procedures:** 114  
 **Generated:** 2026-07-10  
@@ -1164,6 +1164,4 @@ SP pattern: `SELECT ... FOR UPDATE` on IdSequences, increment, format, use in IN
 
 ---
 
-*Database_Documentation_v4.4.md — 44 Tables, 133 Stored Procedures — Last updated 2026-07-11*
-return cols; Post_Report p_ReasonCode; User doc management (User_GetDocuments, User_DeleteDocument, User_UploadDocument upsert); 4 new Org post admin SPs; Project_GetSessionQr time-window; Application_GetByProject attendance status override; Project_ManualAttendance; Post_GetFeed MediaUrls+MediaTypes+TimeAgo; Post_Create video auto-detect; QR Settings seeds; DOCUMENT_TYPE_USER universalized.*  
-*Run `NGOConnect_Complete_Setup_v4.4.sql` to install fresh. For incremental: run all patch files in Documents/ folder against your database.*
+*Database_Documentation_v4.5.md — 44 Tables, 133 Stored Procedures — Last updated 2026-07-11*

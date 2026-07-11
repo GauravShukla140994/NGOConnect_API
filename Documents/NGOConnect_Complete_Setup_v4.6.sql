@@ -46,6 +46,7 @@ CREATE TABLE Users (
     CountryCode     VARCHAR(6)      NOT NULL DEFAULT '+91',
     IsVerified      TINYINT(1)      NOT NULL DEFAULT 0,
     IsActive        TINYINT(1)      NOT NULL DEFAULT 1,
+    ProfileVerificationLkpId INT UNSIGNED NULL,
     LastLoginAt     DATETIME        NULL,
     IsDeleted       TINYINT(1)      NOT NULL DEFAULT 0,
     DeletedAt       DATETIME        NULL,
@@ -1010,6 +1011,9 @@ CREATE TABLE SchemaVersions (
 
 SET FOREIGN_KEY_CHECKS = 1;
 
+-- ProfileVerificationLkpId FK added via ALTER after seed (LookupValues must exist first)
+-- See bottom of SECTION 3 for the ALTER TABLE statement.
+
 -- ============================================================
 -- SECTION 2: SEED DATA — LookupTypes (44 total)
 -- ============================================================
@@ -1058,8 +1062,9 @@ INSERT INTO LookupTypes (TypeCode, TypeName, Description, IsSystemType, CreatedB
 ('MEDIA_TYPE',          'Media Type',                'Type of media file attached to a post',        1, 1),
 ('SOS_RESOLVED_BY',     'SOS Resolved By',           'Who resolved the SOS incident',                1, 1),
 ('AUDIENCE_TYPE',       'Audience Type',             'Target audience for community posts',          1, 1),
-('LOCATION_SHARING',    'Location Sharing',          'When a member shares location with org',       1, 1);
--- ^ #44 is LOCATION_SHARING — new in v4.0
+('LOCATION_SHARING',    'Location Sharing',          'When a member shares location with org',       1, 1),
+('PROFILE_VERIFICATION_STATUS', 'Profile Verification Status', 'Super Admin document/profile verification state for a member', 1, 1);
+-- ^ #44 is LOCATION_SHARING, #45 is PROFILE_VERIFICATION_STATUS — added v4.6
 
 -- ============================================================
 -- SECTION 3: SEED DATA — LookupValues
@@ -1400,6 +1405,21 @@ SELECT LookupTypeId, 'ARTS',          'Arts',           5, 1, 1 FROM LookupTypes
 SELECT LookupTypeId, 'TECHNOLOGY',    'Technology',     6, 1, 1 FROM LookupTypes WHERE TypeCode = 'INTEREST_TYPE' UNION ALL
 SELECT LookupTypeId, 'COMMUNITY',     'Community',      7, 1, 1 FROM LookupTypes WHERE TypeCode = 'INTEREST_TYPE' UNION ALL
 SELECT LookupTypeId, 'ANIMAL_WELFARE','Animal Welfare', 8, 1, 1 FROM LookupTypes WHERE TypeCode = 'INTEREST_TYPE';
+-- PROFILE_VERIFICATION_STATUS (v4.6 NEW)
+INSERT INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue, CreatedBy)
+SELECT lt.LookupTypeId, v.ValueCode, v.ValueName, v.OrderNo, 1, 1
+FROM LookupTypes lt
+JOIN (
+    SELECT 'PENDING'      AS ValueCode, 'Not Reviewed' AS ValueName, 1 AS OrderNo UNION ALL
+    SELECT 'VERIFIED',       'Verified',               2 UNION ALL
+    SELECT 'NEEDS_UPDATE',   'Needs Update',            3
+) v ON 1=1
+WHERE lt.TypeCode = 'PROFILE_VERIFICATION_STATUS';
+
+-- FK: Users.ProfileVerificationLkpId → LookupValues (v4.6 NEW)
+ALTER TABLE Users ADD CONSTRAINT fk_users_profileverification
+    FOREIGN KEY (ProfileVerificationLkpId) REFERENCES LookupValues(LookupValueId);
+
 -- ============================================================
 -- SECTION 4: SEED DATA — Settings + IdSequences
 -- ============================================================
@@ -6422,7 +6442,7 @@ END //
 DELIMITER ;
 
 -- ============================================================
--- END OF v4.4 ADDITIONS
+-- END OF v4.5 ADDITIONS
 -- NGOConnect v4.4 — 52 Tables, 132 Stored Procedures
 -- ============================================================
 
@@ -6503,7 +6523,7 @@ BEGIN
           ORDER BY h.CreatedAt DESC LIMIT 1) AS LastReason
     FROM Organisations o
     LEFT JOIN LookupValues tv ON o.OrgTypeLkpId = tv.LookupValueId
-    JOIN LookupValues sv ON o.StatusLkpId = sv.LookupValueId
+    JOIN LookupValues sv ON o.StatusLkpId  = sv.LookupValueId
     JOIN LookupTypes  st ON sv.LookupTypeId = st.LookupTypeId AND st.TypeCode = 'ORG_STATUS'
     WHERE o.IsDeleted = 0
       AND sv.ValueCode = p_StatusCode
@@ -6513,9 +6533,7 @@ BEGIN
     SELECT COUNT(*) AS TotalCount
     FROM Organisations o
     JOIN LookupValues sv ON o.StatusLkpId = sv.LookupValueId
-    JOIN LookupTypes  st ON sv.LookupTypeId = st.LookupTypeId AND st.TypeCode = 'ORG_STATUS'
-    WHERE o.IsDeleted = 0
-      AND sv.ValueCode = p_StatusCode;
+    WHERE o.IsDeleted = 0 AND sv.ValueCode = p_StatusCode;
 END //
 
 CREATE PROCEDURE SuperAdmin_Org_GetDetail(IN p_OrgId INT UNSIGNED)
@@ -6536,12 +6554,14 @@ BEGIN
           ORDER BY h.CreatedAt DESC LIMIT 1) AS LastReason,
         (SELECT COUNT(*) FROM OrgMembers om2
           JOIN LookupValues sv2 ON om2.StatusLkpId = sv2.LookupValueId
-          WHERE om2.OrgId = o.OrgId AND om2.IsDeleted = 0 AND sv2.ValueCode = 'APPROVED') AS MemberCount
+          WHERE om2.OrgId = o.OrgId AND om2.IsDeleted = 0
+            AND sv2.ValueCode = 'APPROVED') AS MemberCount
     FROM Organisations o
     LEFT JOIN LookupValues tv ON o.OrgTypeLkpId = tv.LookupValueId
     LEFT JOIN LookupValues sv ON o.StatusLkpId  = sv.LookupValueId
     LEFT JOIN OrgMembers founder ON founder.OrgId = o.OrgId AND founder.IsDeleted = 0
-        AND founder.RoleLkpId = (SELECT LookupValueId FROM LookupValues lv
+        AND founder.RoleLkpId = (
+            SELECT LookupValueId FROM LookupValues lv
             JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
             WHERE lt.TypeCode = 'MEMBER_ROLE' AND lv.ValueCode = 'FOUNDER' LIMIT 1)
     LEFT JOIN Users u ON founder.UserId = u.UserId
@@ -6940,64 +6960,22 @@ BEGIN
     END IF;
 END //
 
-DELIMITER ;
 
--- ============================================================
--- END OF PATCH
--- ============================================================
-
-
--- ============================================================
--- v4.5 ADDITIONS (CONTINUED) — SUPER ADMIN MODULE
--- Members admin, Dashboard KPIs, Org status history endpoint.
--- New column + new lookup type + brand-new SPs only. Zero changes
--- to any existing table, SP, or the mobile/NGO-admin auth flow.
--- Source: NGOConnect_Patch_SuperAdminModule_Members_Dashboard.sql
---
--- NOTE — flagged for the user, not auto-fixed (needs explicit sign-off,
--- see feedback_superadmin_isolation rule): SuperAdmin_User_Suspend below
--- sets Users.IsActive = 0 and revokes all RefreshTokens, which blocks a
--- suspended member from silently continuing an existing session and
--- from refreshing to a new access token. It does NOT stop a suspended
--- member from starting a brand-new login (AuthDal never checks
--- Users.IsActive today — confirmed by grep, zero matches). Closing that
--- gap means editing AuthDal, an existing file used by every real user's
--- login — out of scope for this isolated module without explicit
--- approval to touch existing auth code.
--- ============================================================
-
-ALTER TABLE Users ADD COLUMN ProfileVerificationLkpId INT UNSIGNED NULL AFTER IsActive;
-ALTER TABLE Users ADD CONSTRAINT fk_users_profileverification
-    FOREIGN KEY (ProfileVerificationLkpId) REFERENCES LookupValues(LookupValueId);
-
-INSERT INTO LookupTypes (TypeCode, TypeName, Description, IsSystemType, CreatedBy) VALUES
-('PROFILE_VERIFICATION_STATUS', 'Profile Verification Status', 'Super Admin document/profile verification state for a member', 1, 1);
-
--- PROFILE_VERIFICATION_STATUS
-INSERT INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue, CreatedBy)
-SELECT LookupTypeId, 'PENDING', 'Not Reviewed', 1, 1, 1 FROM LookupTypes WHERE TypeCode = 'PROFILE_VERIFICATION_STATUS' UNION ALL
-SELECT LookupTypeId, 'VERIFIED', 'Verified', 2, 1, 1 FROM LookupTypes WHERE TypeCode = 'PROFILE_VERIFICATION_STATUS' UNION ALL
-SELECT LookupTypeId, 'NEEDS_UPDATE', 'Needs Update', 3, 1, 1 FROM LookupTypes WHERE TypeCode = 'PROFILE_VERIFICATION_STATUS';
-
-DELIMITER //
-
--- ── Org status history (drawer timeline) ────────────────────────
+-- ── v4.6 NEW SPs ──────────────────────────────────────────────────────
 
 CREATE PROCEDURE SuperAdmin_Org_GetStatusHistory(IN p_OrgId INT UNSIGNED)
 BEGIN
     SELECT
         h.OrgStatusHistoryId,
-        oldv.ValueCode AS OldStatus, oldv.ValueName AS OldStatusName,
-        newv.ValueCode AS NewStatus, newv.ValueName AS NewStatusName,
+        oldv.ValueCode AS OldStatus,  oldv.ValueName AS OldStatusName,
+        newv.ValueCode AS NewStatus,  newv.ValueName AS NewStatusName,
         h.Reason, h.ChangedByType, h.ChangedBy, h.CreatedAt
     FROM OrgStatusHistory h
     LEFT JOIN LookupValues oldv ON h.OldStatusLkpId = oldv.LookupValueId
-    JOIN LookupValues newv ON h.NewStatusLkpId = newv.LookupValueId
+    JOIN  LookupValues newv ON h.NewStatusLkpId  = newv.LookupValueId
     WHERE h.OrgId = p_OrgId
     ORDER BY h.CreatedAt DESC;
 END //
-
--- ── Members admin (cross-NGO oversight) ─────────────────────────
 
 CREATE PROCEDURE SuperAdmin_User_GetList(
     IN p_OrgIds     TEXT,
@@ -7033,9 +7011,10 @@ BEGIN
     WHERE u.IsDeleted = 0
       AND (p_Search IS NULL OR p_Search = ''
            OR CONCAT(up.FirstName,' ',up.LastName) LIKE CONCAT('%', p_Search, '%')
-           OR u.Email LIKE CONCAT('%', p_Search, '%')
+           OR u.Email  LIKE CONCAT('%', p_Search, '%')
            OR u.Mobile LIKE CONCAT('%', p_Search, '%'))
-    GROUP BY u.UserId, up.FirstName, up.LastName, u.Email, u.Mobile, up.ProfilePhoto, u.IsActive, pv.ValueCode
+    GROUP BY u.UserId, up.FirstName, up.LastName, u.Email, u.Mobile,
+             up.ProfilePhoto, u.IsActive, pv.ValueCode
     ORDER BY JoinedAt DESC
     LIMIT p_PageSize OFFSET v_Offset;
 
@@ -7048,7 +7027,7 @@ BEGIN
         WHERE u.IsDeleted = 0
           AND (p_Search IS NULL OR p_Search = ''
                OR CONCAT(up.FirstName,' ',up.LastName) LIKE CONCAT('%', p_Search, '%')
-               OR u.Email LIKE CONCAT('%', p_Search, '%')
+               OR u.Email  LIKE CONCAT('%', p_Search, '%')
                OR u.Mobile LIKE CONCAT('%', p_Search, '%'))
         GROUP BY u.UserId
     ) t;
@@ -7056,7 +7035,6 @@ END //
 
 CREATE PROCEDURE SuperAdmin_User_GetFullProfile(IN p_UserId INT UNSIGNED)
 BEGIN
-    -- Result set 1: core profile
     SELECT
         u.UserId, CONCAT(up.FirstName,' ',up.LastName) AS FullName,
         u.Email, u.Mobile, up.ProfilePhoto,
@@ -7068,15 +7046,18 @@ BEGIN
         IF(u.IsActive = 1, 'ACTIVE', 'SUSPENDED') AS AccountStatus,
         COALESCE(pv.ValueCode, 'PENDING') AS ProfileVerificationStatus,
         up.ReliabilityPct AS Reliability,
-        (SELECT ROUND(SUM(pa.HoursLogged),1) FROM ProjectAttendance pa
+        (SELECT ROUND(SUM(pa.HoursLogged), 1)
+            FROM ProjectAttendance pa
             JOIN LookupValues av ON pa.AttendStatusLkpId = av.LookupValueId
             WHERE pa.UserId = u.UserId AND av.ValueCode = 'ATTENDED') AS Hours,
-        (SELECT COUNT(DISTINCT ps.ProjectId) FROM ProjectAttendance pa
-            JOIN ProjectSessions ps ON pa.SessionId = ps.SessionId
-            JOIN Projects p ON ps.ProjectId = p.ProjectId
-            JOIN LookupValues av ON pa.AttendStatusLkpId = av.LookupValueId
+        (SELECT COUNT(DISTINCT ps.ProjectId)
+            FROM ProjectAttendance pa
+            JOIN ProjectSessions ps ON pa.SessionId  = ps.SessionId
+            JOIN Projects p         ON ps.ProjectId  = p.ProjectId
+            JOIN LookupValues av    ON pa.AttendStatusLkpId = av.LookupValueId
             WHERE pa.UserId = u.UserId AND av.ValueCode = 'ATTENDED'
-              AND p.StatusLkpId = (SELECT LookupValueId FROM LookupValues lv
+              AND p.StatusLkpId = (
+                  SELECT LookupValueId FROM LookupValues lv
                   JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
                   WHERE lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'COMPLETED' LIMIT 1)
         ) AS Projects
@@ -7086,25 +7067,22 @@ BEGIN
     LEFT JOIN Organisations o ON om.OrgId = o.OrgId AND o.IsDeleted = 0
     LEFT JOIN LookupValues pv ON u.ProfileVerificationLkpId = pv.LookupValueId
     WHERE u.UserId = p_UserId AND u.IsDeleted = 0
-    GROUP BY u.UserId, up.FirstName, up.LastName, u.Email, u.Mobile, up.ProfilePhoto, u.IsActive, pv.ValueCode, up.ReliabilityPct;
+    GROUP BY u.UserId, up.FirstName, up.LastName, u.Email, u.Mobile,
+             up.ProfilePhoto, u.IsActive, pv.ValueCode, up.ReliabilityPct;
 
-    -- Result set 2: skills
     SELECT SkillName FROM UserSkills WHERE UserId = p_UserId AND IsDeleted = 0 ORDER BY SkillName;
 
-    -- Result set 3: interests
     SELECT iv.ValueName FROM UserInterests ui
     JOIN LookupValues iv ON ui.InterestLkpId = iv.LookupValueId
     WHERE ui.UserId = p_UserId ORDER BY iv.ValueName;
 
-    -- Result set 4: badges
     SELECT BadgeType FROM UserBadges WHERE UserId = p_UserId AND IsDeleted = 0 ORDER BY AwardedAt DESC;
 
-    -- Result set 5: other organisations (role + status per org)
     SELECT o.OrgName, rv.ValueName AS Role, sv.ValueName AS Status
     FROM OrgMembers om
-    JOIN Organisations o ON om.OrgId = o.OrgId AND o.IsDeleted = 0
-    JOIN LookupValues rv ON om.RoleLkpId = rv.LookupValueId
-    JOIN LookupValues sv ON om.StatusLkpId = sv.LookupValueId
+    JOIN Organisations o  ON om.OrgId      = o.OrgId  AND o.IsDeleted  = 0
+    JOIN LookupValues rv  ON om.RoleLkpId   = rv.LookupValueId
+    JOIN LookupValues sv  ON om.StatusLkpId = sv.LookupValueId
     WHERE om.UserId = p_UserId AND om.IsDeleted = 0
     ORDER BY o.OrgName;
 END //
@@ -7158,7 +7136,8 @@ BEGIN
 
         INSERT INTO Notifications (UserId, NotifType, Title, Body, RefId, RefType)
         VALUES (p_UserId, 'PROFILE_VERIFIED', 'Your profile has been verified',
-                'Your profile and documents have been reviewed and verified by the NGO Connect team.', p_UserId, 'USER_PROFILE');
+                'Your profile and documents have been reviewed and verified by the NGO Connect team.',
+                p_UserId, 'USER_PROFILE');
 
         SELECT 1 AS IsSuccess, 'Profile marked as verified.' AS Message;
     END IF;
@@ -7188,7 +7167,8 @@ BEGIN
         WHERE UserId = p_UserId;
 
         INSERT INTO Notifications (UserId, NotifType, Title, Body, RefId, RefType)
-        VALUES (p_UserId, 'PROFILE_NEEDS_UPDATE', 'Your profile needs an update', p_Reason, p_UserId, 'USER_PROFILE');
+        VALUES (p_UserId, 'PROFILE_NEEDS_UPDATE', 'Your profile needs an update',
+                p_Reason, p_UserId, 'USER_PROFILE');
 
         SELECT 1 AS IsSuccess, 'Update request sent to member.' AS Message;
     END IF;
@@ -7213,14 +7193,12 @@ BEGIN
     ELSE
         UPDATE Users SET IsActive = 0, UpdatedBy = p_SuperAdminUserId WHERE UserId = p_UserId;
 
-        -- Revoke all active refresh tokens so a suspended member cannot silently
-        -- keep a session alive or refresh to a new access token. Does NOT block a
-        -- brand-new login attempt — see the note at the top of this section.
         UPDATE RefreshTokens SET IsRevoked = 1, RevokedAt = NOW()
         WHERE UserId = p_UserId AND IsRevoked = 0;
 
         INSERT INTO Notifications (UserId, NotifType, Title, Body, RefId, RefType)
-        VALUES (p_UserId, 'ACCOUNT_SUSPENDED', 'Your account has been suspended', p_Reason, p_UserId, 'USER_ACCOUNT');
+        VALUES (p_UserId, 'ACCOUNT_SUSPENDED', 'Your account has been suspended',
+                p_Reason, p_UserId, 'USER_ACCOUNT');
 
         SELECT 1 AS IsSuccess, 'Account suspended.' AS Message;
     END IF;
@@ -7250,34 +7228,41 @@ BEGIN
     END IF;
 END //
 
--- ── Dashboard / Overview KPIs ────────────────────────────────────
-
 CREATE PROCEDURE SuperAdmin_Dashboard_GetKpis()
 BEGIN
     SELECT
         (SELECT COUNT(*) FROM Organisations o
             JOIN LookupValues sv ON o.StatusLkpId = sv.LookupValueId
-            WHERE o.IsDeleted = 0 AND sv.ValueCode = 'APPROVED') AS TotalOrgs,
+            WHERE o.IsDeleted = 0 AND sv.ValueCode = 'APPROVED')
+            AS TotalOrgs,
         (SELECT COUNT(*) FROM Organisations o
             JOIN LookupValues sv ON o.StatusLkpId = sv.LookupValueId
-            WHERE o.IsDeleted = 0 AND sv.ValueCode IN ('PENDING', 'UNDER_REVIEW')) AS PendingOrgs,
-        (SELECT COUNT(DISTINCT u.UserId) FROM Users u
+            WHERE o.IsDeleted = 0 AND sv.ValueCode IN ('PENDING', 'UNDER_REVIEW'))
+            AS PendingOrgs,
+        (SELECT COUNT(DISTINCT u.UserId)
+            FROM Users u
             JOIN OrgMembers om ON om.UserId = u.UserId AND om.IsDeleted = 0
             JOIN LookupValues sv ON om.StatusLkpId = sv.LookupValueId
-            WHERE u.IsDeleted = 0 AND u.IsActive = 1 AND sv.ValueCode = 'APPROVED') AS TotalVolunteers,
-        (SELECT COUNT(DISTINCT u.UserId) FROM Users u
+            WHERE u.IsDeleted = 0 AND u.IsActive = 1 AND sv.ValueCode = 'APPROVED')
+            AS TotalVolunteers,
+        (SELECT COUNT(DISTINCT u.UserId)
+            FROM Users u
             JOIN OrgMembers om ON om.UserId = u.UserId AND om.IsDeleted = 0
             JOIN LookupValues sv ON om.StatusLkpId = sv.LookupValueId
             WHERE u.IsDeleted = 0 AND u.IsActive = 1 AND sv.ValueCode = 'APPROVED'
-              AND u.LastLoginAt >= DATE_SUB(NOW(), INTERVAL 30 DAY)) AS ActiveVolunteersLast30Days,
-        (SELECT COALESCE(SUM(dt.DonationAmount), 0) FROM DonationTransactions dt
+              AND u.LastLoginAt >= DATE_SUB(NOW(), INTERVAL 30 DAY))
+            AS ActiveVolunteersLast30Days,
+        (SELECT COALESCE(SUM(dt.DonationAmount), 0)
+            FROM DonationTransactions dt
             JOIN LookupValues sv ON dt.PayStatusLkpId = sv.LookupValueId
-            WHERE dt.IsDeleted = 0 AND sv.ValueCode = 'SUCCESS') AS TotalDonationsAmount;
+            WHERE dt.IsDeleted = 0 AND sv.ValueCode = 'SUCCESS')
+            AS TotalDonationsAmount;
 END //
 
 CREATE PROCEDURE SuperAdmin_Org_GetRecent(IN p_Limit INT)
 BEGIN
-    SELECT o.OrgId, o.OrgName, o.LogoUrl, sv.ValueCode AS StatusCode, sv.ValueName AS StatusName,
+    SELECT o.OrgId, o.OrgName, o.LogoUrl,
+           sv.ValueCode AS StatusCode, sv.ValueName AS StatusName,
            o.CreatedAt AS SubmittedAt
     FROM Organisations o
     JOIN LookupValues sv ON o.StatusLkpId = sv.LookupValueId
@@ -7289,5 +7274,5 @@ END //
 DELIMITER ;
 
 -- ============================================================
--- END OF v4.5 ADDITIONS (CONTINUED)
+-- END OF FILE
 -- ============================================================
