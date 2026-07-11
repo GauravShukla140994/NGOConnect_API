@@ -3392,7 +3392,7 @@ END //
 -- v4.0 NEW: Get all certificates for a user
 CREATE PROCEDURE Certificate_GetByUser(IN p_UserId INT UNSIGNED)
 BEGIN
-    SELECT vc.CertificateId, vc.ProjectId, p.Title AS ProjectTitle,
+    SELECT vc.CertificateId, vc.ProjectId, p.ProjectName AS ProjectTitle,
            vc.OrgId, o.OrgName, o.LogoUrl AS OrgLogoUrl,
            vc.CertificateUrl, vc.IssuedAt, vc.TotalHours
     FROM VolunteerCertificates vc
@@ -3537,7 +3537,7 @@ BEGIN
         lv.ValueName AS BadgeName,
         lv.ValueCode AS BadgeCode,
         o.OrgName,
-        p.Title AS ProjectName,
+        p.ProjectName,
         ub.AwardedAt
     FROM UserBadges ub
     JOIN LookupValues lv  ON ub.BadgeLkpId = lv.LookupValueId
@@ -5268,7 +5268,7 @@ BEGIN
     SELECT
         pa.ApplicationId,
         pa.ProjectId,
-        p.Title          AS ProjectName,
+        p.ProjectName,
         o.OrgName,
         o.LogoUrl        AS OrgLogoUrl,
         appSv.ValueCode  AS StatusCode,
@@ -5366,7 +5366,7 @@ BEGIN
         p.OrgId,
         o.OrgName,
         o.LogoUrl    AS OrgLogoUrl,
-        p.Title      AS ProjectName,
+        p.ProjectName,
         p.Description,
         ptv.ValueCode AS ScheduleType,
         p.LocationName,

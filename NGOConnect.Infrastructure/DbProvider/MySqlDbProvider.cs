@@ -1,6 +1,6 @@
 using System.Data;
 using Microsoft.Extensions.Configuration;
-using MySql.Data.MySqlClient;
+using MySqlConnector;
 using NGOConnect.Core.Interfaces;
 
 namespace NGOConnect.Infrastructure.DbProvider
