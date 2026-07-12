@@ -162,6 +162,28 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
+        public async Task<ApiResponse<PagedResult<DynamicRow>>> GetNearbyFeedAsync(
+            int userId, decimal? userLat, decimal? userLon, int pageNumber, int pageSize)
+        {
+            try
+            {
+                var paged = await ExecuteDynamicPagedListAsync("Project_GetNearbyFeed", pageNumber, pageSize, cmd =>
+                {
+                    _db.AddParameter(cmd, "p_UserId",     userId);
+                    _db.AddParameter(cmd, "p_UserLat",    userLat);
+                    _db.AddParameter(cmd, "p_UserLon",    userLon);
+                    _db.AddParameter(cmd, "p_PageNumber", pageNumber);
+                    _db.AddParameter(cmd, "p_PageSize",   pageSize);
+                });
+                return ApiResponse<PagedResult<DynamicRow>>.Success(paged);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetNearbyFeedAsync failed UserId={UserId}", userId);
+                return ApiResponse<PagedResult<DynamicRow>>.Failure("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
         public async Task<ApiResponse> AddSkillAsync(int projectId, int userId, AddProjectSkillRequest request)
         {
             try

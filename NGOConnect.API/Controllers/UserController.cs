@@ -82,6 +82,28 @@ namespace NGOConnect.API.Controllers
         public async Task<ApiResponse<UserImpactModel>> GetImpact()
             => await _userDal.GetImpactAsync(GetUserId());
 
+        // ── Contact Update (OTP flow) — s-edit-profile screen ───────────────────
+        /// <summary>
+        /// Send OTP to an email or phone number the user wants to add.
+        /// Type = "EMAIL" or "PHONE". Returns otpCode in DEBUG builds only.
+        /// </summary>
+        [HttpPost("contact/send-otp")] [Authorize]
+        public async Task<ApiResponse> SendContactOtp([FromBody] SendContactOtpRequest request)
+        {
+            var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            return await _userDal.SendContactOtpAsync(GetUserId(), request, ip);
+        }
+
+        /// <summary>
+        /// Verify OTP and lock the contact (email/phone) to this user's profile.
+        /// </summary>
+        [HttpPost("contact/verify")] [Authorize]
+        public async Task<ApiResponse> VerifyContactOtp([FromBody] VerifyContactOtpRequest request)
+        {
+            var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            return await _userDal.VerifyContactOtpAsync(GetUserId(), request, ip);
+        }
+
         private int GetUserId()
         {
             var claim = User.FindFirst("uid") ?? User.FindFirst(ClaimTypes.NameIdentifier);

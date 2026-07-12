@@ -129,6 +129,7 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_Question",       request.Question);
                     _db.AddParameter(cmd, "p_OptionsJson",    optionsJson);
                     _db.AddParameter(cmd, "p_ExpiresInHours", request.ExpiresInHours);
+                    _db.AddParameter(cmd, "p_IsMultiChoice",  request.IsMultiChoice ? 1 : 0);
                 });
 
                 if (!result.Succeeded)

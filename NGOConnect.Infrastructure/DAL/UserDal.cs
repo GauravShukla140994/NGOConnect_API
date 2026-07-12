@@ -366,6 +366,67 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
+        // ── Contact Update (OTP flow) ─────────────────────────────────────────────
+
+        public async Task<ApiResponse> SendContactOtpAsync(int userId, SendContactOtpRequest request, string ipAddress)
+        {
+            try
+            {
+                // Generate OTP here (cryptographically secure, same as AuthDal pattern)
+                var otp = GenerateOtp();
+
+                var result = await ExecuteWriteAsync("User_SendContactOtp", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_UserId",    userId);
+                    _db.AddParameter(cmd, "p_Type",      request.Type.ToUpper());
+                    _db.AddParameter(cmd, "p_Value",     request.Value.Trim());
+                    _db.AddParameter(cmd, "p_OtpCode",   otp);
+                    _db.AddParameter(cmd, "p_IpAddress", ipAddress);
+                });
+
+                if (!result.Succeeded)
+                    return result.ToApiResponse();
+
+                // Log OTP in DEBUG so it's visible in Output window during dev testing
+                Log.Debug("DEV — Contact OTP for {Value}: {Otp}", request.Value, otp);
+
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "SendContactOtpAsync failed UserId={UserId} Type={Type}", userId, request.Type);
+                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        public async Task<ApiResponse> VerifyContactOtpAsync(int userId, VerifyContactOtpRequest request, string ipAddress)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("User_VerifyContactOtp", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_UserId",    userId);
+                    _db.AddParameter(cmd, "p_Type",      request.Type.ToUpper());
+                    _db.AddParameter(cmd, "p_Value",     request.Value.Trim());
+                    _db.AddParameter(cmd, "p_OtpCode",   request.OtpCode.Trim());
+                    _db.AddParameter(cmd, "p_IpAddress", ipAddress);
+                });
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "VerifyContactOtpAsync failed UserId={UserId} Type={Type}", userId, request.Type);
+                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        private static string GenerateOtp()
+        {
+            var bytes = System.Security.Cryptography.RandomNumberGenerator.GetBytes(4);
+            var value = BitConverter.ToUInt32(bytes, 0) % 1000000;
+            return value.ToString("D6");
+        }
+
         // ── Mappers ──────────────────────────────────────────────────────────────
 
         private static UserProfileModel MapProfile(DataRow row) => new()

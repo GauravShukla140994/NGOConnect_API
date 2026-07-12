@@ -30,7 +30,7 @@ namespace NGOConnect.Core.Models.Community
         [Range(1, int.MaxValue)]
         public int PostTypeLkpId { get; set; }
 
-        /// <summary>LookupValueId from TypeCode='POST_VISIBILITY'. Defaults to ORG_MEMBERS.</summary>
+        /// <summary>LookupValueId from TypeCode='AUDIENCE_TYPE' (ALL_MEMBERS / ADMINS_ONLY / VOLUNTEERS). Defaults to ALL_MEMBERS.</summary>
         public int? AudienceLkpId { get; set; }
     }
 
@@ -53,6 +53,9 @@ namespace NGOConnect.Core.Models.Community
         /// <summary>How long before the poll expires (stored as PollEndsAt = NOW() + ExpiresInHours)</summary>
         [Range(1, 8760, ErrorMessage = "ExpiresInHours must be between 1 and 8760 (1 year)")]
         public int ExpiresInHours { get; set; } = 24;
+
+        /// <summary>When true, voters may select multiple options. Stored as CommunityPosts.PollIsMultiChoice.</summary>
+        public bool IsMultiChoice { get; set; } = false;
     }
 
     public class VoteRequest

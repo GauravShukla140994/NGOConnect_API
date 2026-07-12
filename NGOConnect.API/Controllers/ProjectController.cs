@@ -40,6 +40,14 @@ namespace NGOConnect.API.Controllers
             [FromQuery] decimal? userLon    = null)
             => await _project.ListAsync(pageNumber, pageSize, orgId, category, city, statusCode, typeCode, userLat, userLon);
 
+        [HttpGet("nearby-feed")] [Authorize]
+        public async Task<ApiResponse<PagedResult<DynamicRow>>> GetNearbyFeed(
+            [FromQuery] decimal? userLat    = null,
+            [FromQuery] decimal? userLon    = null,
+            [FromQuery] int      pageNumber = 1,
+            [FromQuery] int      pageSize   = 10)
+            => await _project.GetNearbyFeedAsync(GetUserId(), userLat, userLon, pageNumber, pageSize);
+
         [HttpPost("{projectId:int}/skills")] [Authorize]
         public async Task<ApiResponse> AddSkill(int projectId, [FromBody] AddProjectSkillRequest request)
             => await _project.AddSkillAsync(projectId, GetUserId(), request);

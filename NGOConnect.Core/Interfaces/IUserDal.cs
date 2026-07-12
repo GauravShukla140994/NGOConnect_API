@@ -29,5 +29,8 @@ namespace NGOConnect.Core.Interfaces
         Task<ApiResponse<List<UserBadgeModel>>>     GetBadgesAsync(int userId);
         // Impact Dashboard
         Task<ApiResponse<UserImpactModel>>          GetImpactAsync(int userId);
+        // Contact Update (OTP flow)
+        Task<ApiResponse>                           SendContactOtpAsync(int userId, SendContactOtpRequest request, string ipAddress);
+        Task<ApiResponse>                           VerifyContactOtpAsync(int userId, VerifyContactOtpRequest request, string ipAddress);
     }
 }

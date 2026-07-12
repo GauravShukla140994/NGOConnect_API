@@ -9,6 +9,7 @@ namespace NGOConnect.Core.Interfaces
         Task<ApiResponse<DynamicRow>>              GetByIdAsync(int projectId, int userId = 0);
         Task<ApiResponse>                          UpdateAsync(int projectId, int userId, UpdateProjectRequest request);
         Task<ApiResponse<PagedResult<DynamicRow>>> ListAsync(int pageNumber, int pageSize, int? orgId = null, string? category = null, string? city = null, string? statusCode = null, string? typeCode = null, decimal? userLat = null, decimal? userLon = null);
+        Task<ApiResponse<PagedResult<DynamicRow>>> GetNearbyFeedAsync(int userId, decimal? userLat, decimal? userLon, int pageNumber, int pageSize);
         Task<ApiResponse>                          AddSkillAsync(int projectId, int userId, AddProjectSkillRequest request);
 
         // Sessions

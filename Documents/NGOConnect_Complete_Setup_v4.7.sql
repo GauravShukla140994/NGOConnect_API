@@ -1,7 +1,7 @@
 -- ============================================================
 -- NGO CONNECT — COMPLETE DATABASE SETUP
--- Version    : 4.2
--- Date       : 2026-07-04
+-- Version    : 4.7
+-- Date       : 2026-07-12
 -- Database   : MySQL 8.0+  |  utf8mb4_unicode_ci
 -- Run on a BLANK MySQL instance. This drops and recreates NGOConnect.
 --
@@ -370,7 +370,7 @@ CREATE TABLE OrgDonationSettings (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- (Source: NGOConnect_Patch_OrgFollow.sql)
-CREATE TABLE IF NOT EXISTS OrgFollowers (
+CREATE TABLE OrgFollowers (
     OrgFollowerId  INT UNSIGNED NOT NULL AUTO_INCREMENT,
     OrgId          INT UNSIGNED NOT NULL,
     UserId         INT UNSIGNED NOT NULL,
@@ -446,7 +446,7 @@ CREATE TABLE ProjectSkills (
     ProjectId      INT UNSIGNED  NOT NULL,
     SkillName      VARCHAR(100)  NOT NULL,
     PRIMARY KEY (ProjectSkillId),
-    INDEX idx_projskill_project (ProjectId),
+    INDEX idx_projskill_project (ProjectId, SkillName),   -- covering index for skill-match subquery in Project_GetNearbyFeed
     CONSTRAINT fk_projskill_project FOREIGN KEY (ProjectId) REFERENCES Projects(ProjectId)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -544,10 +544,14 @@ CREATE TABLE Posts (
     Content         TEXT          NOT NULL,
     VisibilityLkpId INT UNSIGNED  NOT NULL,
     IsPinned        TINYINT(1)    NOT NULL DEFAULT 0,
+    IsEmergency     TINYINT(1)    NOT NULL DEFAULT 0 COMMENT '1 = emergency — bypasses feed ranking',
+    IsEvergreen     TINYINT(1)    NOT NULL DEFAULT 0 COMMENT '1 = evergreen — stays in pool beyond 7 days',
     PinnedAt        DATETIME      NULL,
     PinnedBy        INT UNSIGNED  NULL,
     LikeCount       INT UNSIGNED  NOT NULL DEFAULT 0,
     CommentCount    INT UNSIGNED  NOT NULL DEFAULT 0,
+    ShareCount      INT UNSIGNED  NOT NULL DEFAULT 0 COMMENT 'Denormalized share count',
+    SaveCount       INT UNSIGNED  NOT NULL DEFAULT 0 COMMENT 'Denormalized save count',
     IsDeleted       TINYINT(1)    NOT NULL DEFAULT 0,
     DeletedAt       DATETIME      NULL,
     DeletedBy       INT UNSIGNED  NULL,
@@ -556,10 +560,11 @@ CREATE TABLE Posts (
     UpdatedAt       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UpdatedBy       INT UNSIGNED  NULL,
     PRIMARY KEY (PostId),
-    INDEX idx_post_org     (OrgId, IsDeleted),
-    INDEX idx_post_user    (UserId, IsDeleted),
-    INDEX idx_post_created (CreatedAt DESC),
-    INDEX idx_post_pinned  (IsPinned, OrgId),
+    INDEX idx_post_org       (OrgId, IsDeleted),
+    INDEX idx_post_user      (UserId, IsDeleted),
+    INDEX idx_post_created   (CreatedAt DESC),
+    INDEX idx_post_pinned    (IsPinned, OrgId),
+    INDEX idx_post_emergency (IsEmergency, CreatedAt DESC),
     CONSTRAINT fk_post_org  FOREIGN KEY (OrgId)  REFERENCES Organisations(OrgId),
     CONSTRAINT fk_post_user FOREIGN KEY (UserId) REFERENCES Users(UserId)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -623,6 +628,32 @@ CREATE TABLE PostReports (
     INDEX idx_report_post   (PostId),
     INDEX idx_report_status (StatusLkpId),
     CONSTRAINT fk_report_post FOREIGN KEY (PostId) REFERENCES Posts(PostId)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE PostSaves (
+    PostSaveId  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    PostId      INT UNSIGNED    NOT NULL,
+    UserId      INT UNSIGNED    NOT NULL,
+    CreatedAt   DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (PostSaveId),
+    UNIQUE KEY  uq_postsave_post_user (PostId, UserId),
+    INDEX       idx_postsave_user     (UserId),
+    CONSTRAINT  fk_postsave_post FOREIGN KEY (PostId)  REFERENCES Posts(PostId),
+    CONSTRAINT  fk_postsave_user FOREIGN KEY (UserId)  REFERENCES Users(UserId)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE FeedInteractions (
+    InteractionId   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    UserId          INT UNSIGNED    NOT NULL,
+    PostId          INT UNSIGNED    NOT NULL,
+    InteractionType VARCHAR(30)     NOT NULL COMMENT 'IMPRESSION|VIEW|LIKE|COMMENT|SHARE|SAVE|VOLUNTEER_CLICK|DONATION_CLICK|NGO_VISIT|HIDE|REPORT',
+    DurationMs      INT UNSIGNED    NULL     COMMENT 'Read duration ms (VIEW only)',
+    CreatedAt       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (InteractionId),
+    INDEX idx_feedint_user (UserId, CreatedAt),
+    INDEX idx_feedint_post (PostId, InteractionType),
+    CONSTRAINT fk_feedint_user FOREIGN KEY (UserId) REFERENCES Users(UserId),
+    CONSTRAINT fk_feedint_post FOREIGN KEY (PostId) REFERENCES Posts(PostId)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE CommunityPosts (
@@ -1316,7 +1347,9 @@ INSERT INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemV
 SELECT LookupTypeId, 'LOGIN', 'Login', 1, 1, 1 FROM LookupTypes WHERE TypeCode = 'OTP_PURPOSE' UNION ALL
 SELECT LookupTypeId, 'REGISTER', 'Register', 2, 1, 1 FROM LookupTypes WHERE TypeCode = 'OTP_PURPOSE' UNION ALL
 SELECT LookupTypeId, 'FORGOT_PASSWORD', 'Forgot Password', 3, 1, 1 FROM LookupTypes WHERE TypeCode = 'OTP_PURPOSE' UNION ALL
-SELECT LookupTypeId, 'CHANGE_EMAIL', 'Change Email', 4, 1, 1 FROM LookupTypes WHERE TypeCode = 'OTP_PURPOSE';
+SELECT LookupTypeId, 'CHANGE_EMAIL', 'Change Email', 4, 1, 1 FROM LookupTypes WHERE TypeCode = 'OTP_PURPOSE' UNION ALL
+SELECT LookupTypeId, 'ADD_PHONE',   'Add Phone',   5, 1, 1 FROM LookupTypes WHERE TypeCode = 'OTP_PURPOSE' UNION ALL
+SELECT LookupTypeId, 'ADD_EMAIL',   'Add Email',   6, 1, 1 FROM LookupTypes WHERE TypeCode = 'OTP_PURPOSE';
 
 -- NOTIFICATION_TYPE
 INSERT INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue, CreatedBy)
@@ -2847,7 +2880,7 @@ BEGIN
         lv_type.ValueName AS PostType,
         p.LikeCount,
         p.CommentCount,
-        (SELECT COUNT(*) FROM PostLikes WHERE PostId = p.PostId AND UserId = p_UserId) AS IsLikedByMe,
+        (SELECT COUNT(*) FROM PostLikes WHERE PostId = p.PostId AND UserId = p_UserId) AS IsLiked,
         p.UserId,
         CONCAT(up.FirstName, ' ', up.LastName) AS AuthorName,
         up.ProfilePhoto,
@@ -2897,7 +2930,7 @@ BEGIN
         p.LikeCount, p.CommentCount, p.IsPinned, p.CreatedAt, p.UpdatedAt,
         p.UserId, CONCAT(up.FirstName,' ',up.LastName) AS AuthorName, up.ProfilePhoto,
         p.OrgId, o.OrgName, o.LogoUrl AS OrgLogo,
-        IF(pl.PostLikeId IS NOT NULL, 1, 0) AS IsLikedByMe,
+        IF(pl.PostLikeId IS NOT NULL, 1, 0) AS IsLiked,
         (SELECT GROUP_CONCAT(pm2.FileUrl ORDER BY pm2.SortOrder SEPARATOR ',') FROM PostMedia pm2 WHERE pm2.PostId = p.PostId) AS MediaUrls,
         (SELECT lv2.ValueCode FROM PostMedia pm3 JOIN LookupValues lv2 ON pm3.MediaTypeLkpId = lv2.LookupValueId WHERE pm3.PostId = p.PostId LIMIT 1) AS MediaType
     FROM Posts p
@@ -4203,7 +4236,7 @@ BEGIN
 END //
 
 -- ── REPLACED SP: Community_CreatePost ───────────────────────────
--- v4.2: Fixed from 14-param to 6-param (matches DAL).
+-- v4.3: Fixed audience TypeCode POST_VISIBILITY → AUDIENCE_TYPE; added CreatedBy.
 DROP PROCEDURE IF EXISTS Community_CreatePost //
 CREATE PROCEDURE Community_CreatePost(
     IN p_UserId         INT UNSIGNED,
@@ -4214,62 +4247,77 @@ CREATE PROCEDURE Community_CreatePost(
     IN p_AudienceLkpId  INT UNSIGNED
 )
 BEGIN
-    DECLARE v_AllMembersLkpId INT UNSIGNED DEFAULT NULL;
+    DECLARE v_DefaultAudienceLkpId INT UNSIGNED DEFAULT 0;
 
-    -- Default audience to ALL_MEMBERS if not provided
-    IF p_AudienceLkpId IS NULL THEN
-        SELECT lv.LookupValueId INTO v_AllMembersLkpId
-        FROM LookupValues lv
-        JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
-        WHERE lt.TypeCode = 'POST_VISIBILITY' AND lv.ValueCode = 'ALL_MEMBERS'
-        LIMIT 1;
-        SET p_AudienceLkpId = v_AllMembersLkpId;
+    IF p_AudienceLkpId IS NULL OR p_AudienceLkpId = 0 THEN
+        SELECT lv.LookupValueId INTO v_DefaultAudienceLkpId
+        FROM   LookupValues lv
+        JOIN   LookupTypes  lt ON lt.LookupTypeId = lv.LookupTypeId
+        WHERE  lt.TypeCode = 'AUDIENCE_TYPE' AND lv.ValueCode = 'ALL_MEMBERS'
+        LIMIT  1;
+        SET p_AudienceLkpId = COALESCE(v_DefaultAudienceLkpId, 1);
     END IF;
 
-    INSERT INTO CommunityPosts (OrgId, UserId, Title, Content, PostTypeLkpId, AudienceLkpId, CreatedAt)
-    VALUES (p_OrgId, p_UserId, p_Title, p_Content, p_PostTypeLkpId, p_AudienceLkpId, NOW());
+    INSERT INTO CommunityPosts
+        (OrgId, UserId, PostTypeLkpId, Title, Content, AudienceLkpId, CreatedBy)
+    VALUES
+        (p_OrgId, p_UserId, p_PostTypeLkpId, p_Title, p_Content, p_AudienceLkpId, p_UserId);
 
-    SELECT 1 AS IsSuccess, 'Post created successfully.' AS Message, LAST_INSERT_ID() AS CommunityPostId;
+    SELECT 1                    AS IsSuccess,
+           'Post created.'      AS Message,
+           LAST_INSERT_ID()     AS CommunityPostId;
 END //
 
 -- ── REPLACED SP: Community_CreatePoll ───────────────────────────
--- v4.2: Fixed from 2-param to 5-param.
+-- v4.3: Fixed TypeCode COMMUNITY_POST_TYPE → POST_TYPE_COMMUNITY; AUDIENCE_TYPE fix;
+--       added p_IsMultiChoice; JSON_TABLE for options; PollIsMultiChoice in INSERT.
 DROP PROCEDURE IF EXISTS Community_CreatePoll //
 CREATE PROCEDURE Community_CreatePoll(
     IN p_UserId         INT UNSIGNED,
     IN p_OrgId          INT UNSIGNED,
     IN p_Question       VARCHAR(300),
     IN p_OptionsJson    JSON,
-    IN p_ExpiresInHours INT
+    IN p_ExpiresInHours INT,
+    IN p_IsMultiChoice  TINYINT(1)
 )
 BEGIN
-    DECLARE v_PollTypeLkpId  INT UNSIGNED DEFAULT NULL;
-    DECLARE v_CommunityPostId INT UNSIGNED DEFAULT NULL;
-    DECLARE v_ExpiresAt DATETIME DEFAULT NULL;
-    DECLARE v_Idx INT DEFAULT 0;
-    DECLARE v_OptionCount INT DEFAULT 0;
+    DECLARE v_PollTypeLkpId INT UNSIGNED DEFAULT 0;
+    DECLARE v_AudienceLkpId INT UNSIGNED DEFAULT 0;
 
     SELECT lv.LookupValueId INTO v_PollTypeLkpId
-    FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
-    WHERE lt.TypeCode = 'COMMUNITY_POST_TYPE' AND lv.ValueCode = 'POLL' LIMIT 1;
+    FROM   LookupValues lv JOIN LookupTypes lt ON lt.LookupTypeId = lv.LookupTypeId
+    WHERE  lt.TypeCode = 'POST_TYPE_COMMUNITY' AND lv.ValueCode = 'POLL' LIMIT 1;
 
-    IF p_ExpiresInHours IS NOT NULL AND p_ExpiresInHours > 0 THEN
-        SET v_ExpiresAt = DATE_ADD(NOW(), INTERVAL p_ExpiresInHours HOUR);
-    END IF;
+    SELECT lv.LookupValueId INTO v_AudienceLkpId
+    FROM   LookupValues lv JOIN LookupTypes lt ON lt.LookupTypeId = lv.LookupTypeId
+    WHERE  lt.TypeCode = 'AUDIENCE_TYPE' AND lv.ValueCode = 'ALL_MEMBERS' LIMIT 1;
 
-    INSERT INTO CommunityPosts (OrgId, UserId, Title, Content, PostTypeLkpId, CreatedAt)
-    VALUES (p_OrgId, p_UserId, p_Question, NULL, v_PollTypeLkpId, NOW());
+    IF v_PollTypeLkpId = 0 THEN SET v_PollTypeLkpId = 1; END IF;
+    IF v_AudienceLkpId = 0 THEN SET v_AudienceLkpId = 1; END IF;
 
-    SET v_CommunityPostId = LAST_INSERT_ID();
-    SET v_OptionCount = JSON_LENGTH(p_OptionsJson);
+    INSERT INTO CommunityPosts
+        (OrgId, UserId, PostTypeLkpId, Title, AudienceLkpId, PollEndsAt, PollIsMultiChoice, CreatedBy)
+    VALUES (
+        p_OrgId, p_UserId, v_PollTypeLkpId, p_Question,
+        v_AudienceLkpId,
+        CASE WHEN p_ExpiresInHours > 0
+             THEN DATE_ADD(NOW(), INTERVAL p_ExpiresInHours HOUR)
+             ELSE NULL END,
+        COALESCE(p_IsMultiChoice, 0),
+        p_UserId
+    );
 
-    WHILE v_Idx < v_OptionCount DO
-        INSERT INTO PollOptions (CommunityPostId, OptionText, PollEndsAt)
-        VALUES (v_CommunityPostId, JSON_UNQUOTE(JSON_EXTRACT(p_OptionsJson, CONCAT('$[', v_Idx, ']'))), v_ExpiresAt);
-        SET v_Idx = v_Idx + 1;
-    END WHILE;
+    SET @PollId = LAST_INSERT_ID();
 
-    SELECT 1 AS IsSuccess, 'Poll created successfully.' AS Message, v_CommunityPostId AS PollId;
+    INSERT INTO PollOptions (CommunityPostId, OptionText, SortOrder)
+    SELECT @PollId, jt.opt, jt.rn
+    FROM JSON_TABLE(p_OptionsJson, '$[*]' COLUMNS (
+        rn   FOR ORDINALITY,
+        opt  VARCHAR(200) PATH '$'
+    )) AS jt
+    WHERE TRIM(jt.opt) != '';
+
+    SELECT 1 AS IsSuccess, 'Poll created successfully.' AS Message, @PollId AS PollId;
 END //
 
 -- ── REPLACED SP: Community_Vote ─────────────────────────────────
@@ -5339,11 +5387,16 @@ BEGIN
 
     SELECT COUNT(*) + 1 INTO v_RankNumber
     FROM   UserProfiles up2 JOIN Users u2 ON up2.UserId = u2.UserId
-    WHERE  up2.ImpactScore > v_ImpactScore AND u2.IsDeleted = 0;
+    WHERE  up2.ImpactScore > v_ImpactScore
+      AND  u2.IsDeleted = 0 AND up2.IsDeleted = 0;
 
+    -- Count ALL active volunteers (including those with 0 score) so the
+    -- denominator matches the ranking universe. Without this, a user with
+    -- score 0 sees "#1 of 0" because the old filter (ImpactScore > 0) excluded
+    -- everyone who hasn't earned points yet.
     SELECT COUNT(*) INTO v_TotalRanked
     FROM   UserProfiles up2 JOIN Users u2 ON up2.UserId = u2.UserId
-    WHERE  u2.IsDeleted = 0 AND up2.ImpactScore > 0;
+    WHERE  u2.IsDeleted = 0 AND up2.IsDeleted = 0;
 
     SELECT
         v_ImpactScore    AS ImpactScore,
@@ -5576,6 +5629,210 @@ BEGIN
       AND  (p_City       IS NULL OR p.City LIKE CONCAT('%', p_City, '%'))
       AND  (v_StatusLkpId IS NULL OR p.StatusLkpId      = v_StatusLkpId)
       AND  (v_TypeLkpId   IS NULL OR p.ProjectTypeLkpId = v_TypeLkpId);
+END //
+
+
+-- ── 3.06 Project_GetNearbyFeed ───────────────────────────────────────────────
+-- Personalised home-screen feed: distance-banded + relevance-scored.
+-- Algorithm (sort key):
+--   1. FLOOR(DistanceKm / 10) ASC  — 10 km bands (0-9km, 10-19km, …)
+--   2. RelevanceScore DESC          — within band, most relevant first
+--   3. DistanceKm ASC               — exact distance tie-break
+--   4. CreatedAt DESC               — newest tie-break
+-- RelevanceScore breakdown:
+--   +5  approved member of the project's NGO
+--   +3  actively following the project's NGO
+--   +2  per matching skill (UserSkills ↔ ProjectSkills), capped at 3 = max +6
+--   +3  any UserInterest name matches the project's Category (partial LIKE)
+-- Filters: ACTIVE or UPCOMING status, IsPublic=1, user has NOT already
+-- applied with PENDING or APPROVED status, DistanceKm ≤ 1000 km.
+-- Projects with no GPS coordinates rank last (pseudo-distance 999999).
+DROP PROCEDURE IF EXISTS Project_GetNearbyFeed //
+CREATE PROCEDURE Project_GetNearbyFeed(
+    IN p_UserId     INT UNSIGNED,
+    IN p_UserLat    DECIMAL(10,7),   -- NULL = no GPS (distance skipped)
+    IN p_UserLon    DECIMAL(10,7),
+    IN p_PageNumber INT,
+    IN p_PageSize   INT
+)
+BEGIN
+    DECLARE v_Offset        INT         DEFAULT (p_PageNumber - 1) * p_PageSize;
+    DECLARE v_ActiveLkpId   INT UNSIGNED DEFAULT 0;
+    DECLARE v_UpcomingLkpId INT UNSIGNED DEFAULT 0;
+
+    SELECT LookupValueId INTO v_ActiveLkpId
+    FROM   LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE  lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'ACTIVE'   LIMIT 1;
+
+    SELECT LookupValueId INTO v_UpcomingLkpId
+    FROM   LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE  lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'UPCOMING' LIMIT 1;
+
+    SELECT
+        p.ProjectId,
+        p.OrgId,
+        o.OrgName,
+        o.LogoUrl           AS OrgLogoUrl,
+        p.ProjectName,
+        p.Description,
+        p.Category          AS CategoryName,
+        ptv.ValueCode       AS ProjectTypeCode,
+        ptv.ValueName       AS ProjectType,
+        ltv.ValueCode       AS LocationTypeCode,
+        p.Landmark          AS LocationName,
+        p.AddressLine       AS Address,
+        p.City,
+        p.State,
+        sv.ValueCode        AS StatusCode,
+        sv.ValueName        AS Status,
+        p.Latitude,
+        p.Longitude,
+        p.MaxVolunteers,
+        p.OneTimeDate,
+        p.RecurStart,
+        p.RecurEnd,
+        p.RecurDays,
+        p.SessionStartTime,
+        p.SessionEndTime,
+        p.FlexFromDate,
+        p.FlexToDate,
+        p.CreatedAt,
+        -- Approved volunteer count (for "X / Y spots" display)
+        (SELECT COUNT(*) FROM ProjectApplications pa2
+         JOIN LookupValues alv2 ON pa2.StatusLkpId = alv2.LookupValueId
+         WHERE pa2.ProjectId = p.ProjectId
+           AND alv2.ValueCode = 'APPROVED'
+           AND pa2.IsDeleted  = 0
+        ) AS ApprovedCount,
+        -- Haversine distance (km); NULL only when user has no GPS.
+        -- Project GPS is guaranteed non-null by WHERE clause below.
+        CASE
+            WHEN p_UserLat IS NOT NULL AND p_UserLon IS NOT NULL
+            THEN ROUND(6371 * ACOS(LEAST(1.0,
+                    COS(RADIANS(p_UserLat)) * COS(RADIANS(p.Latitude))
+                    * COS(RADIANS(p.Longitude) - RADIANS(p_UserLon))
+                    + SIN(RADIANS(p_UserLat)) * SIN(RADIANS(p.Latitude))
+                 )), 2)
+            ELSE NULL
+        END AS DistanceKm,
+        -- Personalisation relevance score
+        (
+            -- +5: user is an approved member of this NGO (strongest signal)
+            CASE WHEN EXISTS(
+                SELECT 1 FROM OrgMembers om
+                JOIN LookupValues lvm ON om.StatusLkpId = lvm.LookupValueId
+                WHERE om.OrgId     = p.OrgId
+                  AND om.UserId    = p_UserId
+                  AND om.IsDeleted = 0
+                  AND lvm.ValueCode = 'APPROVED'
+            ) THEN 5 ELSE 0 END
+            -- +3: user is actively following this NGO
+            + CASE WHEN EXISTS(
+                SELECT 1 FROM OrgFollowers of2
+                WHERE of2.OrgId      = p.OrgId
+                  AND of2.UserId     = p_UserId
+                  AND of2.IsFollowing = 1
+            ) THEN 3 ELSE 0 END
+            -- +2 per skill match (case-insensitive), capped at 3 matches
+            + LEAST(
+                (SELECT COUNT(*)
+                 FROM ProjectSkills ps
+                 JOIN UserSkills us
+                   ON LOWER(TRIM(ps.SkillName)) = LOWER(TRIM(us.SkillName))
+                 WHERE ps.ProjectId = p.ProjectId
+                   AND us.UserId    = p_UserId
+                   AND us.IsDeleted = 0)
+              , 3) * 2
+            -- +3: any user interest name matches the project category (partial)
+            + CASE WHEN EXISTS(
+                SELECT 1 FROM UserInterests ui
+                JOIN LookupValues lvi ON ui.InterestLkpId = lvi.LookupValueId
+                WHERE ui.UserId = p_UserId
+                  AND (LOWER(lvi.ValueName) LIKE CONCAT('%', LOWER(p.Category), '%')
+                    OR LOWER(p.Category)    LIKE CONCAT('%', LOWER(lvi.ValueName), '%'))
+            ) THEN 3 ELSE 0 END
+        ) AS RelevanceScore
+    FROM   Projects p
+    JOIN   Organisations o       ON o.OrgId               = p.OrgId AND o.IsDeleted = 0
+    JOIN   LookupValues  sv      ON sv.LookupValueId       = p.StatusLkpId
+    LEFT JOIN LookupValues ptv   ON ptv.LookupValueId      = p.ProjectTypeLkpId
+    LEFT JOIN LookupValues ltv   ON ltv.LookupValueId      = p.LocationTypeLkpId
+    WHERE  p.IsDeleted = 0
+      AND  p.IsPublic  = 1
+      AND  p.StatusLkpId IN (v_ActiveLkpId, v_UpcomingLkpId)
+      -- Only projects with a map pin — no pin = not a nearby opportunity
+      AND  p.Latitude  IS NOT NULL
+      AND  p.Longitude IS NOT NULL
+      -- Exclude projects the user already has an active application for
+      AND  NOT EXISTS(
+               SELECT 1 FROM ProjectApplications pa
+               JOIN LookupValues alv ON pa.StatusLkpId = alv.LookupValueId
+               WHERE pa.ProjectId = p.ProjectId
+                 AND pa.UserId    = p_UserId
+                 AND pa.IsDeleted = 0
+                 AND alv.ValueCode IN ('PENDING', 'APPROVED')
+           )
+      -- Distance guard: only within 1000 km when user GPS is available
+      AND (
+            p_UserLat IS NULL OR p_UserLon IS NULL
+            OR 6371 * ACOS(LEAST(1.0,
+                   COS(RADIANS(p_UserLat)) * COS(RADIANS(p.Latitude))
+                   * COS(RADIANS(p.Longitude) - RADIANS(p_UserLon))
+                   + SIN(RADIANS(p_UserLat)) * SIN(RADIANS(p.Latitude))
+               )) <= 1000
+          )
+    ORDER BY
+        -- Band (10 km slices); when user has no GPS all share band 0 → sort by relevance
+        CASE
+            WHEN p_UserLat IS NOT NULL AND p_UserLon IS NOT NULL
+            THEN FLOOR(6371 * ACOS(LEAST(1.0,
+                    COS(RADIANS(p_UserLat)) * COS(RADIANS(p.Latitude))
+                    * COS(RADIANS(p.Longitude) - RADIANS(p_UserLon))
+                    + SIN(RADIANS(p_UserLat)) * SIN(RADIANS(p.Latitude))
+                 )) / 10)
+            ELSE 0
+        END ASC,
+        -- Within each band: most relevant first
+        RelevanceScore DESC,
+        -- Same relevance: nearest first
+        CASE
+            WHEN p_UserLat IS NOT NULL AND p_UserLon IS NOT NULL
+            THEN 6371 * ACOS(LEAST(1.0,
+                    COS(RADIANS(p_UserLat)) * COS(RADIANS(p.Latitude))
+                    * COS(RADIANS(p.Longitude) - RADIANS(p_UserLon))
+                    + SIN(RADIANS(p_UserLat)) * SIN(RADIANS(p.Latitude))
+                 ))
+            ELSE NULL
+        END ASC,
+        p.CreatedAt DESC
+    LIMIT  p_PageSize OFFSET v_Offset;
+
+    -- TotalCount for pagination (same filters, no pagination)
+    SELECT COUNT(*) AS TotalCount
+    FROM   Projects p
+    JOIN   Organisations o  ON o.OrgId = p.OrgId AND o.IsDeleted = 0
+    JOIN   LookupValues  sv ON sv.LookupValueId = p.StatusLkpId
+    WHERE  p.IsDeleted = 0
+      AND  p.IsPublic  = 1
+      AND  p.StatusLkpId IN (v_ActiveLkpId, v_UpcomingLkpId)
+      AND  p.Latitude  IS NOT NULL
+      AND  p.Longitude IS NOT NULL
+      AND  NOT EXISTS(
+               SELECT 1 FROM ProjectApplications pa
+               JOIN LookupValues alv ON pa.StatusLkpId = alv.LookupValueId
+               WHERE pa.ProjectId = p.ProjectId
+                 AND pa.UserId    = p_UserId
+                 AND pa.IsDeleted = 0
+                 AND alv.ValueCode IN ('PENDING', 'APPROVED')
+           )
+      AND (
+            p_UserLat IS NULL OR p_UserLon IS NULL
+            OR 6371 * ACOS(LEAST(1.0,
+                   COS(RADIANS(p_UserLat)) * COS(RADIANS(p.Latitude))
+                   * COS(RADIANS(p.Longitude) - RADIANS(p_UserLon))
+                   + SIN(RADIANS(p_UserLat)) * SIN(RADIANS(p.Latitude))
+               )) <= 1000
+          );
 END //
 
 
@@ -5982,31 +6239,54 @@ END //
 
 
 -- ── 3.17 Org_GetPendingMembers ──────────────────────────────────────────────
--- Fixed: removes p_PageNumber/p_PageSize; reads from OrgMembershipRequests
--- (Source: NGOConnect_Patch_VolunteerSPs.sql)
+-- v4.7 FINAL: MembershipRequestId alias + IFNULL pagination defaults
 DROP PROCEDURE IF EXISTS Org_GetPendingMembers //
-CREATE PROCEDURE Org_GetPendingMembers(IN p_OrgId INT UNSIGNED)
+CREATE PROCEDURE Org_GetPendingMembers(
+    IN p_OrgId      INT UNSIGNED,
+    IN p_PageNumber INT,
+    IN p_PageSize   INT
+)
 BEGIN
+    DECLARE v_Offset      INT;
+    DECLARE v_PageSize    INT;
+    DECLARE v_PageNumber  INT;
     DECLARE v_PendingLkpId INT UNSIGNED;
 
+    SET v_PageNumber = IFNULL(p_PageNumber, 1);
+    SET v_PageSize   = IFNULL(p_PageSize,   100);
+    SET v_Offset     = (v_PageNumber - 1) * v_PageSize;
+
     SELECT LookupValueId INTO v_PendingLkpId
-    FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
-    WHERE lt.TypeCode = 'MEMBER_STATUS' AND lv.ValueCode = 'PENDING' LIMIT 1;
+    FROM LookupValues lv
+    JOIN LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE lt.TypeCode = 'MEMBER_STATUS' AND lv.ValueCode = 'PENDING'
+    LIMIT 1;
 
     SELECT
-        mr.RequestId                                       AS MembershipRequestId,
+        mr.RequestId   AS MembershipRequestId,
         mr.UserId,
-        CONCAT(up.FirstName, ' ', up.LastName)             AS FullName,
-        u.Email, u.Mobile AS Phone,
-        up.ProfilePhoto, up.Occupation, up.City, up.State,
-        mr.WhyJoin                                         AS Motivation,
-        mr.PrevNgoExperience, mr.VolunteerSkills, mr.AreasOfInterest,
-        mr.CreatedAt                                       AS RequestedAt
+        CONCAT(up.FirstName, ' ', up.LastName) AS FullName,
+        up.ProfilePhoto,
+        up.City,
+        up.State,
+        mr.PrevNgoExperience,
+        mr.VolunteerSkills,
+        mr.AreasOfInterest,
+        mr.WhyJoin,
+        mr.CreatedAt AS RequestedAt
     FROM OrgMembershipRequests mr
-    JOIN Users        u  ON mr.UserId = u.UserId  AND u.IsDeleted  = 0
     JOIN UserProfiles up ON mr.UserId = up.UserId AND up.IsDeleted = 0
-    WHERE mr.OrgId = p_OrgId AND mr.StatusLkpId = v_PendingLkpId AND mr.IsDeleted = 0
-    ORDER BY mr.CreatedAt ASC;
+    WHERE mr.OrgId = p_OrgId
+      AND mr.StatusLkpId = v_PendingLkpId
+      AND mr.IsDeleted = 0
+    ORDER BY mr.CreatedAt ASC
+    LIMIT v_PageSize OFFSET v_Offset;
+
+    SELECT COUNT(*) AS TotalCount
+    FROM OrgMembershipRequests
+    WHERE OrgId = p_OrgId
+      AND StatusLkpId = v_PendingLkpId
+      AND IsDeleted = 0;
 END //
 
 
@@ -6414,11 +6694,13 @@ END //
 
 
 -- ── 3.24 Post_GetFeed ───────────────────────────────────────────────────────
--- Full rebuild: adds MediaUrls, MediaTypes, TimeAgo, IsPinned, PostTypeLkpCode, IsFollowing
--- (Source: NGOConnect_Patch_OrgFollow.sql — adds IsFollowing per post)
+-- v4.7 FINAL: merged 4-param (p_UserId, p_OrgId, p_PageNumber, p_PageSize)
+--             + IsFollowing per post + OrgId filter
+-- Supersedes: NGOConnect_Patch_PostFeed_OrgFilter.sql + NGOConnect_Patch_OrgFollow.sql
 DROP PROCEDURE IF EXISTS Post_GetFeed //
 CREATE PROCEDURE Post_GetFeed(
     IN p_UserId     INT UNSIGNED,
+    IN p_OrgId      INT UNSIGNED,   -- NULL = all orgs | non-null = filter to one org
     IN p_PageNumber INT,
     IN p_PageSize   INT
 )
@@ -6426,13 +6708,20 @@ BEGIN
     DECLARE v_Offset INT DEFAULT (p_PageNumber - 1) * p_PageSize;
 
     SELECT
-        p.PostId, p.Content, p.IsPinned,
-        lv_type.ValueCode AS PostTypeLkpCode, lv_type.ValueName AS PostType,
-        p.LikeCount, p.CommentCount,
-        (SELECT COUNT(*) FROM PostLikes WHERE PostId = p.PostId AND UserId = p_UserId) AS IsLikedByMe,
+        p.PostId,
+        p.Content,
+        p.IsPinned,
+        lv_type.ValueCode AS PostTypeLkpCode,
+        lv_type.ValueName AS PostType,
+        p.LikeCount,
+        p.CommentCount,
+        (SELECT COUNT(*) FROM PostLikes
+         WHERE PostId = p.PostId AND UserId = p_UserId) AS IsLiked,
         p.UserId,
         CONCAT(up.FirstName, ' ', up.LastName) AS AuthorName,
-        up.ProfilePhoto, p.OrgId, o.OrgName,
+        up.ProfilePhoto,
+        p.OrgId,
+        o.OrgName,
         IFNULL((SELECT of2.IsFollowing
                 FROM OrgFollowers of2
                 WHERE of2.OrgId = p.OrgId AND of2.UserId = p_UserId
@@ -6441,27 +6730,39 @@ BEGIN
         GROUP_CONCAT(lv_mt.ValueCode ORDER BY pm.SortOrder SEPARATOR ',') AS MediaTypes,
         p.CreatedAt,
         CASE
-            WHEN TIMESTAMPDIFF(MINUTE, p.CreatedAt, NOW()) < 1   THEN 'Just now'
-            WHEN TIMESTAMPDIFF(MINUTE, p.CreatedAt, NOW()) < 60  THEN CONCAT(TIMESTAMPDIFF(MINUTE, p.CreatedAt, NOW()), 'm ago')
-            WHEN TIMESTAMPDIFF(HOUR,   p.CreatedAt, NOW()) < 24  THEN CONCAT(TIMESTAMPDIFF(HOUR,   p.CreatedAt, NOW()), 'h ago')
-            WHEN TIMESTAMPDIFF(DAY,    p.CreatedAt, NOW()) < 7   THEN CONCAT(TIMESTAMPDIFF(DAY,    p.CreatedAt, NOW()), 'd ago')
-            WHEN TIMESTAMPDIFF(DAY,    p.CreatedAt, NOW()) < 30  THEN CONCAT(TIMESTAMPDIFF(DAY,    p.CreatedAt, NOW()), ' days ago')
+            WHEN TIMESTAMPDIFF(MINUTE, p.CreatedAt, NOW()) < 1
+                THEN 'Just now'
+            WHEN TIMESTAMPDIFF(MINUTE, p.CreatedAt, NOW()) < 60
+                THEN CONCAT(TIMESTAMPDIFF(MINUTE, p.CreatedAt, NOW()), 'm ago')
+            WHEN TIMESTAMPDIFF(HOUR,   p.CreatedAt, NOW()) < 24
+                THEN CONCAT(TIMESTAMPDIFF(HOUR,   p.CreatedAt, NOW()), 'h ago')
+            WHEN TIMESTAMPDIFF(DAY,    p.CreatedAt, NOW()) < 7
+                THEN CONCAT(TIMESTAMPDIFF(DAY,    p.CreatedAt, NOW()), 'd ago')
+            WHEN TIMESTAMPDIFF(DAY,    p.CreatedAt, NOW()) < 30
+                THEN CONCAT(TIMESTAMPDIFF(DAY,    p.CreatedAt, NOW()), ' days ago')
             ELSE DATE_FORMAT(p.CreatedAt, '%d %b %Y')
         END AS TimeAgo
     FROM   Posts p
-    JOIN   UserProfiles up          ON up.UserId = p.UserId AND up.IsDeleted = 0
-    LEFT JOIN Organisations o       ON o.OrgId   = p.OrgId
+    JOIN   UserProfiles up          ON up.UserId             = p.UserId  AND up.IsDeleted = 0
+    LEFT JOIN Organisations o       ON o.OrgId               = p.OrgId
     LEFT JOIN LookupValues lv_type  ON lv_type.LookupValueId = p.PostTypeLkpId
-    LEFT JOIN PostMedia pm           ON pm.PostId = p.PostId
+    LEFT JOIN PostMedia pm           ON pm.PostId             = p.PostId
     LEFT JOIN LookupValues lv_mt    ON lv_mt.LookupValueId   = pm.MediaTypeLkpId
     WHERE  p.IsDeleted = 0
-    GROUP BY p.PostId, p.Content, p.IsPinned, lv_type.ValueCode, lv_type.ValueName,
-             p.LikeCount, p.CommentCount, p.UserId, up.FirstName, up.LastName,
-             up.ProfilePhoto, p.OrgId, o.OrgName, p.CreatedAt
+      AND  (p_OrgId IS NULL OR p.OrgId = p_OrgId)
+    GROUP BY
+        p.PostId,    p.Content,    p.IsPinned,
+        lv_type.ValueCode, lv_type.ValueName,
+        p.LikeCount, p.CommentCount,
+        p.UserId,    up.FirstName, up.LastName, up.ProfilePhoto,
+        p.OrgId,     o.OrgName,   p.CreatedAt
     ORDER BY p.IsPinned DESC, p.CreatedAt DESC
     LIMIT  p_PageSize OFFSET v_Offset;
 
-    SELECT COUNT(*) AS TotalCount FROM Posts WHERE IsDeleted = 0;
+    SELECT COUNT(*) AS TotalCount
+    FROM   Posts p
+    WHERE  p.IsDeleted = 0
+      AND  (p_OrgId IS NULL OR p.OrgId = p_OrgId);
 END //
 
 
@@ -7162,6 +7463,7 @@ BEGIN
     ORDER BY h.CreatedAt DESC;
 END //
 
+-- v4.7 FIX: LEFT JOIN so new users (no org) appear; HAVING shows only approved members or new users
 CREATE PROCEDURE SuperAdmin_User_GetList(
     IN p_OrgIds     TEXT,
     IN p_Search     VARCHAR(150),
@@ -7175,46 +7477,59 @@ BEGIN
         u.UserId,
         CONCAT(up.FirstName, ' ', up.LastName) AS FullName,
         u.Email, u.Mobile, up.ProfilePhoto,
-        GROUP_CONCAT(DISTINCT o.OrgName ORDER BY o.OrgName SEPARATOR ', ') AS OrgNames,
+        GROUP_CONCAT(DISTINCT CASE WHEN sv.ValueCode = 'APPROVED' THEN o.OrgName END
+                     ORDER BY o.OrgName SEPARATOR ', ') AS OrgNames,
         (SELECT rv.ValueName FROM OrgMembers om2
             JOIN LookupValues rv ON om2.RoleLkpId = rv.LookupValueId
             WHERE om2.UserId = u.UserId AND om2.IsDeleted = 0
             ORDER BY om2.JoinedAt DESC LIMIT 1) AS Role,
-        (SELECT sv.ValueCode FROM OrgMembers om2
-            JOIN LookupValues sv ON om2.StatusLkpId = sv.LookupValueId
+        (SELECT sv2.ValueCode FROM OrgMembers om2
+            JOIN LookupValues sv2 ON om2.StatusLkpId = sv2.LookupValueId
             WHERE om2.UserId = u.UserId AND om2.IsDeleted = 0
             ORDER BY om2.JoinedAt DESC LIMIT 1) AS MembershipStatus,
         IF(u.IsActive = 1, 'ACTIVE', 'SUSPENDED') AS AccountStatus,
         COALESCE(pv.ValueCode, 'PENDING') AS ProfileVerificationStatus,
-        MIN(om.JoinedAt) AS JoinedAt
+        COALESCE(
+            MIN(CASE WHEN sv.ValueCode = 'APPROVED' THEN om.JoinedAt END),
+            u.CreatedAt
+        ) AS JoinedAt
     FROM Users u
-    JOIN UserProfiles up ON up.UserId = u.UserId AND up.IsDeleted = 0
-    JOIN OrgMembers om ON om.UserId = u.UserId AND om.IsDeleted = 0
+    JOIN  UserProfiles up ON up.UserId = u.UserId AND up.IsDeleted = 0
+    LEFT JOIN OrgMembers om ON om.UserId = u.UserId AND om.IsDeleted = 0
         AND (p_OrgIds IS NULL OR p_OrgIds = '' OR FIND_IN_SET(om.OrgId, p_OrgIds) > 0)
-    JOIN Organisations o ON om.OrgId = o.OrgId AND o.IsDeleted = 0
-    LEFT JOIN LookupValues pv ON u.ProfileVerificationLkpId = pv.LookupValueId
+    LEFT JOIN LookupValues sv ON om.StatusLkpId = sv.LookupValueId
+    LEFT JOIN Organisations  o ON om.OrgId = o.OrgId AND o.IsDeleted = 0
+    LEFT JOIN LookupValues  pv ON u.ProfileVerificationLkpId = pv.LookupValueId
     WHERE u.IsDeleted = 0
       AND (p_Search IS NULL OR p_Search = ''
-           OR CONCAT(up.FirstName,' ',up.LastName) LIKE CONCAT('%', p_Search, '%')
+           OR CONCAT(up.FirstName, ' ', up.LastName) LIKE CONCAT('%', p_Search, '%')
            OR u.Email  LIKE CONCAT('%', p_Search, '%')
            OR u.Mobile LIKE CONCAT('%', p_Search, '%'))
-    GROUP BY u.UserId, up.FirstName, up.LastName, u.Email, u.Mobile,
-             up.ProfilePhoto, u.IsActive, pv.ValueCode
+    GROUP BY
+        u.UserId, up.FirstName, up.LastName, u.Email, u.Mobile,
+        up.ProfilePhoto, u.IsActive, pv.ValueCode, u.CreatedAt
+    HAVING
+        (COUNT(om.OrgMemberId) = 0 AND (p_OrgIds IS NULL OR p_OrgIds = ''))
+        OR SUM(CASE WHEN sv.ValueCode = 'APPROVED' THEN 1 ELSE 0 END) > 0
     ORDER BY JoinedAt DESC
     LIMIT p_PageSize OFFSET v_Offset;
 
     SELECT COUNT(*) AS TotalCount FROM (
         SELECT u.UserId
         FROM Users u
-        JOIN UserProfiles up ON up.UserId = u.UserId AND up.IsDeleted = 0
-        JOIN OrgMembers om ON om.UserId = u.UserId AND om.IsDeleted = 0
+        JOIN  UserProfiles up ON up.UserId = u.UserId AND up.IsDeleted = 0
+        LEFT JOIN OrgMembers om ON om.UserId = u.UserId AND om.IsDeleted = 0
             AND (p_OrgIds IS NULL OR p_OrgIds = '' OR FIND_IN_SET(om.OrgId, p_OrgIds) > 0)
+        LEFT JOIN LookupValues sv ON om.StatusLkpId = sv.LookupValueId
         WHERE u.IsDeleted = 0
           AND (p_Search IS NULL OR p_Search = ''
-               OR CONCAT(up.FirstName,' ',up.LastName) LIKE CONCAT('%', p_Search, '%')
+               OR CONCAT(up.FirstName, ' ', up.LastName) LIKE CONCAT('%', p_Search, '%')
                OR u.Email  LIKE CONCAT('%', p_Search, '%')
                OR u.Mobile LIKE CONCAT('%', p_Search, '%'))
         GROUP BY u.UserId
+        HAVING
+            (COUNT(om.OrgMemberId) = 0 AND (p_OrgIds IS NULL OR p_OrgIds = ''))
+            OR SUM(CASE WHEN sv.ValueCode = 'APPROVED' THEN 1 ELSE 0 END) > 0
     ) t;
 END //
 
@@ -7253,211 +7568,506 @@ BEGIN
     LEFT JOIN LookupValues pv ON u.ProfileVerificationLkpId = pv.LookupValueId
     WHERE u.UserId = p_UserId AND u.IsDeleted = 0
     GROUP BY u.UserId, up.FirstName, up.LastName, u.Email, u.Mobile,
-             up.ProfilePhoto, u.IsActive, pv.ValueCode, up.ReliabilityPct;
+             up.ProfilePhoto, u.IsActive, pv.V
 
-    SELECT SkillName FROM UserSkills WHERE UserId = p_UserId AND IsDeleted = 0 ORDER BY SkillName;
+-- ============================================================
+-- v4.7 ADDITIONS — USER CONTACT UPDATE FEATURE
+-- New SPs: User_SendContactOtp + User_VerifyContactOtp
+-- Seeds: ADD_PHONE + ADD_EMAIL OTP_PURPOSE lookup values
+-- Note: LookupValue seeds added at line ~1319 (OTP_PURPOSE block)
+-- ============================================================
 
-    SELECT iv.ValueName FROM UserInterests ui
-    JOIN LookupValues iv ON ui.InterestLkpId = iv.LookupValueId
-    WHERE ui.UserId = p_UserId ORDER BY iv.ValueName;
+DELIMITER //
 
-    SELECT BadgeType FROM UserBadges WHERE UserId = p_UserId AND IsDeleted = 0 ORDER BY AwardedAt DESC;
+DROP PROCEDURE IF EXISTS User_SendContactOtp //
+CREATE PROCEDURE User_SendContactOtp(
+    IN p_UserId    INT UNSIGNED,
+    IN p_Type      VARCHAR(10),    -- 'EMAIL' or 'PHONE'
+    IN p_Value     VARCHAR(200),
+    IN p_OtpCode   VARCHAR(6),
+    IN p_IpAddress VARCHAR(45)
+)
+proc: BEGIN
+    DECLARE v_PurposeLkpId   INT UNSIGNED DEFAULT 0;
+    DECLARE v_DuplicateCount INT          DEFAULT 0;
+    DECLARE v_RecentCount    INT          DEFAULT 0;
+    DECLARE v_ValueCode      VARCHAR(20);
 
-    SELECT o.OrgName, rv.ValueName AS Role, sv.ValueName AS Status
-    FROM OrgMembers om
-    JOIN Organisations o  ON om.OrgId      = o.OrgId  AND o.IsDeleted  = 0
-    JOIN LookupValues rv  ON om.RoleLkpId   = rv.LookupValueId
-    JOIN LookupValues sv  ON om.StatusLkpId = sv.LookupValueId
-    WHERE om.UserId = p_UserId AND om.IsDeleted = 0
-    ORDER BY o.OrgName;
-END //
+    -- Determine purpose code + check duplicate across OTHER users
+    IF p_Type = 'EMAIL' THEN
+        SET v_ValueCode = 'ADD_EMAIL';
+        SELECT COUNT(*) INTO v_DuplicateCount
+        FROM Users
+        WHERE Email = p_Value AND UserId != p_UserId AND IsDeleted = 0;
+    ELSE
+        SET v_ValueCode = 'ADD_PHONE';
+        SELECT COUNT(*) INTO v_DuplicateCount
+        FROM Users
+        WHERE Mobile = p_Value AND UserId != p_UserId AND IsDeleted = 0;
+    END IF;
 
-CREATE PROCEDURE SuperAdmin_User_GetDocuments(IN p_UserId INT UNSIGNED)
-BEGIN
-    SELECT ud.UserDocumentId, ud.DocumentTypeLkpId, dt.ValueName AS DocumentType,
-           ud.FileUrl, ud.FileName, ud.IsVerified, ud.VerifiedAt, ud.VerifiedBy, ud.CreatedAt
-    FROM UserDocuments ud
-    LEFT JOIN LookupValues dt ON ud.DocumentTypeLkpId = dt.LookupValueId
-    WHERE ud.UserId = p_UserId AND ud.IsDeleted = 0
-    ORDER BY ud.CreatedAt ASC;
-END //
+    IF v_DuplicateCount > 0 THEN
+        SELECT 0 AS IsSuccess, 'This contact is already registered with another account.' AS Message;
+        LEAVE proc;
+    END IF;
 
-CREATE PROCEDURE SuperAdmin_UserDocument_Verify(
-    IN p_UserDocumentId   INT UNSIGNED,
-    IN p_SuperAdminUserId INT UNSIGNED,
-    IN p_IsVerified       TINYINT(1)
+    -- Resolve PurposeLkpId from LookupValues
+    SELECT lv.LookupValueId INTO v_PurposeLkpId
+    FROM LookupValues lv
+    JOIN LookupTypes lt ON lt.LookupTypeId = lv.LookupTypeId
+    WHERE lt.TypeCode = 'OTP_PURPOSE' AND lv.ValueCode = v_ValueCode AND lv.IsDeleted = 0
+    LIMIT 1;
+
+    IF v_PurposeLkpId = 0 THEN
+        SELECT 0 AS IsSuccess, 'OTP purpose not configured. Please contact support.' AS Message;
+        LEAVE proc;
+    END IF;
+
+    -- Rate limit: max 3 requests in last 10 minutes (same as Auth_SendOTP)
+    SELECT COUNT(*) INTO v_RecentCount
+    FROM OtpTokens
+    WHERE Recipient    = p_Value
+      AND PurposeLkpId = v_PurposeLkpId
+      AND CreatedAt   >= DATE_SUB(NOW(), INTERVAL 10 MINUTE)
+      AND IsUsed       = 0;
+
+    IF v_RecentCount >= 3 THEN
+        SELECT 0 AS IsSuccess, 'Too many OTP requests. Please wait 10 minutes before trying again.' AS Message;
+        LEAVE proc;
+    END IF;
+
+    -- Invalidate old unused OTPs for this recipient + purpose
+    UPDATE OtpTokens
+    SET    IsUsed = 1
+    WHERE  Recipient    = p_Value
+      AND  PurposeLkpId = v_PurposeLkpId
+      AND  IsUsed       = 0;
+
+    -- Insert new OTP (10-minute expiry)
+    INSERT INTO OtpTokens (UserId, Recipient, OtpCode, PurposeLkpId, IpAddress, ExpiresAt)
+    VALUES (p_UserId, p_Value, p_OtpCode, v_PurposeLkpId, p_IpAddress, DATE_ADD(NOW(), INTERVAL 10 MINUTE));
+
+    SELECT 1 AS IsSuccess, 'OTP sent successfully.' AS Message;
+END proc //
+
+DROP PROCEDURE IF EXISTS User_VerifyContactOtp //
+CREATE PROCEDURE User_VerifyContactOtp(
+    IN p_UserId    INT UNSIGNED,
+    IN p_Type      VARCHAR(10),    -- 'EMAIL' or 'PHONE'
+    IN p_Value     VARCHAR(200),
+    IN p_OtpCode   VARCHAR(6),
+    IN p_IpAddress VARCHAR(45)
+)
+proc: BEGIN
+    DECLARE v_PurposeLkpId   INT UNSIGNED DEFAULT 0;
+    DECLARE v_OtpTokenId     INT UNSIGNED DEFAULT 0;
+    DECLARE v_StoredOtp      VARCHAR(6)   DEFAULT '';
+    DECLARE v_AttemptCount   TINYINT      DEFAULT 0;
+    DECLARE v_ExpiresAt      DATETIME;
+    DECLARE v_DuplicateCount INT          DEFAULT 0;
+    DECLARE v_ValueCode      VARCHAR(20);
+
+    -- Re-check duplicate (race condition guard)
+    IF p_Type = 'EMAIL' THEN
+        SET v_ValueCode = 'ADD_EMAIL';
+        SELECT COUNT(*) INTO v_DuplicateCount
+        FROM Users
+        WHERE Email = p_Value AND UserId != p_UserId AND IsDeleted = 0;
+    ELSE
+        SET v_ValueCode = 'ADD_PHONE';
+        SELECT COUNT(*) INTO v_DuplicateCount
+        FROM Users
+        WHERE Mobile = p_Value AND UserId != p_UserId AND IsDeleted = 0;
+    END IF;
+
+    IF v_DuplicateCount > 0 THEN
+        SELECT 0 AS IsSuccess, 'This contact is already registered with another account.' AS Message;
+        LEAVE proc;
+    END IF;
+
+    -- Resolve PurposeLkpId
+    SELECT lv.LookupValueId INTO v_PurposeLkpId
+    FROM LookupValues lv
+    JOIN LookupTypes lt ON lt.LookupTypeId = lv.LookupTypeId
+    WHERE lt.TypeCode = 'OTP_PURPOSE' AND lv.ValueCode = v_ValueCode AND lv.IsDeleted = 0
+    LIMIT 1;
+
+    IF v_PurposeLkpId = 0 THEN
+        SELECT 0 AS IsSuccess, 'OTP purpose not configured.' AS Message;
+        LEAVE proc;
+    END IF;
+
+    SELECT OtpTokenId, OtpCode, AttemptCount, ExpiresAt
+    INTO   v_OtpTokenId, v_StoredOtp, v_AttemptCount, v_ExpiresAt
+    FROM   OtpTokens
+    WHERE  Recipient    = p_Value
+      AND  PurposeLkpId = v_PurposeLkpId
+      AND  IsUsed       = 0
+    ORDER  BY CreatedAt DESC
+    LIMIT  1;
+
+    IF v_OtpTokenId = 0 THEN
+        SELECT 0 AS IsSuccess, 'OTP not found or already used. Please request a new OTP.' AS Message;
+        LEAVE proc;
+    END IF;
+
+    IF v_AttemptCount >= 3 THEN
+        SELECT 0 AS IsSuccess, 'Maximum OTP attempts exceeded. Please request a new OTP.' AS Message;
+        LEAVE proc;
+    END IF;
+
+    IF NOW() > v_ExpiresAt THEN
+        UPDATE OtpTokens SET IsUsed = 1 WHERE OtpTokenId = v_OtpTokenId;
+        SELECT 0 AS IsSuccess, 'OTP has expired. Please request a new OTP.' AS Message;
+        LEAVE proc;
+    END IF;
+
+    IF v_StoredOtp != p_OtpCode THEN
+        UPDATE OtpTokens SET AttemptCount = AttemptCount + 1 WHERE OtpTokenId = v_OtpTokenId;
+        SELECT 0 AS IsSuccess, 'Invalid OTP. Please try again.' AS Message;
+        LEAVE proc;
+    END IF;
+
+    UPDATE OtpTokens SET IsUsed = 1 WHERE OtpTokenId = v_OtpTokenId;
+
+    IF p_Type = 'EMAIL' THEN
+        UPDATE Users SET Email = p_Value WHERE UserId = p_UserId AND IsDeleted = 0;
+    ELSE
+        UPDATE Users SET Mobile = p_Value WHERE UserId = p_UserId AND IsDeleted = 0;
+    END IF;
+
+    SELECT 1 AS IsSuccess, 'Contact verified and saved successfully.' AS Message;
+END proc //
+
+DELIMITER ;
+
+-- ============================================================
+-- v4.7 ADDITIONS — PHASE 1 PERSONALISED FEED ALGORITHM
+-- New columns on Posts, new tables PostSaves + FeedInteractions,
+-- Settings seeds for scoring weights, and 4 new SPs.
+-- Does NOT touch any existing SP — isolated from all current flows.
+-- Source: NGOConnect_Patch_PersonalizedFeed.sql
+-- ============================================================
+
+-- ── Settings seeds — feed scoring weights ─────────────────────────────────────
+INSERT IGNORE INTO Settings (SettingGroup, SettingKey, SettingValue, DataType, Description, IsPublic)
+VALUES
+    ('FEED', 'FEED_W_RELATIONSHIP',   '50',  'NUMBER', 'Feed score: weight for member/follower of same org (max)',            0),
+    ('FEED', 'FEED_W_FOLLOW_ORG',     '30',  'NUMBER', 'Feed score: weight when user follows the org (not member)',           0),
+    ('FEED', 'FEED_W_INTEREST',       '30',  'NUMBER', 'Feed score: weight when post type matches user interests',            0),
+    ('FEED', 'FEED_W_SKILL',          '10',  'NUMBER', 'Feed score: weight per skill keyword match in post content (max 20)', 0),
+    ('FEED', 'FEED_W_FRESHNESS_1H',   '25',  'NUMBER', 'Feed score: freshness — post < 1 hour old',                          0),
+    ('FEED', 'FEED_W_FRESHNESS_6H',   '20',  'NUMBER', 'Feed score: freshness — post < 6 hours old',                         0),
+    ('FEED', 'FEED_W_FRESHNESS_24H',  '15',  'NUMBER', 'Feed score: freshness — post < 24 hours old',                        0),
+    ('FEED', 'FEED_W_FRESHNESS_3D',   '10',  'NUMBER', 'Feed score: freshness — post 1–3 days old',                          0),
+    ('FEED', 'FEED_W_FRESHNESS_7D',   '5',   'NUMBER', 'Feed score: freshness — post 3–7 days old',                          0),
+    ('FEED', 'FEED_W_FRESHNESS_OLD',  '2',   'NUMBER', 'Feed score: freshness — post > 7 days (evergreen only)',              0),
+    ('FEED', 'FEED_W_ENGAGEMENT_MAX', '15',  'NUMBER', 'Feed score: engagement score cap',                                   0),
+    ('FEED', 'FEED_W_TRUST',          '10',  'NUMBER', 'Feed score: org is APPROVED (trust bonus)',                          0),
+    ('FEED', 'FEED_W_QUALITY_MEDIA',  '5',   'NUMBER', 'Feed score: post has media attachment',                              0),
+    ('FEED', 'FEED_W_QUALITY_LENGTH', '5',   'NUMBER', 'Feed score: post content > 100 chars',                               0),
+    ('FEED', 'FEED_W_SPAM_PER_RPT',   '5',   'NUMBER', 'Feed score: penalty per report on this post',                        0),
+    ('FEED', 'FEED_W_EMERGENCY',      '1000','NUMBER', 'Feed score: emergency override boost',                               0),
+    ('FEED', 'FEED_CANDIDATE_MY_ORG', '200', 'NUMBER', 'Candidate pool: max posts from user member orgs (days=30)',          0),
+    ('FEED', 'FEED_CANDIDATE_FOLLOW', '200', 'NUMBER', 'Candidate pool: max posts from followed orgs (days=30)',             0),
+    ('FEED', 'FEED_CANDIDATE_TREND',  '100', 'NUMBER', 'Candidate pool: max trending posts (days=7)',                        0),
+    ('FEED', 'FEED_CANDIDATE_EMERG',  '50',  'NUMBER', 'Candidate pool: max emergency posts (hours=48)',                     0),
+    ('FEED', 'FEED_CANDIDATE_INTST',  '100', 'NUMBER', 'Candidate pool: max interest-matched posts (days=14)',               0),
+    ('FEED', 'FEED_CANDIDATE_RECENT', '100', 'NUMBER', 'Candidate pool: recent public fallback (days=7)',                    0);
+
+DELIMITER //
+
+-- ── Feed_GetPersonalized ───────────────────────────────────────────────────────
+DROP PROCEDURE IF EXISTS Feed_GetPersonalized //
+CREATE PROCEDURE Feed_GetPersonalized(
+    IN p_UserId       INT UNSIGNED,
+    IN p_CursorPostId INT UNSIGNED,    -- NULL = first page
+    IN p_CursorScore  DECIMAL(10,4),   -- NULL = first page
+    IN p_PageSize     INT              -- items per page; SP returns 3x for diversity buffer
 )
 BEGIN
-    UPDATE UserDocuments
-    SET IsVerified = p_IsVerified, VerifiedAt = NOW(), VerifiedBy = p_SuperAdminUserId
-    WHERE UserDocumentId = p_UserDocumentId AND IsDeleted = 0;
+    DECLARE v_FetchSize INT DEFAULT p_PageSize * 3;
 
-    IF ROW_COUNT() = 0 THEN
-        SELECT 0 AS IsSuccess, 'Document not found.' AS Message;
+    SELECT sf.* FROM (
+
+        SELECT
+            p.PostId,
+            p.Content,
+            p.IsPinned,
+            p.IsEmergency,
+            p.IsEvergreen,
+            p.LikeCount,
+            p.CommentCount,
+            p.ShareCount,
+            p.SaveCount,
+            lv_type.ValueCode  AS PostTypeCode,
+            lv_type.ValueName  AS PostType,
+            p.UserId,
+            CONCAT(up.FirstName, ' ', up.LastName) AS AuthorName,
+            up.ProfilePhoto,
+            p.OrgId,
+            o.OrgName,
+            o.LogoUrl          AS OrgLogoUrl,
+            cands.FeedSource,
+
+            -- IsLiked
+            (SELECT COUNT(*) FROM PostLikes pl
+             WHERE pl.PostId = p.PostId AND pl.UserId = p_UserId)  AS IsLiked,
+
+            -- IsSaved
+            (SELECT COUNT(*) FROM PostSaves ps
+             WHERE ps.PostId = p.PostId AND ps.UserId = p_UserId)  AS IsSaved,
+
+            -- IsFollowing org
+            IFNULL((SELECT of2.IsFollowing FROM OrgFollowers of2
+                    WHERE of2.OrgId = p.OrgId AND of2.UserId = p_UserId LIMIT 1), 0) AS IsFollowing,
+
+            -- Media
+            GROUP_CONCAT(pm.FileUrl      ORDER BY pm.SortOrder SEPARATOR ',') AS MediaUrls,
+            GROUP_CONCAT(lv_mt.ValueCode ORDER BY pm.SortOrder SEPARATOR ',') AS MediaTypes,
+
+            p.CreatedAt,
+            CASE
+                WHEN TIMESTAMPDIFF(MINUTE, p.CreatedAt, NOW()) < 1   THEN 'Just now'
+                WHEN TIMESTAMPDIFF(MINUTE, p.CreatedAt, NOW()) < 60  THEN CONCAT(TIMESTAMPDIFF(MINUTE, p.CreatedAt, NOW()), 'm ago')
+                WHEN TIMESTAMPDIFF(HOUR,   p.CreatedAt, NOW()) < 24  THEN CONCAT(TIMESTAMPDIFF(HOUR,   p.CreatedAt, NOW()), 'h ago')
+                WHEN TIMESTAMPDIFF(DAY,    p.CreatedAt, NOW()) < 7   THEN CONCAT(TIMESTAMPDIFF(DAY,    p.CreatedAt, NOW()), 'd ago')
+                WHEN TIMESTAMPDIFF(DAY,    p.CreatedAt, NOW()) < 30  THEN CONCAT(FLOOR(TIMESTAMPDIFF(DAY, p.CreatedAt, NOW()) / 7), 'w ago')
+                ELSE DATE_FORMAT(p.CreatedAt, '%d %b %Y')
+            END AS TimeAgo,
+
+            -- ── Feed Score ────────────────────────────────────────────────────
+            (
+                -- Relationship Score (0–50)
+                CASE
+                    WHEN EXISTS(
+                        SELECT 1 FROM OrgMembers om
+                        JOIN LookupValues lvm ON om.StatusLkpId = lvm.LookupValueId
+                        WHERE om.OrgId = p.OrgId AND om.UserId = p_UserId
+                          AND om.IsDeleted = 0 AND lvm.ValueCode = 'APPROVED'
+                    ) THEN 50
+                    WHEN EXISTS(
+                        SELECT 1 FROM OrgFollowers of3
+                        WHERE of3.OrgId = p.OrgId AND of3.UserId = p_UserId AND of3.IsFollowing = 1
+                    ) THEN 30
+                    ELSE 0
+                END
+
+                -- Interest Score (0–30)
+                + CASE WHEN EXISTS(
+                    SELECT 1 FROM UserInterests ui
+                    JOIN LookupValues li ON ui.InterestLkpId = li.LookupValueId
+                    WHERE ui.UserId = p_UserId
+                      AND (
+                          LOWER(li.ValueName) LIKE CONCAT('%', LOWER(COALESCE(lv_type.ValueName, '')), '%')
+                       OR LOWER(COALESCE(lv_type.ValueName, '')) LIKE CONCAT('%', LOWER(li.ValueName), '%')
+                       OR LOWER(COALESCE(p.Content, ''))         LIKE CONCAT('%', LOWER(li.ValueName), '%')
+                      )
+                ) THEN 30 ELSE 0 END
+
+                -- Skill Match Score (0–20)
+                + LEAST(20, (
+                    SELECT COUNT(*) * 10
+                    FROM UserSkills us
+                    WHERE us.UserId = p_UserId AND us.IsDeleted = 0
+                      AND LOWER(COALESCE(p.Content, '')) LIKE CONCAT('%', LOWER(us.SkillName), '%')
+                ))
+
+                -- Freshness Score (0–25)
+                + CASE
+                    WHEN TIMESTAMPDIFF(HOUR, p.CreatedAt, NOW()) < 1   THEN 25
+                    WHEN TIMESTAMPDIFF(HOUR, p.CreatedAt, NOW()) < 6   THEN 20
+                    WHEN TIMESTAMPDIFF(HOUR, p.CreatedAt, NOW()) < 24  THEN 15
+                    WHEN TIMESTAMPDIFF(DAY,  p.CreatedAt, NOW()) < 3   THEN 10
+                    WHEN TIMESTAMPDIFF(DAY,  p.CreatedAt, NOW()) < 7   THEN 5
+                    ELSE 2
+                  END
+
+                -- Engagement Score (0–15)
+                + LEAST(15, FLOOR(
+                    (p.LikeCount * 0.5 + p.CommentCount * 1.0 + p.ShareCount * 2.0 + p.SaveCount * 1.5)
+                    / 10.0
+                  ))
+
+                -- Trust Score (0–10)
+                + CASE WHEN EXISTS(
+                    SELECT 1 FROM Organisations o2
+                    JOIN LookupValues lv_os ON o2.StatusLkpId = lv_os.LookupValueId
+                    WHERE o2.OrgId = p.OrgId AND lv_os.ValueCode = 'APPROVED'
+                ) THEN 10 ELSE 0 END
+
+                -- Quality Score (0–10)
+                + CASE WHEN LENGTH(COALESCE(p.Content, '')) > 100 THEN 5 ELSE 0 END
+                + CASE WHEN EXISTS(
+                    SELECT 1 FROM PostMedia pm2 WHERE pm2.PostId = p.PostId
+                ) THEN 5 ELSE 0 END
+
+                -- Spam Penalty (capped at –20)
+                - LEAST(20, COALESCE(
+                    (SELECT COUNT(*) * 5 FROM PostReports pr WHERE pr.PostId = p.PostId),
+                    0
+                  ))
+
+                -- Emergency Override
+                + CASE WHEN p.IsEmergency = 1 THEN 1000 ELSE 0 END
+
+            ) AS FeedScore
+
+        FROM Posts p
+
+        -- ── Candidate pool ────────────────────────────────────────────────────
+        JOIN (
+            SELECT PostId, MIN(FeedSource) AS FeedSource
+            FROM (
+                -- Source 1: My org posts (last 30 days)
+                (SELECT p1.PostId, 'MY_ORG' AS FeedSource
+                FROM Posts p1
+                INNER JOIN OrgMembers om1
+                       ON om1.OrgId = p1.OrgId AND om1.UserId = p_UserId AND om1.IsDeleted = 0
+                INNER JOIN LookupValues lv1
+                       ON lv1.LookupValueId = om1.StatusLkpId AND lv1.ValueCode = 'APPROVED'
+                WHERE p1.IsDeleted = 0
+                  AND p1.CreatedAt >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+                ORDER BY p1.CreatedAt DESC LIMIT 200)
+
+                UNION ALL
+
+                -- Source 2: Followed org posts (last 30 days)
+                (SELECT p2.PostId, 'FOLLOWED_ORG' AS FeedSource
+                FROM Posts p2
+                INNER JOIN OrgFollowers of1
+                       ON of1.OrgId = p2.OrgId AND of1.UserId = p_UserId AND of1.IsFollowing = 1
+                WHERE p2.IsDeleted = 0
+                  AND p2.CreatedAt >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+                ORDER BY p2.CreatedAt DESC LIMIT 200)
+
+                UNION ALL
+
+                -- Source 3: Trending (last 7 days)
+                (SELECT p3.PostId, 'TRENDING' AS FeedSource
+                FROM Posts p3
+                WHERE p3.IsDeleted = 0
+                  AND p3.CreatedAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+                ORDER BY (p3.LikeCount * 1 + p3.CommentCount * 2 + p3.ShareCount * 3 + p3.SaveCount * 2) DESC
+                LIMIT 100)
+
+                UNION ALL
+
+                -- Source 4: Emergency (last 48 hours)
+                (SELECT p4.PostId, 'EMERGENCY' AS FeedSource
+                FROM Posts p4
+                WHERE p4.IsDeleted = 0
+                  AND p4.IsEmergency = 1
+                  AND p4.CreatedAt >= DATE_SUB(NOW(), INTERVAL 48 HOUR)
+                ORDER BY p4.CreatedAt DESC LIMIT 50)
+
+                UNION ALL
+
+                -- Source 5: Interest-matched (last 14 days)
+                (SELECT p5.PostId, 'INTEREST' AS FeedSource
+                FROM Posts p5
+                INNER JOIN LookupValues pt5 ON pt5.LookupValueId = p5.PostTypeLkpId
+                WHERE p5.IsDeleted = 0
+                  AND p5.CreatedAt >= DATE_SUB(NOW(), INTERVAL 14 DAY)
+                  AND EXISTS(
+                      SELECT 1 FROM UserInterests ui5
+                      JOIN LookupValues li5 ON ui5.InterestLkpId = li5.LookupValueId
+                      WHERE ui5.UserId = p_UserId
+                        AND (LOWER(li5.ValueName) LIKE CONCAT('%', LOWER(pt5.ValueName), '%')
+                          OR LOWER(pt5.ValueName) LIKE CONCAT('%', LOWER(li5.ValueName), '%'))
+                  )
+                ORDER BY p5.CreatedAt DESC LIMIT 100)
+
+                UNION ALL
+
+                -- Source 6: Recent public fallback (last 7 days)
+                (SELECT p6.PostId, 'RECENT' AS FeedSource
+                FROM Posts p6
+                WHERE p6.IsDeleted = 0
+                  AND p6.CreatedAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+                ORDER BY p6.CreatedAt DESC LIMIT 100)
+
+            ) all_sources
+            GROUP BY PostId
+        ) cands ON cands.PostId = p.PostId
+
+        JOIN   UserProfiles up         ON up.UserId              = p.UserId AND up.IsDeleted = 0
+        LEFT JOIN Organisations o      ON o.OrgId                = p.OrgId
+        LEFT JOIN LookupValues lv_type ON lv_type.LookupValueId  = p.PostTypeLkpId
+        LEFT JOIN PostMedia pm         ON pm.PostId              = p.PostId
+        LEFT JOIN LookupValues lv_mt   ON lv_mt.LookupValueId   = pm.MediaTypeLkpId
+
+        WHERE p.IsDeleted = 0
+
+        GROUP BY
+            p.PostId,      p.Content,       p.IsPinned,    p.IsEmergency, p.IsEvergreen,
+            p.LikeCount,   p.CommentCount,  p.ShareCount,  p.SaveCount,
+            lv_type.ValueCode, lv_type.ValueName,
+            p.UserId,      up.FirstName,    up.LastName,   up.ProfilePhoto,
+            p.OrgId,       o.OrgName,       o.LogoUrl,     cands.FeedSource,
+            p.CreatedAt
+
+    ) sf
+
+    -- ── Cursor filter ─────────────────────────────────────────────────────────
+    WHERE  p_CursorScore IS NULL
+        OR sf.FeedScore < p_CursorScore
+        OR (sf.FeedScore = p_CursorScore AND sf.PostId < p_CursorPostId)
+
+    ORDER BY sf.FeedScore DESC, sf.PostId DESC
+    LIMIT  v_FetchSize;
+
+END //
+
+-- ── Post_Save ─────────────────────────────────────────────────────────────────
+DROP PROCEDURE IF EXISTS Post_Save //
+CREATE PROCEDURE Post_Save(
+    IN p_UserId INT UNSIGNED,
+    IN p_PostId INT UNSIGNED
+)
+BEGIN
+    INSERT IGNORE INTO PostSaves (PostId, UserId) VALUES (p_PostId, p_UserId);
+    IF ROW_COUNT() > 0 THEN
+        UPDATE Posts SET SaveCount = SaveCount + 1 WHERE PostId = p_PostId;
+        INSERT INTO FeedInteractions (UserId, PostId, InteractionType) VALUES (p_UserId, p_PostId, 'SAVE');
+        SELECT 1 AS IsSuccess, 'Post saved.' AS Message;
     ELSE
-        SELECT 1 AS IsSuccess, 'Document verification updated.' AS Message;
+        SELECT 0 AS IsSuccess, 'Already saved.' AS Message;
     END IF;
 END //
 
-CREATE PROCEDURE SuperAdmin_User_VerifyProfile(
-    IN p_UserId           INT UNSIGNED,
-    IN p_SuperAdminUserId INT UNSIGNED
+-- ── Post_Unsave ───────────────────────────────────────────────────────────────
+DROP PROCEDURE IF EXISTS Post_Unsave //
+CREATE PROCEDURE Post_Unsave(
+    IN p_UserId INT UNSIGNED,
+    IN p_PostId INT UNSIGNED
 )
 BEGIN
-    DECLARE v_Exists     INT DEFAULT 0;
-    DECLARE v_VerifiedId INT UNSIGNED;
-
-    SELECT COUNT(*) INTO v_Exists FROM Users WHERE UserId = p_UserId AND IsDeleted = 0;
-
-    IF v_Exists = 0 THEN
-        SELECT 0 AS IsSuccess, 'Member not found.' AS Message;
+    DELETE FROM PostSaves WHERE PostId = p_PostId AND UserId = p_UserId;
+    IF ROW_COUNT() > 0 THEN
+        UPDATE Posts SET SaveCount = GREATEST(0, SaveCount - 1) WHERE PostId = p_PostId;
+        SELECT 1 AS IsSuccess, 'Post unsaved.' AS Message;
     ELSE
-        SELECT LookupValueId INTO v_VerifiedId FROM LookupValues lv
-            JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
-            WHERE lt.TypeCode = 'PROFILE_VERIFICATION_STATUS' AND lv.ValueCode = 'VERIFIED' LIMIT 1;
-
-        UPDATE Users SET ProfileVerificationLkpId = v_VerifiedId, UpdatedBy = p_SuperAdminUserId
-        WHERE UserId = p_UserId;
-
-        INSERT INTO Notifications (UserId, NotifType, Title, Body, RefId, RefType)
-        VALUES (p_UserId, 'PROFILE_VERIFIED', 'Your profile has been verified',
-                'Your profile and documents have been reviewed and verified by the NGO Connect team.',
-                p_UserId, 'USER_PROFILE');
-
-        SELECT 1 AS IsSuccess, 'Profile marked as verified.' AS Message;
+        SELECT 0 AS IsSuccess, 'Not saved.' AS Message;
     END IF;
 END //
 
-CREATE PROCEDURE SuperAdmin_User_RequestUpdate(
-    IN p_UserId           INT UNSIGNED,
-    IN p_SuperAdminUserId INT UNSIGNED,
-    IN p_Reason           TEXT
+-- ── Feed_TrackInteraction ─────────────────────────────────────────────────────
+DROP PROCEDURE IF EXISTS Feed_TrackInteraction //
+CREATE PROCEDURE Feed_TrackInteraction(
+    IN p_UserId          INT UNSIGNED,
+    IN p_PostId          INT UNSIGNED,
+    IN p_InteractionType VARCHAR(30),
+    IN p_DurationMs      INT UNSIGNED    -- NULL for non-VIEW interactions
 )
 BEGIN
-    DECLARE v_Exists        INT DEFAULT 0;
-    DECLARE v_NeedsUpdateId INT UNSIGNED;
-
-    SELECT COUNT(*) INTO v_Exists FROM Users WHERE UserId = p_UserId AND IsDeleted = 0;
-
-    IF v_Exists = 0 THEN
-        SELECT 0 AS IsSuccess, 'Member not found.' AS Message;
-    ELSEIF p_Reason IS NULL OR TRIM(p_Reason) = '' THEN
-        SELECT 0 AS IsSuccess, 'A reason is required so the member knows what to fix.' AS Message;
-    ELSE
-        SELECT LookupValueId INTO v_NeedsUpdateId FROM LookupValues lv
-            JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
-            WHERE lt.TypeCode = 'PROFILE_VERIFICATION_STATUS' AND lv.ValueCode = 'NEEDS_UPDATE' LIMIT 1;
-
-        UPDATE Users SET ProfileVerificationLkpId = v_NeedsUpdateId, UpdatedBy = p_SuperAdminUserId
-        WHERE UserId = p_UserId;
-
-        INSERT INTO Notifications (UserId, NotifType, Title, Body, RefId, RefType)
-        VALUES (p_UserId, 'PROFILE_NEEDS_UPDATE', 'Your profile needs an update',
-                p_Reason, p_UserId, 'USER_PROFILE');
-
-        SELECT 1 AS IsSuccess, 'Update request sent to member.' AS Message;
-    END IF;
-END //
-
-CREATE PROCEDURE SuperAdmin_User_Suspend(
-    IN p_UserId           INT UNSIGNED,
-    IN p_SuperAdminUserId INT UNSIGNED,
-    IN p_Reason           TEXT
-)
-BEGIN
-    DECLARE v_CurrentActive TINYINT(1);
-
-    SELECT IsActive INTO v_CurrentActive FROM Users WHERE UserId = p_UserId AND IsDeleted = 0;
-
-    IF v_CurrentActive IS NULL THEN
-        SELECT 0 AS IsSuccess, 'Member not found.' AS Message;
-    ELSEIF v_CurrentActive = 0 THEN
-        SELECT 0 AS IsSuccess, 'Account is already suspended.' AS Message;
-    ELSEIF p_Reason IS NULL OR TRIM(p_Reason) = '' THEN
-        SELECT 0 AS IsSuccess, 'A reason is required to suspend an account.' AS Message;
-    ELSE
-        UPDATE Users SET IsActive = 0, UpdatedBy = p_SuperAdminUserId WHERE UserId = p_UserId;
-
-        UPDATE RefreshTokens SET IsRevoked = 1, RevokedAt = NOW()
-        WHERE UserId = p_UserId AND IsRevoked = 0;
-
-        INSERT INTO Notifications (UserId, NotifType, Title, Body, RefId, RefType)
-        VALUES (p_UserId, 'ACCOUNT_SUSPENDED', 'Your account has been suspended',
-                p_Reason, p_UserId, 'USER_ACCOUNT');
-
-        SELECT 1 AS IsSuccess, 'Account suspended.' AS Message;
-    END IF;
-END //
-
-CREATE PROCEDURE SuperAdmin_User_Reactivate(
-    IN p_UserId           INT UNSIGNED,
-    IN p_SuperAdminUserId INT UNSIGNED
-)
-BEGIN
-    DECLARE v_CurrentActive TINYINT(1);
-
-    SELECT IsActive INTO v_CurrentActive FROM Users WHERE UserId = p_UserId AND IsDeleted = 0;
-
-    IF v_CurrentActive IS NULL THEN
-        SELECT 0 AS IsSuccess, 'Member not found.' AS Message;
-    ELSEIF v_CurrentActive = 1 THEN
-        SELECT 0 AS IsSuccess, 'Account is already active.' AS Message;
-    ELSE
-        UPDATE Users SET IsActive = 1, UpdatedBy = p_SuperAdminUserId WHERE UserId = p_UserId;
-
-        INSERT INTO Notifications (UserId, NotifType, Title, Body, RefId, RefType)
-        VALUES (p_UserId, 'ACCOUNT_REACTIVATED', 'Your account has been reactivated',
-                'You can now log in to NGO Connect again.', p_UserId, 'USER_ACCOUNT');
-
-        SELECT 1 AS IsSuccess, 'Account reactivated.' AS Message;
-    END IF;
-END //
-
-CREATE PROCEDURE SuperAdmin_Dashboard_GetKpis()
-BEGIN
-    SELECT
-        (SELECT COUNT(*) FROM Organisations o
-            JOIN LookupValues sv ON o.StatusLkpId = sv.LookupValueId
-            WHERE o.IsDeleted = 0 AND sv.ValueCode = 'APPROVED')
-            AS TotalOrgs,
-        (SELECT COUNT(*) FROM Organisations o
-            JOIN LookupValues sv ON o.StatusLkpId = sv.LookupValueId
-            WHERE o.IsDeleted = 0 AND sv.ValueCode IN ('PENDING', 'UNDER_REVIEW'))
-            AS PendingOrgs,
-        (SELECT COUNT(DISTINCT u.UserId)
-            FROM Users u
-            JOIN OrgMembers om ON om.UserId = u.UserId AND om.IsDeleted = 0
-            JOIN LookupValues sv ON om.StatusLkpId = sv.LookupValueId
-            WHERE u.IsDeleted = 0 AND u.IsActive = 1 AND sv.ValueCode = 'APPROVED')
-            AS TotalVolunteers,
-        (SELECT COUNT(DISTINCT u.UserId)
-            FROM Users u
-            JOIN OrgMembers om ON om.UserId = u.UserId AND om.IsDeleted = 0
-            JOIN LookupValues sv ON om.StatusLkpId = sv.LookupValueId
-            WHERE u.IsDeleted = 0 AND u.IsActive = 1 AND sv.ValueCode = 'APPROVED'
-              AND u.LastLoginAt >= DATE_SUB(NOW(), INTERVAL 30 DAY))
-            AS ActiveVolunteersLast30Days,
-        (SELECT COALESCE(SUM(dt.DonationAmount), 0)
-            FROM DonationTransactions dt
-            JOIN LookupValues sv ON dt.PayStatusLkpId = sv.LookupValueId
-            WHERE dt.IsDeleted = 0 AND sv.ValueCode = 'SUCCESS')
-            AS TotalDonationsAmount;
-END //
-
-CREATE PROCEDURE SuperAdmin_Org_GetRecent(IN p_Limit INT)
-BEGIN
-    SELECT o.OrgId, o.OrgName, o.LogoUrl,
-           sv.ValueCode AS StatusCode, sv.ValueName AS StatusName,
-           o.CreatedAt AS SubmittedAt
-    FROM Organisations o
-    JOIN LookupValues sv ON o.StatusLkpId = sv.LookupValueId
-    WHERE o.IsDeleted = 0
-    ORDER BY o.CreatedAt DESC
-    LIMIT p_Limit;
+    INSERT INTO FeedInteractions (UserId, PostId, InteractionType, DurationMs)
+    VALUES (p_UserId, p_PostId, p_InteractionType, p_DurationMs);
+    SELECT 1 AS IsSuccess, 'Tracked.' AS Message;
 END //
 
 DELIMITER ;
 
 -- ============================================================
--- END OF FILE
+-- END OF v4.7 ADDITIONS — PHASE 1 PERSONALISED FEED ALGORITHM
 -- ============================================================

@@ -208,6 +208,25 @@ namespace NGOConnect.Core.Models.User
         public string?  ProjectStatus      { get; set; }
     }
 
+    // ── Contact Update (OTP flow) ───────────────────────────────────────────────
+    public class SendContactOtpRequest
+    {
+        /// <summary>"EMAIL" or "PHONE"</summary>
+        [Required][MaxLength(10)]  public string Type  { get; set; } = string.Empty;
+        /// <summary>The email address or phone number to add</summary>
+        [Required][MaxLength(200)] public string Value { get; set; } = string.Empty;
+    }
+
+    public class VerifyContactOtpRequest
+    {
+        /// <summary>"EMAIL" or "PHONE"</summary>
+        [Required][MaxLength(10)]  public string Type    { get; set; } = string.Empty;
+        /// <summary>The email address or phone number being verified</summary>
+        [Required][MaxLength(200)] public string Value   { get; set; } = string.Empty;
+        /// <summary>6-digit OTP entered by the user</summary>
+        [Required][MaxLength(6)]   public string OtpCode { get; set; } = string.Empty;
+    }
+
     // ── Impact Dashboard — GET response ────────────────────────────────────────
     public class UserImpactModel
     {

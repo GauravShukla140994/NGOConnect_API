@@ -45,6 +45,7 @@ namespace NGOConnect.API.Extensions
             services.AddScoped<IApplicationDal,   ApplicationDal>();
             // Feed / Posts
             services.AddScoped<IPostDal,          PostDal>();
+            services.AddScoped<IFeedDal,          FeedDal>();
             // Community
             services.AddScoped<ICommunityDal,     CommunityDal>();
             // Donations

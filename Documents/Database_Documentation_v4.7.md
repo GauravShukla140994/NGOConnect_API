@@ -1,10 +1,27 @@
-# NGOConnect Database Documentation v4.5
+# NGOConnect Database Documentation v4.7
 
 **Database:** MySQL 8.0+  
-**Version:** 4.5  
-**Tables:** 50  
-**Stored Procedures:** 114  
-**Generated:** 2026-07-10  
+**Version:** 4.7  
+**Tables:** 51  
+**Stored Procedures:** 136  
+**Generated:** 2026-07-12  
+
+
+**v4.7 Additions — Org Follow + Post Permissions (2026-07-12):**
+
+- **OrgFollowers table** — NEW. Soft-unfollow pattern; one row per (OrgId, UserId); UNIQUE KEY prevents duplicates. `IsFollowing=0` = unfollowed (row kept). `FollowedAt` / `UnfollowedAt` track state changes.
+- **Organisations.FollowerCount** — NEW INT UNSIGNED DEFAULT 0. Denormalized counter maintained by `Org_Follow` / `Org_Unfollow` SPs. No live COUNT query on hot read paths.
+- **Org_Follow** — NEW SP. Idempotent follow with counter increment.
+- **Org_Unfollow** — NEW SP. Soft-unfollow with counter decrement (GREATEST floor at 0).
+- **Post_GetPermissions** — NEW SP. Called by mobile before opening Create Post modal. Always returns exactly one row: `IsMember`, `CanPost`, `MaxPostsPerDay`, `TodayPostCount`.
+- **Org_GetPendingMembers** — FIXED. Adds `p_PageNumber`/`p_PageSize` params with IFNULL defaults; aliases `mr.RequestId AS MembershipRequestId` so mobile Approve button works.
+- **Org_GetProfile** — UPDATED. Returns `FollowerCount` + `IsFollowing` (0|1 subquery on OrgFollowers).
+- **Org_RequestMembership** — UPDATED. Auto-follows the org on join request (idempotent, counter only incremented if transitioning 0→1).
+- **Org_List** — UPDATED. Returns `FollowerCount` from denormalized column.
+- **Post_GetFeed** — MERGED FINAL. Now 4 params `(p_UserId, p_OrgId, p_PageNumber, p_PageSize)`. Adds `IsFollowing` per post + OrgId filter. Supersedes two earlier patches.
+- **Org_GetDashboard** — UPDATED. Returns `FollowerCount` KPI.
+- **Org_GetVolunteerProfile** — FIXED. `AttendanceStatus` column (does not exist) → `AttendStatusLkpId` via DECLARE vars; `pa.ProjectId` → join via `ProjectSessions`; `ReliabilityPct` rewritten as HAVING aggregate.
+- **SuperAdmin_User_GetList** — FIXED. `JOIN OrgMembers` → `LEFT JOIN`; `LEFT JOIN LookupValues sv`; HAVING clause to include new users (no org) and APPROVED-only filter. OrgNames shows APPROVED orgs only. `JoinedAt` falls back to `u.CreatedAt` for new users.
 
 **v4.6 Additions — Super Admin Module (2026-07-11):**
 
@@ -263,10 +280,24 @@
 | RatingCount | INT UNSIGNED NOT NULL DEFAULT 0 | |
 | Latitude | DECIMAL(10,7) NULL | NGO pin latitude |
 | Longitude | DECIMAL(10,7) NULL | NGO pin longitude |
+| FollowerCount | INT UNSIGNED DEFAULT 0 | Denormalized follower count — maintained by Org_Follow / Org_Unfollow SPs |
 | IsDeleted | TINYINT(1) DEFAULT 0 | |
 | CreatedBy | INT UNSIGNED FK→Users NOT NULL | |
 | CreatedAt | DATETIME DEFAULT CURRENT_TIMESTAMP | |
 | UpdatedAt | DATETIME NULL | |
+
+#### OrgFollowers
+| Column | Type | Notes |
+|---|---|---|
+| OrgFollowerId | INT UNSIGNED PK AUTO_INCREMENT | |
+| OrgId | INT UNSIGNED FK→Organisations NOT NULL | |
+| UserId | INT UNSIGNED FK→Users NOT NULL | |
+| IsFollowing | TINYINT(1) DEFAULT 1 | 1 = following, 0 = unfollowed (soft-unfollow) |
+| FollowedAt | DATETIME DEFAULT CURRENT_TIMESTAMP | Last follow timestamp |
+| UnfollowedAt | DATETIME NULL | Last unfollow timestamp; NULL if currently following |
+| UNIQUE | (OrgId, UserId) | |
+| INDEX | (OrgId, IsFollowing) | |
+| INDEX | (UserId, IsFollowing) | |
 
 #### OrgDocuments
 | Column | Type | Notes |
@@ -956,28 +987,30 @@
 | Settings_GetAll | READ | Admin only |
 | Settings_Update | WRITE | Update value, refresh cache |
 
-### Organisation (29 SPs)
+### Organisation (31 SPs)
 | SP Name | Params | Type | Description |
 |---|---|---|---|
 | Org_Register | p_UserId, p_OrgName, p_RegistrationNo, p_OrgTypeLkpId, p_Category, p_ContactPerson, p_About, p_Mission, p_Vision, p_LogoUrl, p_ContactEmail, p_ContactPhone, p_Website, p_AddressLine1, p_AddressLine2, p_City, p_State, p_Pincode, p_Country | WRITE | 19 params. Creates org + adds creator as ADMIN member. Returns `IsSuccess`, `Message`, `OrgId` |
-| Org_GetProfile | p_OrgId | GET | Full org profile — returns `OrgTypeLkpId`, `StatusLkpId`, `Category`, `ContactPerson` for edit form pre-fill |
+| Org_GetProfile | p_OrgId, p_UserId | GET | Full org profile. **v4.7:** returns `FollowerCount` + `IsFollowing` (0\|1 based on OrgFollowers for p_UserId). Also returns `OrgTypeLkpId`, `StatusLkpId`, `Category`, `ContactPerson`, `MemberCount`, `MemberStatusCode` |
 | Org_Update | p_OrgId, p_UserId, p_OrgName, p_Category, p_ContactPerson, p_About, p_Mission, p_Vision, p_LogoUrl, p_ContactEmail, p_ContactPhone, p_Website, p_AddressLine1, p_AddressLine2, p_City, p_State, p_Pincode, p_Country | WRITE | 18 params — all fields COALESCE (partial update safe) |
-| Org_GetDashboard | p_OrgId | GET | **v4.4 REBUILT** Admin dashboard KPIs. Returns: `TotalMembers`, `NewMembersThisMonth`, `ActiveVolunteers`, `ActiveRatePct`, `VolunteerHoursMonth`, `ActiveProjects`, `PendingApplications` (member join requests), `PendingProjectApplications` (volunteer project applications) |
-| Org_List | p_Keyword, p_Category, p_PageNumber, p_PageSize | PAGED | Always returns APPROVED orgs only. Filters by keyword + category. Returns `OrgId`, `OrgName`, `Category`, `LogoUrl`, `City`, `State`, `MemberCount`, `AvgRating`, `Latitude`, `Longitude` + TotalCount |
+| Org_GetDashboard | p_OrgId | GET | **v4.7 UPDATED** Admin dashboard KPIs. Returns: `TotalMembers`, `NewMembersThisMonth`, `ActiveVolunteers`, `ActiveRatePct`, `VolunteerHoursMonth`, `ActiveProjects`, `PendingApplications`, `PendingProjectApplications`, **`FollowerCount`** (from denormalized column, no COUNT query) |
+| Org_List | p_Keyword, p_Category, p_PageNumber, p_PageSize | PAGED LIST | **v4.7 UPDATED** Returns `OrgId`, `OrgName`, `Category`, `LogoUrl`, `City`, `State`, **`FollowerCount`**, `MemberCount`, `AvgRating`, `Latitude`, `Longitude`. Second result set: `TotalCount` |
 | Org_ListRecommended | p_UserId | LIST | Matches user's INTEREST_TYPE ValueCodes against org Category; returns up to 20 orgs + `MatchScore` |
 | Campaign_ListPublicTrending | p_PageSize | LIST | Active campaigns ranked by IsEmergency → DonorCount → RaisedAmount |
 | Org_GetDonationDashboard | p_OrgId | GET | 9 donation KPIs for s-admin-donations screen |
 | Org_GetDonors | p_OrgId, p_Tab (ALL/RECURRING/TOP), p_PageNumber, p_PageSize | PAGED | Donor list; respects IsAnonymous flag |
 | Org_GetTransactions | p_OrgId, p_StatusCode, p_PageNumber, p_PageSize | PAGED | Transaction list; filter by statusCode (null = all) |
-| Org_GetVolunteerProfile | p_OrgId, p_UserId | GET | Admin view of volunteer — includes reliability score (private to admins) |
+| Org_GetVolunteerProfile | p_OrgId, p_UserId | GET | **v4.7 FIXED** Full volunteer profile for admin view. Fixes: `AttendStatusLkpId` via DECLARE vars (column `AttendanceStatus` does not exist); `pa.ProjectId` routed via `ProjectSessions` JOIN; `ReliabilityPct` rewritten as HAVING aggregate. Returns `FullName`, `TotalHours`, `ProjectCount`, `OrgCount`, `ReliabilityPct`, `NoShowCount`, `ExcusedCount`, `ComplaintCount`, `RoleCode`, `RoleName`, `StatusCode`, `StatusName`, `JoinedAt`, `PrevNgoExperience`, `VolunteerSkills`, `AreasOfInterest`, `WhyJoin`, `RequestedAt` |
 | Org_GetMemberImpact | p_OrgId, p_UserId | GET | Admin view for s-member-impact |
 | Org_UpdateMemberRole | p_OrgId, p_MemberId, p_RoleLkpId, p_UpdatedBy | WRITE | Changes member's role |
 | Org_GetMembers | p_OrgId | LIST (Dynamic) | All members with role, status, permissions |
 | Org_AddMember | p_OrgId, p_UserId, p_RoleLkpId, p_RequestedBy | WRITE | Direct add (admin action) |
 | Org_RemoveMember | p_OrgId, p_UserId, p_RequestedBy | WRITE | Soft remove |
-| Org_RequestMembership | p_OrgId, p_UserId, p_Message | WRITE | User self-requests; stores RequestMessage |
+| Org_RequestMembership | p_OrgId, p_UserId, p_PrevNgoExperience, p_VolunteerSkills, p_AreasOfInterest, p_WhyJoin | WRITE | **v4.7 UPDATED** Submits join request. Auto-follows the org on success (idempotent — counter incremented only if transitioning 0→1 in OrgFollowers). Returns `IsSuccess`, `Message`, `RequestId` |
+| Org_Follow | p_OrgId, p_UserId | WRITE | **v4.7 NEW** Follow an NGO. INSERT … ON DUPLICATE KEY UPDATE (idempotent). Increments `Organisations.FollowerCount` only on 0→1 transition. Returns `IsSuccess`, `Message` |
+| Org_Unfollow | p_OrgId, p_UserId | WRITE | **v4.7 NEW** Soft-unfollow: sets `IsFollowing=0`, `UnfollowedAt=NOW()`. Decrements `FollowerCount` with GREATEST(n-1, 0) floor. Idempotent. Returns `IsSuccess`, `Message` |
 | Org_ReviewMembership | p_RequestId, p_StatusCode, p_AdminNotes, p_ReviewedBy | WRITE | APPROVED/REJECTED with AdminNotes |
-| Org_GetPendingMembers | p_OrgId | LIST (Dynamic) | PENDING approval requests |
+| Org_GetPendingMembers | p_OrgId, p_PageNumber, p_PageSize | LIST | **v4.7 FIXED** Pending join requests. Returns `MembershipRequestId` (alias for `mr.RequestId` — mobile Approve button requires this), `UserId`, `FullName`, `ProfilePhoto`, `City`, `State`, `PrevNgoExperience`, `VolunteerSkills`, `AreasOfInterest`, `WhyJoin`, `RequestedAt`. IFNULL defaults on pagination params. Second result set: `TotalCount` |
 | Org_UpdateMemberPermissions | p_OrgId, p_MemberId, p_CanPost, p_CanComment, p_CanCommunityPost, p_MaxPostsPerDay, p_LocationSharingLkpId, p_UpdatedBy | WRITE | Granular member permissions |
 | Org_UploadDocument | p_OrgId, p_UploadedBy, p_DocumentTypeLkpId, p_FileUrl, p_FileName | WRITE | Inserts into OrgDocuments |
 | Org_GetAdminPosts | p_OrgId | LIST (Dynamic) | **v4.4 NEW** All feed Posts for org with: `FullName`, `ProfilePhoto`, `RoleCode`, `RoleName`, `Content`, `LikesCount`, `CommentsCount`, `IsPinned`, `CreatedAt`, `ReportCount` (PENDING reports only), `StatusCode` (PUBLISHED or REPORTED) |
@@ -1012,11 +1045,12 @@
 | Application_Review | p_ApplicationId, p_StatusLkpId, p_RejectionReason, p_ReviewedBy | WRITE | Uses `StatusLkpId` (INT) |
 | Application_GetByUser | p_UserId, p_PageNumber, p_PageSize | PAGED | **v4.4 REBUILT** 3 params (was 1). Returns: `ApplicationId`, `ProjectId`, `ProjectName`, `OrgName`, `OrgLogoUrl`, `StatusCode`, `Status`, `CreatedAt`, `StatusUpdatedAt`, `ScheduleTypeCode`, `ScheduleTypeName`, `RecurStart`, `RecurEnd`, `RecurDays`, `SessionStartTime`, `SessionEndTime`, `OneTimeDate`, `FlexFromDate`, `FlexToDate`, `LocationName` (alias of `p.Landmark`), `City`, `ProjectStatusCode`, `ProjectStatus` + TotalCount |
 
-### Post / Feed (11 SPs)
+### Post / Feed (12 SPs)
 | SP Name | Params | Type | Description |
 |---|---|---|---|
 | Post_Create | p_UserId, p_OrgId, p_Content, p_MediaUrls, p_PostTypeLkpId, p_VisibilityLkpId | WRITE | **v4.4 UPDATED** Auto-detects VIDEO vs IMAGE from URL extension via REGEXP (`mp4\|mov\|avi\|mkv\|webm\|m4v\|3gp\|wmv`). Assigns correct `MediaTypeLkpId` per URL in PostMedia. Returns `IsSuccess`, `Message`, `PostId` |
-| Post_GetFeed | p_UserId, p_OrgId, p_PageNumber, p_PageSize | PAGED | **v4.4 REBUILT** 4 params (`p_OrgId` NULL = all orgs, non-null = filter to org). Returns: `PostId`, `Content`, `IsPinned`, `PostTypeLkpCode`, `PostType`, `LikeCount`, `CommentCount`, `IsLikedByMe`, `UserId`, `AuthorName`, `ProfilePhoto`, `OrgId`, `OrgName`, `MediaUrls` (GROUP_CONCAT of FileUrl ordered by SortOrder, comma-separated), `MediaTypes` (GROUP_CONCAT of MEDIA_TYPE ValueCode per media item, comma-separated), `CreatedAt`, `TimeAgo`. Pinned posts sorted first (`ORDER BY IsPinned DESC, CreatedAt DESC`) + TotalCount (filtered by `p_OrgId`) |
+| Post_GetFeed | p_UserId, p_OrgId, p_PageNumber, p_PageSize | PAGED LIST | **v4.7 MERGED FINAL** 4 params. `p_OrgId NULL` = all orgs, non-null = filter to one org. Returns `PostId`, `Content`, `IsPinned`, `PostTypeLkpCode`, `PostType`, `LikeCount`, `CommentCount`, `IsLikedByMe`, `UserId`, `AuthorName`, `ProfilePhoto`, `OrgId`, `OrgName`, **`IsFollowing`** (0\|1 subquery on OrgFollowers), `MediaUrls` (GROUP_CONCAT), `MediaTypes` (GROUP_CONCAT), `CreatedAt`, `TimeAgo`. Second result set: `TotalCount` (also filtered by p_OrgId) |
+| Post_GetPermissions | p_OrgId, p_UserId | GET | **v4.7 NEW** Called by mobile before opening Create Post modal. Always returns exactly one row (DECLARE defaults cover non-member case). Returns: `IsMember` TINYINT(1), `CanPost` TINYINT(1), `MaxPostsPerDay` INT (from OrgMembers), `TodayPostCount` INT (posts created today by user for this org) |
 | Post_GetById | p_PostId, p_UserId | GET | Single post with like/comment counts |
 | Post_Delete | p_PostId, p_UserId | WRITE | Soft delete |
 | Post_Pin | p_PostId, p_OrgId, p_PinnedBy | WRITE | Toggle IsPinned |
@@ -1127,7 +1161,7 @@ All Super Admin SPs are isolated — never called by any existing mobile/NGO-adm
 #### Member Management
 | SP Name | Params | Type | Description |
 |---|---|---|---|
-| SuperAdmin_User_GetList | p_OrgIds (CSV), p_Search, p_PageNumber, p_PageSize | PAGED | **v4.6 NEW** — Cross-NGO paged member list. Returns: UserId, FullName, Email, Mobile, ProfilePhoto, OrgNames, Role, MembershipStatus, AccountStatus (ACTIVE/SUSPENDED), ProfileVerificationStatus, JoinedAt |
+| SuperAdmin_User_GetList | p_OrgIds, p_Search, p_PageNumber, p_PageSize | PAGED LIST | **v4.7 FIXED** LEFT JOIN OrgMembers (so new users with no org appear). HAVING: shows users with no membership (new users) OR at least one APPROVED membership. OrgNames shows APPROVED orgs only. `JoinedAt` falls back to `u.CreatedAt` for new users. Returns `UserId`, `FullName`, `Email`, `Mobile`, `ProfilePhoto`, `OrgNames`, `Role`, `MembershipStatus`, `AccountStatus`, `ProfileVerificationStatus`, `JoinedAt`. Second result set: `TotalCount` |
 | SuperAdmin_User_GetFullProfile | p_UserId | READ (5 result sets) | **v4.6 NEW** — RS1: core profile (FullName, Email, AccountStatus, ProfileVerificationStatus, Reliability, Hours, Projects). RS2: skills. RS3: interests. RS4: badges. RS5: NGO memberships (OrgName, Role, Status) |
 | SuperAdmin_User_GetDocuments | p_UserId | READ | **v4.6 NEW** — All user documents with verification state: UserDocumentId, DocumentType, FileUrl, IsVerified, VerifiedAt |
 | SuperAdmin_UserDocument_Verify | p_UserDocumentId, p_SuperAdminUserId, p_IsVerified | WRITE | **v4.6 NEW** — Marks a user document verified or unverified |
