@@ -40,6 +40,9 @@ namespace NGOConnect.Core.Interfaces
         Task<ApiResponse>                                  PinPostAsync(int orgId, int postId, int userId);
         Task<ApiResponse>                                  DeletePostAsync(int orgId, int postId, int userId);
         Task<ApiResponse>                                  ModeratePostAsync(int orgId, int postId, int userId, string action);
+        // ── Follow / Unfollow ───────────────────────────────────────────────────────
+        Task<ApiResponse>                                  FollowOrgAsync(int orgId, int userId);
+        Task<ApiResponse>                                  UnfollowOrgAsync(int orgId, int userId);
         // ── Documents ───────────────────────────────────────────────────────────
         Task<ApiResponse>                                  UploadDocumentAsync(int orgId, int userId, UploadOrgDocumentRequest request);
     }

@@ -9,6 +9,36 @@ namespace NGOConnect.Infrastructure.DAL
     {
         public PostDal(IDbProvider db) : base(db) { }
 
+        public async Task<ApiResponse<PostPermissionsModel>> GetPermissionsAsync(int orgId, int userId)
+        {
+            try
+            {
+                var model = await ExecuteGetAsync("Post_GetPermissions",
+                    r => new PostPermissionsModel
+                    {
+                        IsMember       = Col<bool>(r, "IsMember"),
+                        CanPost        = Col<bool>(r, "CanPost"),
+                        MaxPostsPerDay = Col<int>(r,  "MaxPostsPerDay"),
+                        TodayPostCount = Col<int>(r,  "TodayPostCount"),
+                    },
+                    cmd =>
+                    {
+                        _db.AddParameter(cmd, "p_OrgId",  orgId);
+                        _db.AddParameter(cmd, "p_UserId", userId);
+                    });
+
+                if (model is null)
+                    return ApiResponse<PostPermissionsModel>.Failure("Could not load permissions.", "NOT_FOUND");
+
+                return ApiResponse<PostPermissionsModel>.Success(model);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetPermissionsAsync failed OrgId={OrgId} UserId={UserId}", orgId, userId);
+                return ApiResponse<PostPermissionsModel>.Failure("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
         public async Task<ApiResponse<DynamicRow>> CreateAsync(int userId, CreatePostRequest request)
         {
             try

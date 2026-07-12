@@ -15,6 +15,14 @@ namespace NGOConnect.API.Controllers
         private readonly IPostDal _post;
         public PostController(IPostDal post) => _post = post;
 
+        /// <summary>
+        /// Returns posting permissions for the logged-in user in the given org.
+        /// Mobile calls this before opening the Create Post modal.
+        /// </summary>
+        [HttpGet("post/permissions/{orgId:int}")] [Authorize]
+        public async Task<ApiResponse<PostPermissionsModel>> GetPermissions(int orgId)
+            => await _post.GetPermissionsAsync(orgId, GetUserId());
+
         [HttpPost("post")] [Authorize]
         public async Task<ApiResponse<DynamicRow>> Create([FromBody] CreatePostRequest request)
             => await _post.CreateAsync(GetUserId(), request);

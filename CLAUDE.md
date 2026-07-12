@@ -10,10 +10,10 @@ This skill contains all architectural decisions, database design standards, SP p
 
 All project documentation is governed by `Documents/DOCUMENTATION_GUIDELINES.md`. Read it before updating any of the 4 maintained documents:
 
-- `Documents/NGOConnect_Complete_Setup_v4.5.sql`
-- `Documents/API_Documentation_v4.5.docx`
-- `Documents/NGOConnect_Postman_Collection_v4.5.json`
-- `Documents/Database_Documentation_v4.5.md`
+- `Documents/NGOConnect_Complete_Setup_v4.6.sql`
+- `Documents/API_Documentation_v4.6.docx`
+- `Documents/NGOConnect_Postman_Collection_v4.6.json`
+- `Documents/Database_Documentation_v4.6.md`
 
 Key rules:
 - Never update documents mid-task — accumulate all changes and apply only when the user says "update documents"
@@ -37,11 +37,11 @@ Key rules:
 
 ## MANDATORY: SQL Setup File is the Single Source of Truth
 
-**`Documents/NGOConnect_Complete_Setup_v4.4.sql` must ALWAYS reflect the current correct state of all tables and stored procedures.**
+**`Documents/NGOConnect_Complete_Setup_v4.6.sql` must ALWAYS reflect the current correct state of all tables and stored procedures.**
 
 ### The Only Correct Workflow for SP Changes
 
-1. **Fix the setup SQL file FIRST** — edit the SP directly in `NGOConnect_Complete_Setup_v4.4.sql`
+1. **Fix the setup SQL file FIRST** — edit the SP directly in `NGOConnect_Complete_Setup_v4.6.sql`
 2. **Extract the patch from the fixed SP** — copy the corrected DROP + CREATE block into a patch file
 3. **Apply the patch to running DBs** — run the patch file on Railway staging / production
 

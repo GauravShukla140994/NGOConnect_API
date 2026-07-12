@@ -138,6 +138,17 @@ namespace NGOConnect.API.Controllers
             [FromQuery] int     pageSize   = 20)
             => await _org.GetTransactionsAsync(orgId, statusCode, pageNumber, pageSize);
 
+        // ── Follow / Unfollow ─────────────────────────────────────────────────────
+        // POST  /org/{orgId}/follow — follow or re-follow an NGO
+        // DELETE /org/{orgId}/follow — soft-unfollow (keeps row in OrgFollowers)
+        [HttpPost("{orgId:int}/follow")] [Authorize]
+        public async Task<ApiResponse> FollowOrg(int orgId)
+            => await _org.FollowOrgAsync(orgId, GetUserId());
+
+        [HttpDelete("{orgId:int}/follow")] [Authorize]
+        public async Task<ApiResponse> UnfollowOrg(int orgId)
+            => await _org.UnfollowOrgAsync(orgId, GetUserId());
+
         [HttpPost("{orgId:int}/documents")] [Authorize]
         public async Task<ApiResponse> UploadDocument(int orgId, [FromBody] UploadOrgDocumentRequest request)
             => await _org.UploadDocumentAsync(orgId, GetUserId(), request);

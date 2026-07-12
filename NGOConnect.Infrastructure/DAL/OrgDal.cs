@@ -157,6 +157,7 @@ namespace NGOConnect.Infrastructure.DAL
                         ActiveProjects      = Col<int>(r,     "ActiveProjects"),
                         PendingApplications        = Col<int>(r, "PendingApplications"),
                         PendingProjectApplications = Col<int>(r, "PendingProjectApplications"),
+                        FollowerCount              = Col<int>(r, "FollowerCount"),
                     },
                     cmd => _db.AddParameter(cmd, "p_OrgId", orgId));
 
@@ -595,10 +596,10 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var result = await ExecuteWriteAsync("Org_ReviewMembership", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_MembershipRequestId", request.RequestId);
+                    _db.AddParameter(cmd, "p_RequestId", request.MembershipRequestId);
                     _db.AddParameter(cmd, "p_ReviewedBy",          reviewedBy);
                     _db.AddParameter(cmd, "p_StatusCode",          request.StatusCode);
-                    _db.AddParameter(cmd, "p_AdminNotes",          request.AdminNotes);
+                    _db.AddParameter(cmd, "p_ReviewNote",          request.AdminNotes);
                 });
                 return result.ToApiResponse();
             }
@@ -613,8 +614,12 @@ namespace NGOConnect.Infrastructure.DAL
         {
             try
             {
-                var rows = await ExecuteDynamicListAsync("Org_GetPendingMembers",
-                    cmd => _db.AddParameter(cmd, "p_OrgId", orgId));
+                var rows = await ExecuteDynamicListAsync("Org_GetPendingMembers", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_OrgId",      orgId);
+                    _db.AddParameter(cmd, "p_PageNumber", 1);
+                    _db.AddParameter(cmd, "p_PageSize",   100);  // all pending requests (typically small)
+                });
                 return ApiResponse<List<DynamicRow>>.Success(rows);
             }
             catch (Exception ex)
@@ -717,6 +722,42 @@ namespace NGOConnect.Infrastructure.DAL
             catch (Exception ex)
             {
                 Log.Error(ex, "ModeratePostAsync failed OrgId={OrgId} PostId={PostId}", orgId, postId);
+                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        public async Task<ApiResponse> FollowOrgAsync(int orgId, int userId)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("Org_Follow", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_OrgId",  orgId);
+                    _db.AddParameter(cmd, "p_UserId", userId);
+                });
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "FollowOrgAsync failed OrgId={OrgId} UserId={UserId}", orgId, userId);
+                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        public async Task<ApiResponse> UnfollowOrgAsync(int orgId, int userId)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("Org_Unfollow", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_OrgId",  orgId);
+                    _db.AddParameter(cmd, "p_UserId", userId);
+                });
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "UnfollowOrgAsync failed OrgId={OrgId} UserId={UserId}", orgId, userId);
                 return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
             }
         }

@@ -29,6 +29,26 @@ namespace NGOConnect.Core.Models.Post
         public int? VisibilityLkpId { get; set; }
     }
 
+    /// <summary>
+    /// Returned by GET /api/v1/post/permissions/{orgId}.
+    /// Tells the mobile client whether the logged-in user may create a post
+    /// for the given organisation right now.
+    /// </summary>
+    public class PostPermissionsModel
+    {
+        /// <summary>True if user is an APPROVED member of the org.</summary>
+        public bool IsMember       { get; set; }
+
+        /// <summary>Org admin's per-member posting toggle (OrgMembers.CanPost).</summary>
+        public bool CanPost        { get; set; }
+
+        /// <summary>Max posts allowed per calendar day (OrgMembers.MaxPostsPerDay).</summary>
+        public int  MaxPostsPerDay { get; set; }
+
+        /// <summary>Posts this user has already created today for this org.</summary>
+        public int  TodayPostCount { get; set; }
+    }
+
     public class AddCommentRequest
     {
         [Required(ErrorMessage = "Content is required")]

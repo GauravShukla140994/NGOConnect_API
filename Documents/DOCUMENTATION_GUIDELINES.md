@@ -13,10 +13,10 @@ change must be applied carefully before releasing a new version.
 
 | File | Purpose |
 |---|---|
-| `NGOConnect_Complete_Setup_v4.5.sql` | Single-run DB script — tables, seed data, all SPs |
-| `Database_Documentation_v4.5.md` | Full DB reference — tables, columns, indexes, SP signatures, parameters, return values |
-| `API_Documentation_v4.5.docx` | API reference for frontend/mobile teams — endpoints, request bodies, responses, auth |
-| `NGOConnect_Postman_Collection_v4.5.json` | Ready-to-import Postman collection — all endpoints with sample request bodies |
+| `NGOConnect_Complete_Setup_v4.6.sql` | Single-run DB script — tables, seed data, all SPs |
+| `Database_Documentation_v4.6.md` | Full DB reference — tables, columns, indexes, SP signatures, parameters, return values |
+| `API_Documentation_v4.6.docx` | API reference for frontend/mobile teams — endpoints, request bodies, responses, auth |
+| `NGOConnect_Postman_Collection_v4.6.json` | Ready-to-import Postman collection — all endpoints with sample request bodies |
 
 ---
 
@@ -153,57 +153,103 @@ When there is a conflict between files, this priority order applies:
 
 ---
 
+
 ## Current Pending Document Updates
 
-<!-- All Super Admin module changes (2026-07-11 sessions) applied to all 4 documents ✅ -->
-<!-- Version bumped: v4.4 → v4.5 (2026-07-11). Active files are now v4.5. -->
-<!-- Patch file: NGOConnect_Patch_v4.5_Complete.sql covers all v4.4→v4.5 changes for Railway staging/prod -->
-<!-- Next pending items are backend-build tasks — no document updates needed until those are built -->
+<!-- Added 2026-07-12: NGO Follow feature (Source: NGOConnect_Patch_OrgFollow.sql) -->
+<!-- Added 2026-07-12: FollowerCount on Admin Dashboard (Source: NGOConnect_Patch_DashboardFollowers.sql) -->
+<!-- Added 2026-07-12: Org_GetVolunteerProfile SP fix (Source: NGOConnect_Patch_VolunteerProfileFix.sql) -->
+<!-- Added 2026-07-12: Post_GetPermissions SP + endpoint (Source: NGOConnect_Patch_PostPermissions.sql) -->
 
-### Backend build (Steps 1–4) — COMPLETE 2026-07-11, docs not yet updated
+**`NGOConnect_Complete_Setup_v4.6.sql`** — already updated in-file ✅
+- NEW SP `Post_GetPermissions(p_OrgId, p_UserId)` — returns IsMember, CanPost, MaxPostsPerDay, TodayPostCount; always one row; used by mobile before opening Create Post modal
 
-All four steps below are now built end-to-end (SQL + C# DAL/interface/controller) and the
-frontend (`Website` repo `/admin`) has been reconciled to the real field names. Apply to all
-4 maintained documents next time the user says "update documents".
+**`API_Documentation_v4.6.docx`**
+- NEW endpoint: GET /api/v1/post/permissions/{orgId} — returns PostPermissionsModel (isMember, canPost, maxPostsPerDay, todayPostCount); Authorize required
 
-**Not yet done — needs the user:**
-- Run `Documents/NGOConnect_Patch_SuperAdminModule_Members_Dashboard.sql` against local (and later staging/prod) MySQL — creates the `Users.ProfileVerificationLkpId` column, `PROFILE_VERIFICATION_STATUS` lookup, and re-creates `SuperAdmin_Org_GetDetail` / `SuperAdmin_Org_GetList` (both gained new output columns) plus 9 brand-new SPs. Safe to re-run (idempotent).
-- `dotnet build` the solution — no .NET SDK was available in this environment, so all C# changes were verified by manual read-through only, never compiled.
-- **⚠️ OPEN QUESTION, still unresolved:** `AuthDal` never checks `Users.IsActive`, so `SuperAdmin_User_Suspend` blocks continuing an existing session (revokes refresh tokens) but does NOT block a suspended member from starting a brand-new login. Fixing this means editing existing `AuthDal.cs` — out of scope for the isolated Super Admin module without explicit sign-off. Ask the user before touching it.
+**`NGOConnect_Postman_Collection_v4.6.json`**
+- Add GET /post/permissions/{{orgId}} sample request
+- NEW TABLE `OrgFollowers`: OrgFollowerId, OrgId, UserId, IsFollowing TINYINT(1), FollowedAt, UnfollowedAt — soft-unfollow pattern; UNIQUE KEY (OrgId, UserId)
+- NEW COLUMN `Organisations.FollowerCount` INT UNSIGNED DEFAULT 0 — denormalized, maintained by Org_Follow / Org_Unfollow SPs
+- NEW SP `Org_Follow(p_OrgId, p_UserId)` — INSERT ... ON DUPLICATE KEY UPDATE; increments FollowerCount; idempotent (returns success if already following)
+- NEW SP `Org_Unfollow(p_OrgId, p_UserId)` — soft-unfollow (IsFollowing=0, UnfollowedAt=NOW()); decrements FollowerCount with GREATEST floor; idempotent
+- UPDATED SP `Org_GetProfile` — adds `FollowerCount` + `IsFollowing` (0|1 subquery on OrgFollowers for p_UserId)
+- UPDATED SP `Post_GetFeed` — adds `IsFollowing` (0|1) per post based on post's OrgId and p_UserId
+- UPDATED SP `Org_List` — adds `FollowerCount` from denormalized column
+- UPDATED SP `Org_GetDashboard` — adds `FollowerCount` subquery (reads from Organisations.FollowerCount)
+- UPDATED SP `Org_GetVolunteerProfile` — fixed: AttendanceStatus → AttendStatusLkpId via declared vars; pa.ProjectId → JOIN ProjectSessions; ReliabilityPct rewritten as HAVING aggregate
 
-#### Step 1 — Org Status History
-- `Database_Documentation_v4.5.md` → Add `SuperAdmin_Org_GetStatusHistory(p_OrgId)`. Returns: OrgStatusHistoryId, OldStatus, OldStatusName, NewStatus, NewStatusName, Reason, ChangedByType, ChangedBy, CreatedAt. ORDER BY CreatedAt DESC.
-- `API_Documentation_v4.5.docx` → Add `GET /superadmin/orgs/{orgId}/history`
-- `NGOConnect_Postman_Collection_v4.5.json` → Add request "Get Org Status History" to Super Admin folder
-- `NGOConnect_Complete_Setup_v4.5.sql` → Already contains `SuperAdmin_Org_GetStatusHistory` (appended this session)
+**`Database_Documentation_v4.6.md`**
+- Add OrgFollowers table documentation (all columns, indexes, FKs)
+- Add FollowerCount column to Organisations table documentation
+- Add Org_Follow SP documentation (params, return, behaviour)
+- Add Org_Unfollow SP documentation (params, return, behaviour)
+- Update Org_GetProfile SP — add FollowerCount + IsFollowing to return columns
+- Update Post_GetFeed SP — add IsFollowing to return columns
+- Update Org_List SP — add FollowerCount to return columns
+- Update Org_GetDashboard SP — add FollowerCount to return columns
 
-#### Step 2 — Member / User Admin Module
-- `Database_Documentation_v4.5.md` → New column `Users.ProfileVerificationLkpId INT UNSIGNED NULL`; new LookupType `PROFILE_VERIFICATION_STATUS` (PENDING, VERIFIED, NEEDS_UPDATE); add 9 new SPs: `SuperAdmin_User_GetList` (now includes `Role`), `SuperAdmin_User_GetFullProfile` (5 result sets: profile, skills, interests, badges, other-orgs), `SuperAdmin_User_GetDocuments`, `SuperAdmin_UserDocument_Verify`, `SuperAdmin_User_VerifyProfile`, `SuperAdmin_User_RequestUpdate`, `SuperAdmin_User_Suspend`, `SuperAdmin_User_Reactivate`
-- `API_Documentation_v4.5.docx` → Add 8 endpoints: `GET /superadmin/members`, `GET /superadmin/members/{userId}`, `GET /superadmin/members/{userId}/documents`, `PUT /superadmin/members/documents/verify` (body: `{userDocumentId, isVerified}`), `PUT /superadmin/members/{userId}/verify-profile`, `PUT /superadmin/members/request-update`, `PUT /superadmin/members/{userId}/suspend`, `PUT /superadmin/members/{userId}/reactivate`
-- `NGOConnect_Postman_Collection_v4.5.json` → Add 8 requests to Super Admin folder
-- `NGOConnect_Complete_Setup_v4.5.sql` → Already contains the `ALTER TABLE`, lookup seed, and all 8 SPs (appended this session)
+**`API_Documentation_v4.6.docx`**
+- NEW endpoint: POST /api/v1/org/{orgId}/follow — follow an NGO (Authorize required)
+- NEW endpoint: DELETE /api/v1/org/{orgId}/follow — unfollow an NGO (Authorize required)
+- Both return ApiResponse (no data payload); IsSuccess=1 even if already following/unfollowing (idempotent)
+- Update GET /api/v1/org/{orgId} response — new fields: followerCount (int), isFollowing (0|1)
+- Update GET /api/v1/feed response — new field per post: isFollowing (0|1)
+- Update GET /api/v1/org/list response — new field per item: followerCount (int)
 
-#### Step 3 — Dashboard KPIs
-- `Database_Documentation_v4.5.md` → Add `SuperAdmin_Dashboard_GetKpis()` (TotalOrgs, PendingOrgs, TotalVolunteers, ActiveVolunteersLast30Days, TotalDonationsAmount) and `SuperAdmin_Org_GetRecent(p_Limit)`
-- `API_Documentation_v4.5.docx` → Add `GET /superadmin/dashboard` (flat KPI fields + `recentOrgs` array)
-- `NGOConnect_Postman_Collection_v4.5.json` → Add "Get Dashboard" request
-- `NGOConnect_Complete_Setup_v4.5.sql` → Already contains both SPs (appended this session)
+**`NGOConnect_Postman_Collection_v4.6.json`**
+- Add POST /org/{{orgId}}/follow sample request
+- Add DELETE /org/{{orgId}}/follow sample request
+<!-- Version bumped: v4.5 → v4.6 (2026-07-12). Active files are now v4.6. -->
+<!-- Patch file: NGOConnect_Patch_v4.6.sql — apply to Railway staging to bring it current -->
+<!-- Rule: next version bump happens ONLY when changes are deployed to Railway staging -->
 
-#### Step 4 — CORS for Website React App
-- Done for local dev only: `appsettings.Development.json` `Cors:AllowedOrigins` now includes `http://localhost:5173` and `http://localhost:4173`. Production origin still needs to be confirmed with the user and added to `appsettings.json`/Railway config before prod deploy.
-- `API_Documentation_v4.5.docx` → Add CORS note once prod origin is confirmed.
+### v4.6 — Applied ✅ (2026-07-12)
 
-#### Additional SP enhancements this session (isolated SPs, safe to modify per isolation rule)
-- `SuperAdmin_Org_GetDetail` → added `MemberCount` (subquery, counts APPROVED `OrgMembers`) so the Organisations drawer can show a real member count instead of a permanently blank field
-- `SuperAdmin_Org_GetList` → added `OrgType` (was missing entirely — the Organisations list "Type" column was silently blank before this fix)
-- Both changes are in `NGOConnect_Complete_Setup_v4.5.sql` and in the standalone patch file — need the same `Database_Documentation_v4.5.md` / `API_Documentation_v4.5.docx` updates as above (new response fields on `GET /superadmin/orgs` and `GET /superadmin/orgs/{orgId}`)
+All changes below are reflected in all 4 v4.6 documents.
+
+- `Users.ProfileVerificationLkpId` column + FK → LookupValues
+- `PROFILE_VERIFICATION_STATUS` LookupType + 3 values (PENDING, VERIFIED, NEEDS_UPDATE)
+- `SuperAdmin_Org_GetList` updated — adds `orgType` response field
+- `SuperAdmin_Org_GetDetail` updated — adds `memberCount` (APPROVED members) response field
+- 11 new SPs: `SuperAdmin_Org_GetStatusHistory`, `SuperAdmin_User_GetList`, `SuperAdmin_User_GetFullProfile`, `SuperAdmin_User_GetDocuments`, `SuperAdmin_UserDocument_Verify`, `SuperAdmin_User_VerifyProfile`, `SuperAdmin_User_RequestUpdate`, `SuperAdmin_User_Suspend`, `SuperAdmin_User_Reactivate`, `SuperAdmin_Dashboard_GetKpis`, `SuperAdmin_Org_GetRecent`
+- 10 new API endpoints in API_Documentation_v4.6.docx and Postman v4.6
+- C# fixes: `SuperAdminDal.cs` `Get<bool?>()` / `Get<int?>()` (CS0019 fix); BCrypt.Net-Next 4.0.3 → 4.2.0 (NU1605 fix)
 
 ---
 
-### Outstanding (future sessions — backend bugs flagged, no backend work yet)
+### Pending — SP Fixes (patch applied, setup SQL + docs not yet updated)
 
-- `Community_CreatePost` SP: Add params `p_IsPinned`, `p_NotifyAll`, `p_AllowBestAnswer`, `p_EventReference`, `p_WhatChanged` (mobile sends these; SP does not yet accept them)
+- `SuperAdmin_User_GetList`: `JOIN OrgMembers` → `LEFT JOIN` + `LEFT JOIN LookupValues sv` on status + `HAVING` clause. Now shows: (1) new users with no org connection, (2) approved members only. Pending membership users excluded. OrgNames shows APPROVED orgs only. JoinedAt falls back to `u.CreatedAt` for new users. Patch addendum added to `NGOConnect_Patch_v4.6.sql` (2026-07-12). **Needs: setup SQL + Database_Documentation update on next version.**
+
+---
+
+### Pending — C# Endpoints for v4.6 SPs (SPs exist in DB, C# not yet built)
+
+When these are built, append to this section immediately and apply to all 4 docs on next "update documents".
+
+#### Member Admin endpoints (`/superadmin/members/*`)
+**⚠️ OPEN QUESTION (unresolved):** `AuthDal` does NOT check `Users.IsActive` on login. So `SuperAdmin_User_Suspend` blocks existing sessions (revokes refresh tokens) but a suspended user can still start a brand-new login. Fixing this requires editing existing `AuthDal.cs`. **Get explicit user sign-off before touching AuthDal.**
+
+Build needed:
+- `ISuperAdminDal` + `SuperAdminDal`: add 9 methods (`GetMembersAsync`, `GetMemberProfileAsync`, `GetMemberDocumentsAsync`, `VerifyMemberDocumentAsync`, `VerifyMemberProfileAsync`, `RequestMemberUpdateAsync`, `SuspendMemberAsync`, `ReactivateMemberAsync`)
+- `SuperAdminController`: add 9 endpoints (`GET /members`, `GET /members/{userId}`, `GET /members/{userId}/documents`, `PUT /members/documents/verify`, `PUT /members/{userId}/verify-profile`, `PUT /members/request-update`, `PUT /members/{userId}/suspend`, `PUT /members/{userId}/reactivate`)
+
+#### Dashboard endpoint (`GET /superadmin/dashboard`)
+Build needed:
+- `ISuperAdminDal` + `SuperAdminDal`: `GetDashboardAsync()` — calls `SuperAdmin_Dashboard_GetKpis` + `SuperAdmin_Org_GetRecent(10)`
+- `SuperAdminController`: `GET /superadmin/dashboard`
+
+#### CORS — Production origin
+- Once Railway/Vercel/Netlify prod URL is confirmed, add to `appsettings.json` Cors:AllowedOrigins
+- Then update `API_Documentation_v4.6.docx` with the CORS note
+
+---
+
+### Outstanding — Future Sessions (backend bugs, no work yet)
+
+- `Community_CreatePost` SP: Add params `p_IsPinned`, `p_NotifyAll`, `p_AllowBestAnswer`, `p_EventReference`, `p_WhatChanged`
 - `Community_CreatePoll` SP: Add params `p_IsMultiChoice`, `p_AudienceLkpId`
-- New endpoint: `PATCH /community/post/{id}/pin` — does not exist in backend yet
-- New endpoint: `DELETE /community/post/{id}` — does not exist in backend yet
-- `Post_Report` SP: sets `PostReports.StatusLkpId` by looking up `ORG_STATUS` type instead of `REPORT_STATUS` — copy-paste bug, flagged for future fix
+- New endpoint: `PATCH /community/post/{id}/pin` — not yet built
+- New endpoint: `DELETE /community/post/{id}` — not yet built
+- `Post_Report` SP: looks up `ORG_STATUS` instead of `REPORT_STATUS` — copy-paste bug, fix in a future session

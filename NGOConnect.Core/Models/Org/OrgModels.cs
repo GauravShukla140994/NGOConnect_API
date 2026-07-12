@@ -81,6 +81,7 @@ namespace NGOConnect.Core.Models.Org
         public int     ActiveProjects      { get; set; }   // Projects with ACTIVE status
         public int     PendingApplications        { get; set; }   // Membership requests awaiting review
         public int     PendingProjectApplications { get; set; }   // Volunteer project applications awaiting review
+        public int     FollowerCount              { get; set; }   // Denormalized from Organisations.FollowerCount
     }
 
     // ── Add Member ──────────────────────────────────────────────────────────────
@@ -102,7 +103,7 @@ namespace NGOConnect.Core.Models.Org
     // ── Review Membership (v4.0) ────────────────────────────────────────────────
     public class ReviewMembershipRequest
     {
-        [Required] public int    RequestId  { get; set; }
+        [Required] public int    MembershipRequestId { get; set; }
         [Required] public string StatusCode { get; set; } = string.Empty; // APPROVED / REJECTED
         [MaxLength(500)] public string? AdminNotes { get; set; }
     }

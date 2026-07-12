@@ -5,6 +5,7 @@ namespace NGOConnect.Core.Interfaces
 {
     public interface IPostDal
     {
+        Task<ApiResponse<PostPermissionsModel>>    GetPermissionsAsync(int orgId, int userId);
         Task<ApiResponse<DynamicRow>>              CreateAsync(int userId, CreatePostRequest request);
         Task<ApiResponse<PagedResult<DynamicRow>>> GetFeedAsync(int userId, int pageNumber, int pageSize);
         Task<ApiResponse<DynamicRow>>              GetByIdAsync(int postId, int userId);
