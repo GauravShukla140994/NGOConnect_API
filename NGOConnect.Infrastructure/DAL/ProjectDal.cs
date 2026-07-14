@@ -190,10 +190,8 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var result = await ExecuteWriteAsync("Project_AddSkill", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_ProjectId",  projectId);
-                    _db.AddParameter(cmd, "p_UserId",     userId);
-                    _db.AddParameter(cmd, "p_SkillName",  request.SkillName);
-                    _db.AddParameter(cmd, "p_IsRequired", request.IsRequired);
+                    _db.AddParameter(cmd, "p_ProjectId", projectId);
+                    _db.AddParameter(cmd, "p_SkillName", request.SkillName);
                 });
                 return result.ToApiResponse();
             }
@@ -281,8 +279,8 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var result = await ExecuteWriteAsync("Project_CheckIn", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_UserId",  userId);
-                    _db.AddParameter(cmd, "p_QrToken", request.QrToken);
+                    _db.AddParameter(cmd, "p_QrCode", request.QrToken);
+                    _db.AddParameter(cmd, "p_UserId", userId);
                 });
                 return result.ToApiResponse();
             }
@@ -297,10 +295,13 @@ namespace NGOConnect.Infrastructure.DAL
         {
             try
             {
-                var result = await ExecuteWriteAsync("Project_Apply", cmd =>
+                // Project_Apply SP does not exist — routes through Application_Apply (same SP, no motivation needed for quick-join)
+                var result = await ExecuteWriteAsync("Application_Apply", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_ProjectId", projectId);
-                    _db.AddParameter(cmd, "p_UserId",    userId);
+                    _db.AddParameter(cmd, "p_ProjectId",         projectId);
+                    _db.AddParameter(cmd, "p_UserId",            userId);
+                    _db.AddParameter(cmd, "p_Motivation",        (object?)null);
+                    _db.AddParameter(cmd, "p_RequestedSessions", (object?)null);
                 });
                 return result.ToApiResponse();
             }
@@ -359,8 +360,9 @@ namespace NGOConnect.Infrastructure.DAL
                 var result = await ExecuteWriteAsync("Project_Complete", cmd =>
                 {
                     _db.AddParameter(cmd, "p_ProjectId",       projectId);
-                    _db.AddParameter(cmd, "p_UserId",          userId);
-                    _db.AddParameter(cmd, "p_CompletionNotes", request.CompletionNotes);
+                    _db.AddParameter(cmd, "p_CompletedBy",     userId);
+                    _db.AddParameter(cmd, "p_ImpactSummary",   request.CompletionNotes);
+                    _db.AddParameter(cmd, "p_BeneficiaryCount", request.BeneficiaryCount);
                 });
                 return result.ToApiResponse();
             }

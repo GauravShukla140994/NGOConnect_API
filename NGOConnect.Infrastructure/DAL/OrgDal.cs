@@ -40,8 +40,11 @@ namespace NGOConnect.Infrastructure.DAL
                     return ApiResponse<DynamicRow>.Failure(result.Message, "ORG_REGISTER_FAILED");
 
                 var orgId = Col<int>(result.Row!, "OrgId");
-                var row = await ExecuteDynamicGetAsync("Org_GetProfile",
-                    cmd => _db.AddParameter(cmd, "p_OrgId", orgId));
+                var row = await ExecuteDynamicGetAsync("Org_GetProfile", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_OrgId",  orgId);
+                    _db.AddParameter(cmd, "p_UserId", userId);
+                });
 
                 return ApiResponse<DynamicRow>.Success(row!, result.Message);
             }
@@ -186,8 +189,7 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_Category",   category);
                     _db.AddParameter(cmd, "p_PageNumber", pageNumber);
                     _db.AddParameter(cmd, "p_PageSize",   pageSize);
-                    _db.AddParameter(cmd, "p_Lat",        lat.HasValue ? (object)lat.Value : DBNull.Value);
-                    _db.AddParameter(cmd, "p_Lng",        lng.HasValue ? (object)lng.Value : DBNull.Value);
+                    // p_Lat / p_Lng removed — Org_List SP does not accept these params
                 });
 
                 return ApiResponse<PagedResult<OrgListItemModel>>.Success(paged);
@@ -535,10 +537,10 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var result = await ExecuteWriteAsync("Org_AddMember", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_OrgId",      orgId);
-                    _db.AddParameter(cmd, "p_RequestedBy", requestedBy);
-                    _db.AddParameter(cmd, "p_UserId",     request.UserId);
-                    _db.AddParameter(cmd, "p_RoleLkpId",  request.RoleLkpId);
+                    _db.AddParameter(cmd, "p_OrgId",    orgId);
+                    _db.AddParameter(cmd, "p_UserId",   request.UserId);
+                    _db.AddParameter(cmd, "p_RoleCode", request.RoleCode);
+                    _db.AddParameter(cmd, "p_AddedBy",  requestedBy);
                 });
                 return result.ToApiResponse();
             }
@@ -555,9 +557,9 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var result = await ExecuteWriteAsync("Org_RemoveMember", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_OrgId",      orgId);
-                    _db.AddParameter(cmd, "p_UserId",     userId);
-                    _db.AddParameter(cmd, "p_RequestedBy", requestedBy);
+                    _db.AddParameter(cmd, "p_OrgId",     orgId);
+                    _db.AddParameter(cmd, "p_UserId",    userId);
+                    _db.AddParameter(cmd, "p_RemovedBy", requestedBy);
                 });
                 return result.ToApiResponse();
             }
@@ -635,9 +637,9 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var result = await ExecuteWriteAsync("Org_UpdateMemberPermissions", cmd =>
                 {
+                    _db.AddParameter(cmd, "p_OrgMemberId",          request.MemberId);
                     _db.AddParameter(cmd, "p_OrgId",                orgId);
                     _db.AddParameter(cmd, "p_UpdatedBy",            updatedBy);
-                    _db.AddParameter(cmd, "p_MemberId",             request.MemberId);
                     _db.AddParameter(cmd, "p_CanPost",              request.CanPost);
                     _db.AddParameter(cmd, "p_CanComment",           request.CanComment);
                     _db.AddParameter(cmd, "p_CanCommunityPost",     request.CanCommunityPost);

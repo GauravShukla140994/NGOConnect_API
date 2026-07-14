@@ -140,6 +140,7 @@ namespace NGOConnect.Infrastructure.DAL
                 {
                     _db.AddParameter(cmd, "p_PostId", postId);
                     _db.AddParameter(cmd, "p_UserId", userId);
+                    _db.AddParameter(cmd, "p_Pin",    true);
                 });
                 return result.ToApiResponse();
             }

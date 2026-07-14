@@ -14,7 +14,7 @@ namespace NGOConnect.Infrastructure.DAL
 
         public async Task<List<SettingModel>> GetByGroupAsync(string group)
             => await ExecuteListAsync("Settings_GetByGroup", MapSetting, cmd =>
-                _db.AddParameter(cmd, "p_SettingGroup", group));
+                _db.AddParameter(cmd, "p_Group", group));
 
         public async Task<List<SettingModel>> GetAllAsync()
             => await ExecuteListAsync("Settings_GetAll", MapSetting);
@@ -23,9 +23,9 @@ namespace NGOConnect.Infrastructure.DAL
         {
             var result = await ExecuteWriteAsync("Settings_Update", cmd =>
             {
-                _db.AddParameter(cmd, "p_SettingKey",   key);
-                _db.AddParameter(cmd, "p_SettingValue", value);
-                _db.AddParameter(cmd, "p_UpdatedBy",    updatedBy);
+                _db.AddParameter(cmd, "p_Key",       key);
+                _db.AddParameter(cmd, "p_Value",     value);
+                _db.AddParameter(cmd, "p_UpdatedBy", updatedBy);
             });
             return result.ToApiResponse();
         }

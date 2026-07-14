@@ -36,12 +36,12 @@ namespace NGOConnect.Core.Models.Application
 
     public class ReviewApplicationRequest
     {
-        /// <summary>LookupValueId from TypeCode='APPLICATION_STATUS' (APPROVED / REJECTED)</summary>
-        [Required(ErrorMessage = "StatusLkpId is required")]
-        [Range(1, int.MaxValue, ErrorMessage = "Invalid StatusLkpId")]
-        public int StatusLkpId { get; set; }   // was Status string
+        /// <summary>ValueCode from TypeCode='APPLICATION_STATUS' — e.g. APPROVED / REJECTED</summary>
+        [Required(ErrorMessage = "StatusCode is required")]
+        [MaxLength(20)]
+        public string StatusCode { get; set; } = string.Empty;
 
-        /// <summary>Maps to DB column: RejectionReason</summary>
-        public string? Note { get; set; }
+        /// <summary>Maps to DB column: RejectionReason. Required when StatusCode = REJECTED.</summary>
+        public string? RejectionReason { get; set; }
     }
 }

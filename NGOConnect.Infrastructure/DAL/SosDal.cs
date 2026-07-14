@@ -286,8 +286,8 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var row = await ExecuteDynamicGetAsync("Sos_GetLatestLocation", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_SosIncidentId", sosIncidentId);
-                    _db.AddParameter(cmd, "p_UserId",        userId);
+                    _db.AddParameter(cmd, "p_SosIncidentId",    sosIncidentId);
+                    _db.AddParameter(cmd, "p_RequestingUserId", userId);
                 });
                 return row is null
                     ? ApiResponse<DynamicRow>.Failure("Location not available or access denied.", "NOT_FOUND")

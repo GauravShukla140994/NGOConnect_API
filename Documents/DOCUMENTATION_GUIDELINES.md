@@ -13,10 +13,10 @@ change must be applied carefully before releasing a new version.
 
 | File | Purpose |
 |---|---|
-| `NGOConnect_Complete_Setup_v4.7.sql` | Single-run DB script — tables, seed data, all SPs |
-| `Database_Documentation_v4.7.md` | Full DB reference — tables, columns, indexes, SP signatures, parameters, return values |
-| `API_Documentation_v4.7.docx` | API reference for frontend/mobile teams — endpoints, request bodies, responses, auth |
-| `NGOConnect_Postman_Collection_v4.7.json` | Ready-to-import Postman collection — all endpoints with sample request bodies |
+| `NGOConnect_Complete_Setup_v4.8.sql` | Single-run DB script — tables, seed data, all SPs |
+| `Database_Documentation_v4.8.md` | Full DB reference — tables, columns, indexes, SP signatures, parameters, return values |
+| `API_Documentation_v4.8.docx` | API reference for frontend/mobile teams — endpoints, request bodies, responses, auth |
+| `NGOConnect_Postman_Collection_v4.8.json` | Ready-to-import Postman collection — all endpoints with sample request bodies |
 
 ---
 
@@ -159,6 +159,17 @@ When it is included in a Railway patch, update to `✅ Railway applied`.
 | `NGOConnect_Patch_CommunityLikesComments.sql` | LikeCount/CommentCount columns; 3 new tables; LikePost/AddComment/GetComments/LikeComment SPs | 🟡 Local only |
 | `NGOConnect_Patch_Community_Railway.sql` | **Combined patch containing all 4 above — apply this to Railway** | 🟡 Pending Railway |
 
+### v4.8 Patches (local only — pending Railway deployment)
+
+| File | What it covers | Status |
+|---|---|---|
+| `NGOConnect_Patch_PostLike_FieldFix.sql` | Post_GetFeed + Post_GetById: rename IsLikedByMe → IsLiked alias | 🟡 Local only |
+| `NGOConnect_Patch_ImpactRankFix.sql` | User_GetImpact: TotalRanked counts all active users (fixes "#1 of 0") | 🟡 Local only |
+| `NGOConnect_Patch_ContactUpdate.sql` | ADD_PHONE + ADD_EMAIL lookup seeds; User_SendContactOtp + User_VerifyContactOtp SPs | 🟡 Local only |
+| `NGOConnect_Patch_NearbyFeed.sql` | Project_GetNearbyFeed SP + ProjectSkills covering index (ProjectId, SkillName) | 🟡 Local only |
+| `NGOConnect_Patch_PersonalizedFeed.sql` | ALTER TABLE Posts (4 cols + index); PostSaves + FeedInteractions tables; 22 FEED_* Settings seeds; Feed_GetPersonalized, Post_Save, Post_Unsave, Feed_TrackInteraction SPs | 🟡 Local only |
+| `NGOConnect_Patch_ApplicationApply_Fix.sql` | Add RequestedSessions column to ProjectApplications if missing; fix Application_Apply SP — p_Note → p_Motivation + add p_RequestedSessions (DAL/SP param mismatch causing "An error occurred" on apply) | 🟡 Local only |
+
 ### Other Individual Patches (absorbed into versioned patches or superseded)
 
 | File | Absorbed into | Status |
@@ -240,153 +251,144 @@ When there is a conflict between files, this priority order applies:
 
 ## Current Pending Document Updates
 
-### Community Module fixes — 2026-07-12 (apply when user says "update documents")
+**Mobile — `CreateProjectScreen.tsx`**
+- GPS options: `enableHighAccuracy: true → false`, `maximumAge: 60000 → 300000` — fixes location not detected on tester devices (GPS satellite lock required indoors; network/WiFi location used instead, matching HomeScreen behaviour)
 
-**`NGOConnect_Complete_Setup_v4.7.sql`**
-- `Community_CreatePost` SP: fix default audience lookup TypeCode → `AUDIENCE_TYPE` (was wrong `POST_VISIBILITY`)
-- `Community_CreatePoll` SP: add `p_IsMultiChoice TINYINT(1)` param + persist `PollIsMultiChoice` in INSERT
-- `Community_CreatePoll` SP: fix default audience lookup TypeCode → `AUDIENCE_TYPE`
+**Mobile — `LiveLocationScreen.tsx`**
+- GPS options: `enableHighAccuracy: true → false`, `maximumAge: 15000 → 60000` — fixes "You" marker missing on SOS map for users indoors
+- Marker injection trigger: `mapReady` (WebView `onLoad`) → `tilesLoaded` (TILES_LOADED message) — fixes markers not appearing because `window.setMarker` (Leaflet) was not yet defined when `onLoad` fired (Leaflet loads from CDN after the HTML DOM is ready)
 
-**`NGOConnect_Patch_Community_Railway.sql`** (new combined Railway patch — already updated locally)
-- Community_GetFeed: upgraded to v4.3 (PollOptionsJson, RoleName, TimeAgo, PostTypeLkpCode)
-- Community_CreatePost: audience TypeCode fixed
-- Community_CreatePoll: p_IsMultiChoice added + audience TypeCode fixed
-- Patch registry entry for `NGOConnect_Patch_PollOptions_Feed.sql` corrected
+**`NGOConnect_Complete_Setup_v4.8.sql`**
+- `Application_Apply` SP: remove the duplicate DROP+CREATE block at the bottom of the file (line ~5506) that incorrectly uses `AppliedAt` column (not in v4.8 table schema) and lacks the duplicate-application check. The correct version already exists earlier in the file with `p_Motivation`, `p_RequestedSessions`, `CreatedBy`, and duplicate guard.
 
-**`API_Documentation_v4.6.docx`**
-- `POST /community/poll` request body: add `isMultiChoice` (boolean, optional, default false)
-- `GET /community/feed` response: add `pollEndsAt` (was pollExpiresAt), `timeAgo`, `roleName`, `postTypeLkpCode`, `pollOptions[].votePct`
+**`Database_Documentation_v4.8.md`**
+- `Application_Apply` SP: confirm params shown as `p_Motivation TEXT`, `p_RequestedSessions TEXT`
 
-**`Database_Documentation_v4.6.md`**
-- `Community_CreatePoll` SP: document `p_IsMultiChoice` parameter
-- `Community_GetFeed` SP: document v4.3 columns (PollOptionsJson, RoleName, TimeAgo, PostTypeLkpCode)
+**`API_Documentation_v4.8.docx`** — no change (endpoint signature unchanged)
+**`NGOConnect_Postman_Collection_v4.8.json`** — no change
 
-> ⚠️ **Railway Action Required** — Run `NGOConnect_Patch_Community_Railway.sql` on Railway staging before testing community page.
+---
 
-### User Contact Update Feature — 2026-07-12 (apply when user says "update documents")
+### Session: DAL→SP Parameter Mismatch Audit & Fix (2026-07-12/13)
 
-**`NGOConnect_Complete_Setup_v4.7.sql`**
-- LookupValues seed: added `ADD_PHONE` (OrderNo 5) and `ADD_EMAIL` (OrderNo 6) to `OTP_PURPOSE` type
-- New SP `User_SendContactOtp(p_UserId, p_Type, p_Value, p_OtpCode, p_IpAddress)`: duplicate check across other users + rate-limit + OTP insert
-- New SP `User_VerifyContactOtp(p_UserId, p_Type, p_Value, p_OtpCode, p_IpAddress)`: OTP verify + UPDATE Users.Email or Users.Mobile
+Comprehensive audit of all 156 SP calls across 11 DAL files. 25+ mismatches fixed.
 
-**`NGOConnect_Patch_ContactUpdate.sql`** (new Railway patch — already created locally)
-- Seeds ADD_PHONE + ADD_EMAIL lookup values
-- Creates User_SendContactOtp and User_VerifyContactOtp SPs
+**`NGOConnect.Core/Models/Application/ApplicationModels.cs`**
+- `ReviewApplicationRequest`: `StatusLkpId` (int) → `StatusCode` (string, MaxLength 20); `Note` → `RejectionReason` — matches `Application_Review` SP. ⚠️ API contract change: mobile app must now send `statusCode` (string) not `statusLkpId` (int)
 
-**`API_Documentation_v4.7.docx`**
-- `POST /user/contact/send-otp` — new endpoint; body: `{ type, value }` where type = "EMAIL" | "PHONE"
-- `POST /user/contact/verify` — new endpoint; body: `{ type, value, otpCode }`
+**`NGOConnect.Core/Models/Project/ProjectModels.cs`**
+- `CompleteProjectRequest`: added `BeneficiaryCount` (int?) — `Project_Complete` SP requires `p_BeneficiaryCount`
 
-**`Database_Documentation_v4.7.md`**
-- OTP_PURPOSE lookup: document ADD_PHONE and ADD_EMAIL values
-- Document User_SendContactOtp and User_VerifyContactOtp SP signatures and behaviour
+**`NGOConnect.Core/Models/Org/OrgModels.cs`**
+- `AddMemberRequest`: added `RoleCode` (string, MaxLength 50, default "MEMBER"); deprecated `RoleLkpId` (Obsolete attribute) — `Org_AddMember` SP takes `p_RoleCode` (string ValueCode), not int
 
-> ⚠️ **Railway Action Required** — Run `NGOConnect_Patch_ContactUpdate.sql` on Railway staging before testing contact update flow.
+**`NGOConnect.Infrastructure/DAL/ApplicationDal.cs`**
+- `GetByProjectAsync` (`Application_GetByProject`): `p_StatusLkpId` → `p_StatusCode`
+- `ReviewAsync` (`Application_Review`): `p_StatusLkpId` → `p_StatusCode`; `p_Note` → `p_RejectionReason`; field refs `request.StatusLkpId` → `request.StatusCode`; `request.Note` → `request.RejectionReason`
 
-### Post Like field name fix — 2026-07-12 (apply when user says "update documents")
+**`NGOConnect.Infrastructure/DAL/DonationDal.cs`**
+- `CreateCampaignAsync` (`Donation_CreateCampaign`): removed `p_UserId`; `p_GoalAmount` → `p_TargetAmount`; removed `p_BannerUrl`; added `p_CreatedBy`=userId; removed post-create `Donation_GetCampaignById` call (SP not in setup SQL) — returns DynamicRow from write result
+- `GetCampaignsAsync` (`Donation_GetCampaigns`): `p_Keyword` → `p_StatusCode`
+- `GetDonorsAsync` (`Donation_GetDonors`): added `p_OrgId = null`
+- `InitiateDonationAsync` (`Donation_Donate`): `p_Note` → `p_Message`; removed `p_PayMethodLkpId`; added `p_PaymentGatewayRef=null`, `p_IsRecurring=0`, `p_RecurringFrequencyLkpId=null`
+- `ConfirmPaymentAsync` (`Donation_ConfirmPayment`): removed `p_UserId`; `p_DonationRef` → `p_TransactionId`; added `p_StatusCode="COMPLETED"`, `p_GatewayResponse=null`
+- `PauseRecurringAsync` (`Donation_PauseRecurring`): `p_RecurringDonId` → `p_RecurringDonationId`
+- `ResumeRecurringAsync` (`Donation_ResumeRecurring`): `p_RecurringDonId` → `p_RecurringDonationId`
 
-**`NGOConnect_Complete_Setup_v4.7.sql`** (already fixed in-place)
-- `Post_GetFeed` SP: renamed column alias `IsLikedByMe` → `IsLiked` (DynamicRow was sending `isLikedByMe` but mobile reads `post.isLiked`)
-- `Post_GetById` SP: same rename `IsLikedByMe` → `IsLiked`
+**`NGOConnect.Infrastructure/DAL/OrgDal.cs`**
+- `RegisterAsync` post-create `Org_GetProfile` call: added `p_UserId` = userId
+- `ListAsync` (`Org_List`): removed `p_Lat` and `p_Lng` (SP does not accept these params)
+- `AddMemberAsync` (`Org_AddMember`): `p_RequestedBy` → `p_AddedBy`; `p_RoleLkpId` → `p_RoleCode` = `request.RoleCode`
+- `RemoveMemberAsync` (`Org_RemoveMember`): `p_RequestedBy` → `p_RemovedBy`
+- `UpdateMemberPermissionsAsync` (`Org_UpdateMemberPermissions`): `p_MemberId` → `p_OrgMemberId`
 
-**`NGOConnect_Patch_PostLike_FieldFix.sql`** (new Railway patch — already created locally)
-- Replaces `Post_GetFeed` and `Post_GetById` SPs with the `IsLiked` alias fix
+**`NGOConnect.Infrastructure/DAL/PostDal.cs`**
+- `PinAsync` (`Post_Pin`): added `p_Pin = true` (SP requires this boolean param)
 
-**`Database_Documentation_v4.7.md`**
-- `Post_GetFeed` SP return columns: rename `isLikedByMe` → `isLiked`
-- `Post_GetById` SP return columns: rename `isLikedByMe` → `isLiked`
+**`NGOConnect.Infrastructure/DAL/ProjectDal.cs`**
+- `AddSkillAsync` (`Project_AddSkill`): removed `p_UserId` and `p_IsRequired` (SP only takes `p_ProjectId`, `p_SkillName`)
+- `CheckInAsync` (`Project_CheckIn`): `p_QrToken` → `p_QrCode`
+- `CompleteAsync` (`Project_Complete`): `p_UserId` → `p_CompletedBy`; `p_CompletionNotes` → `p_ImpactSummary`; added `p_BeneficiaryCount` = `request.BeneficiaryCount`
+- `ApplyAsync`: SP call changed from non-existent `Project_Apply` → `Application_Apply` with `p_Motivation=null`, `p_RequestedSessions=null`
 
-> ⚠️ **Railway Action Required** — Run `NGOConnect_Patch_PostLike_FieldFix.sql` on Railway staging to fix like persistence.
+**`NGOConnect.Infrastructure/DAL/SettingsDal.cs`**
+- `GetByGroupAsync` (`Settings_GetByGroup`): `p_SettingGroup` → `p_Group`
+- `UpdateAsync` (`Settings_Update`): `p_SettingKey` → `p_Key`; `p_SettingValue` → `p_Value`
 
-### Impact rank "#1 of 0" fix — 2026-07-12 (apply when user says "update documents")
+**`NGOConnect.Infrastructure/DAL/SosDal.cs`**
+- `GetLatestLocationAsync` (`Sos_GetLatestLocation`): `p_UserId` → `p_RequestingUserId`
 
-**`NGOConnect_Complete_Setup_v4.7.sql`** (already fixed in-place)
-- `User_GetImpact` SP: `TotalRanked` query changed — removed `ImpactScore > 0` filter so all active non-deleted users are counted (fixes "#1 of 0" for new users with 0 score)
-- `User_GetImpact` SP: `RankNumber` query: added `up2.IsDeleted = 0` for consistency
+**`NGOConnect.Infrastructure/DAL/BadgeDal.cs`**
+- `AwardAsync` (`UserBadge_Award`): added `p_OrgId = null`; fixed param order to match SP (`p_UserId, p_BadgeLkpId, p_AwardedBy, p_OrgId, p_ProjectId`)
 
-**`NGOConnect_Patch_ImpactRankFix.sql`** (new Railway patch — already created locally)
-- Replaces `User_GetImpact` SP with the TotalRanked fix
+**`NGOConnect.Infrastructure/DAL/SkillRatingDal.cs`**
+- `AddRatingAsync` (`UserSkillRating_Add`): `p_RaterUserId` → `p_RatedBy`; `p_RatedUserId` → `p_UserId`; `p_UserSkillId` → `p_SkillId`; `p_Review` → `p_Notes`; added `p_OrgId = null`
 
-**`Database_Documentation_v4.7.md`**
-- `User_GetImpact`: document that `TotalRanked` counts all active users (not just ImpactScore > 0)
+**`NGOConnect.Infrastructure/DAL/WithdrawalDal.cs`**
+- `CreateAsync` (`Withdrawal_Create`): `p_UserId` → `p_RequestedBy`; `p_BankAccount` → `p_BankAccountNumber`; `p_IfscCode` → `p_BankIfsc`; `p_AccountHolder` → `p_BankAccountName`; `p_Purpose` → `p_Notes`
+- `AdminReviewAsync` (`Withdrawal_AdminReview`): `p_WithdrawalId` → `p_WithdrawalRequestId`
 
-> ⚠️ **Railway Action Required** — Run `NGOConnect_Patch_ImpactRankFix.sql` on Railway staging to fix "#1 of 0" on Impact screen.
+**`NGOConnect_Complete_Setup_v4.8.sql` + `NGOConnect_Patch_NearbyFeed.sql`**
+- `Project_GetNearbyFeed`: EXISTS filter updated — was excluding PENDING/APPROVED only; now excludes ANY non-deleted application (PENDING, APPROVED, REJECTED, WITHDRAWN, ATTENDED, NO_SHOW). A project the user has ever applied to is hidden from their nearby feed. Re-appears only if project completes, a new cycle starts, and admin re-activates it. Removes the JOIN on LookupValues + ValueCode filter from both SELECT and TotalCount queries (simpler, faster — no extra JOIN needed)
+- `Application_Apply`: no change needed — existing `IsDeleted = 0` check already blocks re-application for all statuses
 
-### Nearby Feed algorithm — 2026-07-12 (apply when user says "update documents")
+### Session: Safe Area Fixes — Bottom Sheet Modals (2026-07-13)
 
-**`NGOConnect_Complete_Setup_v4.7.sql`** (already added in-place)
-- New SP `Project_GetNearbyFeed(p_UserId, p_UserLat, p_UserLon, p_PageNumber, p_PageSize)`
-  - Filters: ACTIVE/UPCOMING, IsPublic=1, no existing PENDING/APPROVED application, DistanceKm ≤ 1000
-  - RelevanceScore: +5 NGO member, +3 NGO follower, +2/skill match (cap 3 = max +6), +3 interest/category match
-  - Sort: 10 km band ASC → RelevanceScore DESC → DistanceKm ASC → CreatedAt DESC
-  - Projects without GPS coordinates sorted last (pseudo-band 999999)
-  - Returns 2 result sets: main rows + TotalCount
+**Mobile only — no API, DB, or document changes required.**
 
-**`NGOConnect_Patch_NearbyFeed.sql`** (new Railway patch — already created locally)
-- Creates `Project_GetNearbyFeed` SP
+Root cause: `useSafeAreaInsets()` inside React Native `Modal` on Android returns `insets.bottom = 0` because the Modal renders in a new native window that does not receive the JS-side SafeAreaProvider context. Fix: replace all `paddingBottom: insets.bottom + X` patterns inside Modals with `<SafeAreaView edges={['bottom']} style={{ minHeight: X }} />` spacers — native SafeAreaView reads insets at the native layer.
 
-**`API_Documentation_v4.7.docx`**
-- New endpoint `GET /api/v1/project/nearby-feed` — requires auth
-  - Query params: `userLat` (decimal?), `userLon` (decimal?), `pageNumber` (int, default 1), `pageSize` (int, default 10)
-  - Response: `PagedResult<Project>` — same fields as Project_List plus `distanceKm` (null if no GPS) and `relevanceScore`
+**`App/NGOConnectApp/src/screens/home/HomeScreen.tsx`**
+- Report Post modal (`reportSheet`): removed `paddingBottom: 32` from StyleSheet; added `<SafeAreaView edges={['bottom']} style={{ minHeight: 16 }} />` as last child of `<Pressable style={styles.reportSheet}>` — fixes "Submit Report" button hidden behind 3-button nav bar
 
-**`Database_Documentation_v4.7.md`**
-- Document `Project_GetNearbyFeed` SP: params, algorithm, return columns (DistanceKm, RelevanceScore, ApprovedCount)
+**`App/NGOConnectApp/src/screens/ngo/NgoProfileScreen.tsx`** (local `ProjectDetailModal`)
+- Apply footer: removed `{ paddingBottom: insets.bottom + 12 }` inline style from `<View style={mdStyles.applyFooter}>`; added `<SafeAreaView edges={['bottom']} style={{ minHeight: 12 }} />` as last child — fixes "Apply for Selected Sessions" button overlapping nav bar
 
-**`NGOConnect_Postman_Collection_v4.7.json`**
-- Add request `GET /project/nearby-feed?userLat=&userLon=&pageNumber=1&pageSize=10` under Project folder
+**`App/NGOConnectApp/src/components/profile/ContactUpdateModal.tsx`**
+- Replaced `import { useSafeAreaInsets }` with `import { SafeAreaView }` from react-native-safe-area-context
+- Removed `const insets = useSafeAreaInsets();` hook call
+- Changed `<View style={[s.sheet, { paddingBottom: Math.max(insets.bottom + 16, 32) }]}>` → `<View style={s.sheet}>`
+- Added `<SafeAreaView edges={['bottom']} style={{ minHeight: 16 }} />` as last child of the sheet — fixes "Send OTP →" button hidden behind nav bar
 
-> ⚠️ **Railway Action Required** — Run `NGOConnect_Patch_NearbyFeed.sql` on Railway staging before testing home screen Nearby Opportunities.
-> ⚠️ Patch now also includes `ALTER TABLE ProjectSkills DROP INDEX / ADD INDEX idx_projskill_project (ProjectId, SkillName)` — covering index for the skill-match subquery. Safe to run live.
+---
 
-**`Database_Documentation_v4.7.md`** (add under ProjectSkills table)
-- `idx_projskill_project` index changed from `(ProjectId)` → `(ProjectId, SkillName)` — covering index for `Project_GetNearbyFeed` skill-match subquery
+**Still deferred (SPs missing from setup SQL — fix when user instructs):**
+- `Settings_GetAll` SP does not exist in setup SQL; `SettingsDal.GetAllAsync` calls it
+- `Project_Cancel` SP does not exist in setup SQL; `ProjectDal.CancelAsync` calls it
+- `Donation_CancelRecurring` (`DonationDal.CancelRecurringAsync`): `p_RecurringDonId` → `p_RecurringDonationId` (needs SP verification first)
+- Missing SPs to add to setup SQL: `Feed_GetPersonalized`, `Feed_TrackInteraction`, `Post_Save`, `Post_Unsave`, `Notification_SaveDeviceToken`, `Donation_GetReceipt`, `Donation_GetCampaignById`, `Donation_SetupRecurring`, `Donation_CancelRecurring`, `Project_Cancel`, all SuperAdmin SPs
 
-### Phase 1 Personalised Feed Algorithm — 2026-07-12 (apply when user says "update documents")
-
-**`NGOConnect_Complete_Setup_v4.7.sql`** (already added in-place)
-- `ALTER TABLE Posts` — new columns: `IsEmergency TINYINT(1)`, `IsEvergreen TINYINT(1)`, `ShareCount INT UNSIGNED`, `SaveCount INT UNSIGNED`; new index `idx_post_emergency (IsEmergency, CreatedAt)`
-- **NEW TABLE** `PostSaves` — UserId, PostId, SavedAt; UNIQUE KEY (UserId, PostId)
-- **NEW TABLE** `FeedInteractions` — UserId, PostId, InteractionType (ENUM), OccurredAt, DurationMs; INDEX (PostId, InteractionType), INDEX (UserId, OccurredAt)
-- **22 Settings seeds** — all keys prefixed `FEED_*` (e.g. `FEED_WEIGHT_MY_ORG`, `FEED_WEIGHT_EMERGENCY`, `FEED_MAX_SAME_ORG_WINDOW`, etc.) in group `FEED`
-- **NEW SP** `Feed_GetPersonalized(p_UserId, p_CursorPostId, p_CursorScore, p_PageSize)` — multi-source scored feed (MY_ORG 200, FOLLOWED_ORG 200, TRENDING 100, EMERGENCY 50, INTEREST 100, RECENT 100 candidates); inline scoring formula; cursor-based pagination `(FeedScore DESC, PostId DESC)`; IsEmergency adds +1000 override
-- **NEW SP** `Post_Save(p_UserId, p_PostId)` — idempotent insert into PostSaves + increment `Posts.SaveCount`
-- **NEW SP** `Post_Unsave(p_UserId, p_PostId)` — delete from PostSaves + decrement `Posts.SaveCount` (GREATEST n-1, 0)
-- **NEW SP** `Feed_TrackInteraction(p_UserId, p_PostId, p_InteractionType, p_DurationMs)` — fire-and-forget insert into FeedInteractions
-
-**`NGOConnect_Patch_PersonalizedFeed.sql`** (new Railway patch — already created locally)
-- ALTER TABLE Posts + CREATE TABLE PostSaves + CREATE TABLE FeedInteractions
-- 22 FEED_* Settings seeds (INSERT IGNORE)
-- Feed_GetPersonalized, Post_Save, Post_Unsave, Feed_TrackInteraction SPs
-
-**`API_Documentation_v4.7.docx`** — new `FeedController` endpoints:
-- `GET /api/v1/feed/personalized` — `[Authorize]`; query params: `cursorPostId?` (int), `cursorScore?` (decimal), `pageSize` (int, default 20); response: `ApiResponse<FeedPageResult>` with `items[]`, `nextCursorPostId`, `nextCursorScore`, `hasMore`
-- `POST /api/v1/feed/post/{postId}/save` — `[Authorize]`; saves post to user's collection
-- `DELETE /api/v1/feed/post/{postId}/save` — `[Authorize]`; removes post from saved collection
-- `POST /api/v1/feed/interaction` — `[Authorize]`; body: `{ postId, interactionType, durationMs? }`; interactionType: IMPRESSION | VIEW | LIKE | COMMENT | SHARE | SAVE | VOLUNTEER_CLICK | DONATION_CLICK | NGO_VISIT | HIDE | REPORT
-
-**`NGOConnect_Postman_Collection_v4.7.json`**
-- Add request `GET /feed/personalized?pageSize=20` (first page — no cursor params)
-- Add request `GET /feed/personalized?cursorPostId=123&cursorScore=850.5&pageSize=20` (subsequent page)
-- Add request `POST /feed/post/{{postId}}/save`
-- Add request `DELETE /feed/post/{{postId}}/save`
-- Add request `POST /feed/interaction` — body: `{ "postId": 1, "interactionType": "VIEW", "durationMs": 3000 }`
-
-**`Database_Documentation_v4.7.md`**
-- Document `PostSaves` table: columns, UNIQUE KEY, purpose
-- Document `FeedInteractions` table: columns, ENUMs, indexes, purpose
-- Document altered `Posts` table columns: IsEmergency, IsEvergreen, ShareCount, SaveCount, idx_post_emergency index
-- Document `Feed_GetPersonalized` SP: params, candidate sources, scoring formula, diversity engine (C#-side), cursor pagination
-- Document `Post_Save` and `Post_Unsave` SPs: params, idempotency, counter maintenance
-- Document `Feed_TrackInteraction` SP: params, fire-and-forget nature, future AI training use
-- Document 22 `FEED_*` Settings seeds: group FEED, list keys with default values
-
-> ⚠️ **Railway Action Required** — Run `NGOConnect_Patch_PersonalizedFeed.sql` on Railway staging before testing personalised feed endpoint.
-
-<!-- Version bumped: v4.6 → v4.7 (2026-07-12). Active files are now v4.7. -->
-<!-- Patch file: NGOConnect_Patch_v4.7.sql — apply to Railway staging to bring it current -->
+<!-- Version bumped: v4.7 → v4.8 (2026-07-13). Active files are now v4.8. -->
 <!-- Rule: next version bump happens ONLY when changes are deployed to Railway staging -->
+
+### v4.8 — Applied ✅ (2026-07-13)
+
+All changes below are reflected in all 4 v4.8 documents.
+
+- **NEW TABLE** `PostSaves` — UserId, PostId, SavedAt; UNIQUE KEY (UserId, PostId)
+- **NEW TABLE** `FeedInteractions` — UserId, PostId, InteractionType, OccurredAt, DurationMs; 2 indexes
+- **NEW COLUMNS** `Posts.IsEmergency`, `Posts.IsEvergreen`, `Posts.ShareCount`, `Posts.SaveCount` + `idx_post_emergency (IsEmergency, CreatedAt)` index
+- **COVERING INDEX** `ProjectSkills.idx_projskill_project (ProjectId, SkillName)` — replaces single-col index
+- **LOOKUP VALUES** `OTP_PURPOSE`: ADD_PHONE (OrderNo 5), ADD_EMAIL (OrderNo 6)
+- **22 FEED_* Settings seeds** (group FEED) — algorithm weights + window sizes
+- **NEW SP** `User_SendContactOtp(p_UserId, p_Type, p_Value, p_OtpCode, p_IpAddress)` — duplicate check + rate-limit + OTP insert
+- **NEW SP** `User_VerifyContactOtp(p_UserId, p_Type, p_Value, p_OtpCode, p_IpAddress)` — OTP verify + update Email/Mobile
+- **NEW SP** `Project_GetNearbyFeed(p_UserId, p_UserLat, p_UserLon, p_PageNumber, p_PageSize)` — geo-scored opportunities
+- **NEW SP** `Feed_GetPersonalized(p_UserId, p_CursorPostId, p_CursorScore, p_PageSize)` — cursor-paginated algorithmic feed
+- **NEW SP** `Post_Save(p_UserId, p_PostId)` — idempotent save + SaveCount increment
+- **NEW SP** `Post_Unsave(p_UserId, p_PostId)` — unsave + SaveCount decrement
+- **NEW SP** `Feed_TrackInteraction(p_UserId, p_PostId, p_InteractionType, p_DurationMs)` — fire-and-forget interaction log
+- **FIXED SP** `Post_GetFeed` — IsLikedByMe → IsLiked alias
+- **FIXED SP** `Post_GetById` — IsLikedByMe → IsLiked alias
+- **FIXED SP** `User_GetImpact` — TotalRanked counts all active users (not just ImpactScore > 0)
+- **FIXED SP** `Community_CreatePost` — audience TypeCode AUDIENCE_TYPE (was POST_VISIBILITY)
+- **FIXED SP** `Community_CreatePoll` — added p_IsMultiChoice param; audience TypeCode fix
+- **FIXED SP** `Community_GetFeed` — v4.3 columns: PollOptionsJson, RoleName, TimeAgo, PostTypeLkpCode
+- **NEW endpoints** POST /user/contact/send-otp, POST /user/contact/verify
+- **NEW endpoint** GET /project/nearby-feed
+- **NEW endpoints** GET /feed/personalized, POST /feed/post/{postId}/save, DELETE /feed/post/{postId}/save, POST /feed/interaction
+
+---
 
 ### v4.7 — Applied ✅ (2026-07-12)
 

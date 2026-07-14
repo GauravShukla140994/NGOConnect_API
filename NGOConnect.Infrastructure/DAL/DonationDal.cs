@@ -15,24 +15,25 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var result = await ExecuteWriteAsync("Donation_CreateCampaign", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_UserId",            userId);
-                    _db.AddParameter(cmd, "p_OrgId",             request.OrgId);
-                    _db.AddParameter(cmd, "p_Title",             request.Title);
-                    _db.AddParameter(cmd, "p_Description",       request.Description);
-                    _db.AddParameter(cmd, "p_GoalAmount",        request.GoalAmount);
-                    _db.AddParameter(cmd, "p_StartDate",         request.StartDate);
-                    _db.AddParameter(cmd, "p_EndDate",           request.EndDate);
-                    _db.AddParameter(cmd, "p_BannerUrl",         request.BannerUrl);
+                    _db.AddParameter(cmd, "p_OrgId",            request.OrgId);
+                    _db.AddParameter(cmd, "p_Title",            request.Title);
+                    _db.AddParameter(cmd, "p_Description",      request.Description);
+                    _db.AddParameter(cmd, "p_TargetAmount",     request.GoalAmount);
+                    _db.AddParameter(cmd, "p_StartDate",        request.StartDate);
+                    _db.AddParameter(cmd, "p_EndDate",          request.EndDate);
                     _db.AddParameter(cmd, "p_CampaignTypeLkpId", request.CampaignTypeLkpId);
+                    _db.AddParameter(cmd, "p_CreatedBy",        userId);
                 });
 
                 if (!result.Succeeded)
                     return ApiResponse<DynamicRow>.Failure(result.Message, "CAMPAIGN_CREATE_FAILED");
 
+                // Return campaignId from the write result (Donation_GetCampaignById SP not yet in setup SQL)
                 var campaignId = Col<int>(result.Row!, "CampaignId");
-                var row = await ExecuteDynamicGetAsync("Donation_GetCampaignById",
-                    cmd => _db.AddParameter(cmd, "p_CampaignId", campaignId));
-                return ApiResponse<DynamicRow>.Success(row!, result.Message);
+                var data = new DynamicRow();
+                data["campaignId"] = campaignId;
+                data["message"]    = result.Message;
+                return ApiResponse<DynamicRow>.Success(data, result.Message);
             }
             catch (Exception ex)
             {
@@ -48,7 +49,7 @@ namespace NGOConnect.Infrastructure.DAL
                 var paged = await ExecuteDynamicPagedListAsync("Donation_GetCampaigns", pageNumber, pageSize, cmd =>
                 {
                     _db.AddParameter(cmd, "p_OrgId",      orgId);
-                    _db.AddParameter(cmd, "p_Keyword",    keyword);
+                    _db.AddParameter(cmd, "p_StatusCode", keyword);   // filter by status code (ACTIVE/COMPLETED etc); variable named 'keyword' for compat
                     _db.AddParameter(cmd, "p_PageNumber", pageNumber);
                     _db.AddParameter(cmd, "p_PageSize",   pageSize);
                 });
@@ -84,9 +85,10 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var paged = await ExecuteDynamicPagedListAsync("Donation_GetDonors", pageNumber, pageSize, cmd =>
                 {
+                    _db.AddParameter(cmd, "p_OrgId",      (object?)null);   // no org context; SP filters by campaignId
                     _db.AddParameter(cmd, "p_CampaignId", campaignId);
-                    _db.AddParameter(cmd, "p_PageNumber",  pageNumber);
-                    _db.AddParameter(cmd, "p_PageSize",    pageSize);
+                    _db.AddParameter(cmd, "p_PageNumber", pageNumber);
+                    _db.AddParameter(cmd, "p_PageSize",   pageSize);
                 });
                 return ApiResponse<PagedResult<DynamicRow>>.Success(paged);
             }
@@ -103,12 +105,14 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var row = await ExecuteDynamicGetAsync("Donation_Donate", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_UserId",          userId);
-                    _db.AddParameter(cmd, "p_CampaignId",      request.CampaignId);
-                    _db.AddParameter(cmd, "p_Amount",          request.Amount);
-                    _db.AddParameter(cmd, "p_Note",            request.Note);
-                    _db.AddParameter(cmd, "p_IsAnonymous",     request.IsAnonymous ? 1 : 0);
-                    _db.AddParameter(cmd, "p_PayMethodLkpId",  request.PayMethodLkpId);
+                    _db.AddParameter(cmd, "p_UserId",                   userId);
+                    _db.AddParameter(cmd, "p_CampaignId",               request.CampaignId);
+                    _db.AddParameter(cmd, "p_Amount",                   request.Amount);
+                    _db.AddParameter(cmd, "p_PaymentGatewayRef",        (object?)null);   // set after Razorpay order creation
+                    _db.AddParameter(cmd, "p_IsAnonymous",              request.IsAnonymous ? 1 : 0);
+                    _db.AddParameter(cmd, "p_IsRecurring",              0);
+                    _db.AddParameter(cmd, "p_RecurringFrequencyLkpId",  (object?)null);
+                    _db.AddParameter(cmd, "p_Message",                  request.Note);
                 });
                 return row is null
                     ? ApiResponse<DynamicRow>.Failure("Could not initiate donation.", "DONATE_FAILED")
@@ -127,8 +131,9 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var result = await ExecuteWriteAsync("Donation_ConfirmPayment", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_UserId",      userId);
-                    _db.AddParameter(cmd, "p_DonationRef", request.DonationRef);
+                    _db.AddParameter(cmd, "p_TransactionId",    request.DonationRef);   // Razorpay payment_id = TransactionId
+                    _db.AddParameter(cmd, "p_StatusCode",       "COMPLETED");
+                    _db.AddParameter(cmd, "p_GatewayResponse",  (object?)null);
                 });
                 return result.ToApiResponse();
             }
@@ -214,8 +219,8 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var result = await ExecuteWriteAsync("Donation_PauseRecurring", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_RecurringDonId", recurringId);
-                    _db.AddParameter(cmd, "p_UserId",         userId);
+                    _db.AddParameter(cmd, "p_RecurringDonationId", recurringId);
+                    _db.AddParameter(cmd, "p_UserId",              userId);
                 });
                 return result.ToApiResponse();
             }
@@ -232,8 +237,8 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var result = await ExecuteWriteAsync("Donation_ResumeRecurring", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_RecurringDonId", recurringId);
-                    _db.AddParameter(cmd, "p_UserId",         userId);
+                    _db.AddParameter(cmd, "p_RecurringDonationId", recurringId);
+                    _db.AddParameter(cmd, "p_UserId",              userId);
                 });
                 return result.ToApiResponse();
             }

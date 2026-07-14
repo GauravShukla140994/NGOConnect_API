@@ -74,7 +74,8 @@ namespace NGOConnect.Core.Models.Project
     // ── Complete Project (v4.0) ──────────────────────────────────────────────────
     public class CompleteProjectRequest
     {
-        [MaxLength(1000)] public string? CompletionNotes { get; set; }
+        [MaxLength(1000)] public string? CompletionNotes  { get; set; }   // maps to SP p_ImpactSummary
+        public int? BeneficiaryCount { get; set; }
     }
 
     // ── Cancel Project ────────────────────────────────────────────────────────────

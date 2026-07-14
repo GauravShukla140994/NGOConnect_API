@@ -15,9 +15,10 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var result = await ExecuteWriteAsync("UserBadge_Award", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_AwardedBy",  awardedBy);
                     _db.AddParameter(cmd, "p_UserId",     request.UserId);
                     _db.AddParameter(cmd, "p_BadgeLkpId", request.BadgeLkpId);
+                    _db.AddParameter(cmd, "p_AwardedBy",  awardedBy);
+                    _db.AddParameter(cmd, "p_OrgId",      (object?)null);   // no org context in standalone badge award
                     _db.AddParameter(cmd, "p_ProjectId",  request.ProjectId);
                 });
                 return result.ToApiResponse();

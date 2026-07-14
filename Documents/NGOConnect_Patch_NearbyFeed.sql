@@ -20,7 +20,7 @@
 -- Filters:
 --   Status = ACTIVE or UPCOMING
 --   IsPublic = 1
---   User has no PENDING or APPROVED application for the project
+--   User has no application for the project (ANY status — PENDING/APPROVED/REJECTED etc.)
 --   DistanceKm ≤ 1000 km (projects without GPS sort last at band 999999)
 -- No table changes — SP only.
 -- ============================================================
@@ -143,14 +143,13 @@ BEGIN
       -- Only projects with a map pin — no pin = not a nearby opportunity
       AND  p.Latitude  IS NOT NULL
       AND  p.Longitude IS NOT NULL
-      -- Exclude projects the user already has an active application for
+      -- Exclude projects the user has ever applied to (any status).
+      -- Hidden until the project completes and is re-activated as a new cycle.
       AND  NOT EXISTS(
                SELECT 1 FROM ProjectApplications pa
-               JOIN LookupValues alv ON pa.StatusLkpId = alv.LookupValueId
                WHERE pa.ProjectId = p.ProjectId
                  AND pa.UserId    = p_UserId
                  AND pa.IsDeleted = 0
-                 AND alv.ValueCode IN ('PENDING', 'APPROVED')
            )
       -- Distance guard: only within 1000 km when user GPS is available
       AND (
@@ -199,11 +198,9 @@ BEGIN
       AND  p.Longitude IS NOT NULL
       AND  NOT EXISTS(
                SELECT 1 FROM ProjectApplications pa
-               JOIN LookupValues alv ON pa.StatusLkpId = alv.LookupValueId
                WHERE pa.ProjectId = p.ProjectId
                  AND pa.UserId    = p_UserId
                  AND pa.IsDeleted = 0
-                 AND alv.ValueCode IN ('PENDING', 'APPROVED')
            )
       AND (
             p_UserLat IS NULL OR p_UserLon IS NULL

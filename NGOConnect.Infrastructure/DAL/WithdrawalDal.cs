@@ -15,14 +15,14 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var result = await ExecuteWriteAsync("Withdrawal_Create", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_OrgId",         orgId);
-                    _db.AddParameter(cmd, "p_UserId",        userId);
-                    _db.AddParameter(cmd, "p_CampaignId",    request.CampaignId);
-                    _db.AddParameter(cmd, "p_Amount",        request.Amount);
-                    _db.AddParameter(cmd, "p_BankAccount",   request.BankAccount);
-                    _db.AddParameter(cmd, "p_IfscCode",      request.IfscCode);
-                    _db.AddParameter(cmd, "p_AccountHolder", request.AccountHolder);
-                    _db.AddParameter(cmd, "p_Purpose",       request.Purpose);
+                    _db.AddParameter(cmd, "p_OrgId",             orgId);
+                    _db.AddParameter(cmd, "p_CampaignId",        request.CampaignId);
+                    _db.AddParameter(cmd, "p_Amount",            request.Amount);
+                    _db.AddParameter(cmd, "p_BankAccountName",   request.AccountHolder);  // account holder name
+                    _db.AddParameter(cmd, "p_BankAccountNumber", request.BankAccount);    // account number
+                    _db.AddParameter(cmd, "p_BankIfsc",          request.IfscCode);
+                    _db.AddParameter(cmd, "p_Notes",             request.Purpose);
+                    _db.AddParameter(cmd, "p_RequestedBy",       userId);
                 });
 
                 if (!result.Succeeded)
@@ -66,10 +66,10 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var result = await ExecuteWriteAsync("Withdrawal_AdminReview", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_WithdrawalId", request.WithdrawalId);
-                    _db.AddParameter(cmd, "p_ReviewedBy",   request.ReviewedBy);
-                    _db.AddParameter(cmd, "p_StatusCode",   request.StatusCode);
-                    _db.AddParameter(cmd, "p_AdminNotes",   request.AdminNotes);
+                    _db.AddParameter(cmd, "p_WithdrawalRequestId", request.WithdrawalId);
+                    _db.AddParameter(cmd, "p_StatusCode",          request.StatusCode);
+                    _db.AddParameter(cmd, "p_AdminNotes",          request.AdminNotes);
+                    _db.AddParameter(cmd, "p_ReviewedBy",          request.ReviewedBy);
                 });
                 return result.ToApiResponse();
             }

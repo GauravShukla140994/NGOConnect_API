@@ -37,7 +37,7 @@ namespace NGOConnect.Infrastructure.DAL
                 var paged = await ExecuteDynamicPagedListAsync("Application_GetByProject", pageNumber, pageSize, cmd =>
                 {
                     _db.AddParameter(cmd, "p_ProjectId",   projectId);
-                    _db.AddParameter(cmd, "p_StatusLkpId", statusLkpId);
+                    _db.AddParameter(cmd, "p_StatusCode", statusLkpId);
                     _db.AddParameter(cmd, "p_PageNumber",  pageNumber);
                     _db.AddParameter(cmd, "p_PageSize",    pageSize);
                 });
@@ -58,8 +58,8 @@ namespace NGOConnect.Infrastructure.DAL
                 {
                     _db.AddParameter(cmd, "p_ApplicationId", applicationId);
                     _db.AddParameter(cmd, "p_ReviewedBy",    reviewedBy);
-                    _db.AddParameter(cmd, "p_StatusLkpId",   request.StatusLkpId);
-                    _db.AddParameter(cmd, "p_Note",          request.Note);
+                    _db.AddParameter(cmd, "p_StatusCode",       request.StatusCode);
+                    _db.AddParameter(cmd, "p_RejectionReason", request.RejectionReason);
                 });
                 return result.ToApiResponse();
             }

@@ -87,8 +87,11 @@ namespace NGOConnect.Core.Models.Org
     // ── Add Member ──────────────────────────────────────────────────────────────
     public class AddMemberRequest
     {
-        [Required] public int UserId   { get; set; }
-        [Required] public int RoleLkpId { get; set; }
+        [Required] public int    UserId   { get; set; }
+        /// <summary>ValueCode from LookupType MEMBER_ROLE — e.g. MEMBER, COORDINATOR, ADMIN</summary>
+        [Required][MaxLength(50)] public string RoleCode { get; set; } = "MEMBER";
+        [Obsolete("Use RoleCode (string ValueCode). RoleLkpId is no longer passed to Org_AddMember SP.")]
+        public int? RoleLkpId { get; set; }
     }
 
     // ── Request Membership (v4.0) ───────────────────────────────────────────────
