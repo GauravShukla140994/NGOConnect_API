@@ -198,6 +198,25 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
+        public async Task<ApiResponse> VerifyOrgProfileAsync(int orgId, string statusCode, int superAdminUserId)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("SuperAdmin_Org_VerifyProfile", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_OrgId",          orgId);
+                    _db.AddParameter(cmd, "p_StatusCode",     statusCode);
+                    _db.AddParameter(cmd, "p_SuperAdminId",   superAdminUserId);
+                });
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "VerifyOrgProfileAsync failed OrgId={OrgId} StatusCode={StatusCode}", orgId, statusCode);
+                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
         public async Task<ApiResponse> ApproveOrgAsync(int orgId, int superAdminUserId)
         {
             try

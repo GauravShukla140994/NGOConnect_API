@@ -58,6 +58,11 @@ namespace NGOConnect.API.Controllers
         public async Task<ApiResponse> VerifyOrgDocument([FromBody] VerifyOrgDocumentRequest request)
             => await _superAdmin.VerifyOrgDocumentAsync(request, GetSuperAdminUserId());
 
+        // statusCode: PENDING | VERIFIED | REJECTED  (ORG_VERIFICATION_STATUS lookup)
+        [HttpPut("orgs/{orgId:int}/verify-profile")]
+        public async Task<ApiResponse> VerifyOrgProfile(int orgId, [FromQuery] string statusCode = "VERIFIED")
+            => await _superAdmin.VerifyOrgProfileAsync(orgId, statusCode, GetSuperAdminUserId());
+
         [HttpPut("orgs/{orgId:int}/approve")]
         public async Task<ApiResponse> ApproveOrg(int orgId)
             => await _superAdmin.ApproveOrgAsync(orgId, GetSuperAdminUserId());

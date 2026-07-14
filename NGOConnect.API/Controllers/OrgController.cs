@@ -86,9 +86,12 @@ namespace NGOConnect.API.Controllers
         public async Task<ApiResponse<List<DynamicRow>>> GetPendingMembers(int orgId)
             => await _org.GetPendingMembersAsync(orgId);
 
-        [HttpPut("{orgId:int}/members/permissions")] [Authorize]
-        public async Task<ApiResponse> UpdateMemberPermissions(int orgId, [FromBody] UpdateMemberPermissionsRequest request)
-            => await _org.UpdateMemberPermissionsAsync(orgId, GetUserId(), request);
+        [HttpPut("{orgId:int}/members/{memberId:int}/permissions")] [Authorize]
+        public async Task<ApiResponse> UpdateMemberPermissions(int orgId, int memberId, [FromBody] UpdateMemberPermissionsRequest request)
+        {
+            request.MemberId = memberId;
+            return await _org.UpdateMemberPermissionsAsync(orgId, GetUserId(), request);
+        }
 
         // s-admin-vols → change a member's role (VOLUNTEER / COORDINATOR / ADMIN)
         [HttpPut("{orgId:int}/members/role")] [Authorize]

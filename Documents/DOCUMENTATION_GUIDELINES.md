@@ -251,6 +251,24 @@ When there is a conflict between files, this priority order applies:
 
 ## Current Pending Document Updates
 
+**SQL — `NGOConnect_Complete_Setup_v4.8.sql`** (2026-07-14)
+- Added `REPORT_STATUS` to LookupTypes seed (`'Report Status'`, `'Review status of a post report'`)
+- Added seed values for `REPORT_STATUS`: `PENDING`, `REVIEWED`, `RESOLVED`
+- Removed duplicate/broken `Post_Report` SP (old version at ~line 2998 that took `p_ReasonLkpId INT` and used `ORG_STATUS`/PENDING for StatusLkpId — wrong type); the correct SP at line ~5855 remains (takes `p_ReasonCode VARCHAR(50)`, uses `REPORT_STATUS`/PENDING)
+- `Post_GetFeed` SP: added `NOT EXISTS (SELECT 1 FROM PostReports pr WHERE pr.PostId = p.PostId AND pr.ReportedByUserId = p_UserId)` to both main SELECT and TotalCount WHERE — reported posts are immediately hidden from the reporter's feed
+
+**SQL — `NGOConnect_Complete_Setup_v4.7.sql`** (2026-07-14)
+- `Feed_GetPersonalized` SP: same `NOT EXISTS` PostReports filter added to outer WHERE clause
+
+**Patch file** — `NGOConnect_Patch_PostReport_Fix.sql` — apply to Railway staging + production:
+- Seeds REPORT_STATUS lookup type + values
+- Backfills NULL StatusLkpId on existing PostReports rows
+- Replaces Post_Report SP (correct REPORT_STATUS lookup)
+- Replaces Post_GetFeed SP (reported posts hidden from reporter)
+
+**Mobile — `HomeScreen.tsx`** (2026-07-14)
+- `submitReport()`: now checks `res.data?.isSuccess` before calling `setReportDone(true)`; shows server error message if `isSuccess = 0` instead of silently showing fake success
+
 **Mobile — `CreateProjectScreen.tsx`**
 - GPS options: `enableHighAccuracy: true → false`, `maximumAge: 60000 → 300000` — fixes location not detected on tester devices (GPS satellite lock required indoors; network/WiFi location used instead, matching HomeScreen behaviour)
 
@@ -260,6 +278,113 @@ When there is a conflict between files, this priority order applies:
 
 **`NGOConnect_Complete_Setup_v4.8.sql`**
 - `Application_Apply` SP: remove the duplicate DROP+CREATE block at the bottom of the file (line ~5506) that incorrectly uses `AppliedAt` column (not in v4.8 table schema) and lacks the duplicate-application check. The correct version already exists earlier in the file with `p_Motivation`, `p_RequestedSessions`, `CreatedBy`, and duplicate guard.
+
+**Permission Enforcement — all 3 layers** (2026-07-14)
+(Patch file: `NGOConnect_Patch_PermissionEnforcement.sql` — apply to Railway staging + production)
+
+**SQL — `NGOConnect_Complete_Setup_v4.8.sql`**
+- `Post_GetPermissions` SP: added `CanComment` and `CanCommunityPost` columns to DECLARE + SELECT INTO + final SELECT (reads from OrgMembers)
+- `Post_Create` SP: wrapped INSERT logic in CanPost + MaxPostsPerDay gate — returns `IsSuccess=0` + message if either check fails; non-members are blocked
+- `Post_AddComment` SP: now looks up post's OrgId, checks OrgMembers.CanComment; non-members and members with CanComment=0 are blocked (returns `IsSuccess=0`); public posts (OrgId=0) are unrestricted
+- `Community_CreatePost` SP: checks OrgMembers.CanCommunityPost before INSERT; returns `IsSuccess=0` if blocked
+- `Community_CreatePoll` SP: checks OrgMembers.CanCommunityPost before INSERT; returns `IsSuccess=0` if blocked
+
+**C# — `NGOConnect.Core/Models/Post/PostModels.cs`**
+- `PostPermissionsModel`: added `CanComment` (bool) and `CanCommunityPost` (bool) properties
+
+**C# — `NGOConnect.Infrastructure/DAL/PostDal.cs`**
+- `GetPermissionsAsync`: added `CanComment` and `CanCommunityPost` column mappings
+
+**Mobile — `App/src/types/api.types.ts`**
+- `PostPermissions` interface: added `canComment: boolean` and `canCommunityPost: boolean`
+
+**Mobile — `App/src/screens/home/HomeScreen.tsx`**
+- Added `postPermsCache` ref (caches fetched permissions per org so comment gate reuses FAB-fetched data)
+- `handleComposeFabPress`: stores fetched permissions in `postPermsCache.current[orgId]` after FAB check
+- Added `handleCommentPress` callback: checks cached `canComment`; fetches if not cached; shows Alert if disabled; replaces `onCommentPress={p => setCommentPost(p)}`
+
+**Mobile — `App/src/screens/community/CommunityScreen.tsx`**
+- Added import: `feedApi` from `feed.api`
+- Added `communityPermChecking` state
+- Added `handleComposeFabPress` callback: checks `canCommunityPost` via `feedApi.getPostPermissions(orgId)` before opening NewPostModal
+- FAB `onPress` changed from `() => setShowModal(true)` → `handleComposeFabPress`
+
+---
+
+### Project Create/Update Fix (2026-07-14)
+
+**Root cause:** `Project_Create` and `Project_Update` SPs both referenced `RequiresApproval`, `GenderRestriction`, and `CoverImageUrl` columns in their INSERT/UPDATE statements. None of these columns exist in the `Projects` table. MySQL threw `Unknown column` on every project creation/edit, caught by the C# DAL as "An error occurred."
+
+**Note:** `p_RequiresApproval` parameter is still kept on both SPs — it is used in the logic to resolve `JoinTypeLkpId` (APPROVE_REQ vs OPEN_SIGNUP). It just no longer gets written to a non-existent column.
+
+**`NGOConnect_Complete_Setup_v4.8.sql`** — Fixed:
+- `Project_Create` INSERT: removed `RequiresApproval, GenderRestriction, CoverImageUrl` from column list and corresponding values
+- `Project_Update` SET: removed `RequiresApproval = ...`, `GenderRestriction = ...`, `CoverImageUrl = ...` lines
+
+**Patch file** — `NGOConnect_Patch_ProjectCreate_Fix.sql` — **apply to Railway staging + production immediately**:
+- DROP + CREATE `Project_Create` (fixed)
+- DROP + CREATE `Project_Update` (fixed)
+
+---
+
+### Verification Badges Feature (2026-07-14)
+
+**SQL — `NGOConnect_Complete_Setup_v4.8.sql`**
+- Added `ORG_VERIFICATION_STATUS` to LookupTypes seed; seed values: PENDING(1), VERIFIED(2), REJECTED(3)
+- Added `REJECTED` (OrderNo=4) to `PROFILE_VERIFICATION_STATUS` lookup values
+- Added `VerificationStatusLkpId INT UNSIGNED NULL` column + `INDEX idx_org_verification` to `Organisations` table
+- Added FK: `fk_orgs_verificationstatus` on `Organisations.VerificationStatusLkpId → LookupValues`
+- Updated `Org_GetProfile` SP: returns `COALESCE(vv.ValueCode, 'PENDING') AS VerificationStatusCode`
+- Updated `Org_ListRecommended` SP: returns `COALESCE(vv.ValueCode, 'PENDING') AS VerificationStatusCode`
+- Updated `Org_GetMembers` SP: returns `COALESCE(pv.ValueCode, 'PENDING') AS ProfileVerificationStatusCode`
+- Updated `Org_GetPendingMembers` SP: returns `COALESCE(pv.ValueCode, 'PENDING') AS ProfileVerificationStatusCode`
+- Added new SP: `SuperAdmin_Org_VerifyProfile(p_OrgId, p_StatusCode, p_SuperAdminId)`
+
+**Patch file** — `NGOConnect_Patch_VerificationBadges.sql` — apply to Railway staging + production:
+- Seeds ORG_VERIFICATION_STATUS + REJECTED to PROFILE_VERIFICATION_STATUS
+- ALTER TABLE Organisations ADD COLUMN VerificationStatusLkpId + INDEX + FK
+- DROP+CREATE for: Org_GetMembers, Org_GetPendingMembers, Org_GetProfile, Org_ListRecommended, SuperAdmin_Org_VerifyProfile
+
+**C# — `NGOConnect.Core/Interfaces/ISuperAdminDal.cs`**
+- Added `Task<ApiResponse> VerifyOrgProfileAsync(int orgId, string statusCode, int superAdminUserId)`
+
+**C# — `NGOConnect.Infrastructure/DAL/SuperAdminDal.cs`**
+- Added `VerifyOrgProfileAsync` implementation calling `SuperAdmin_Org_VerifyProfile` SP
+
+**C# — `NGOConnect.API/Controllers/SuperAdminController.cs`**
+- Added `PUT /api/v1/superadmin/orgs/{orgId}/verify-profile?statusCode=VERIFIED` endpoint
+
+**Mobile — `src/types/api.types.ts`**
+- `OrgMember` interface: added `profileVerificationStatusCode?: string`
+- `Organisation` interface: added `verificationStatusCode?: string`
+
+**Mobile — `src/components/profile/ProfileIncompleteSheet.tsx`** (NEW FILE)
+- Reusable bottom sheet for profile gate — shows missing items + routes to EditProfileScreen step
+
+**Mobile — `src/screens/profile/EditProfileScreen.tsx`**
+- Reads `route.params?.initialStep` to open on a specific step (Documents = 4)
+
+**Mobile — `src/screens/opportunities/AllOpportunitiesScreen.tsx`**
+- Profile gate before Apply: checks firstName+lastName, city, mobile, Govt Photo ID, Address Proof
+- Shows `ProfileIncompleteSheet` with missing items + deep-link to EditProfileScreen
+
+**Mobile — `src/screens/ngo/MyOrgsScreen.tsx`**
+- Profile gate before Create Org: same check as AllOpportunitiesScreen
+- Shows `ProfileIncompleteSheet` if profile incomplete
+
+**Mobile — `src/screens/admin/AdminVolunteersScreen.tsx`**
+- `PendingCard`: shows ✓ Verified badge next to member name when `profileVerificationStatusCode === 'VERIFIED'`
+- `MemberRow`: same verified badge
+
+**Mobile — `src/screens/ngo/NgoProfileScreen.tsx`**
+- Hero section: shows ✓ Verified badge next to org name when `verificationStatusCode === 'VERIFIED'`
+
+**Mobile — `src/screens/ngo/ExploreScreen.tsx`**
+- `OrgRowCard` (Recommended tab): shows ✓ badge next to org name
+- `OrgGridCard` (All NGOs tab): shows ✓ badge next to org name
+
+**API Documentation** — New endpoint: `PUT /api/v1/superadmin/orgs/{orgId}/verify-profile`
+**Postman Collection** — Add request for new verify-org-profile endpoint
 
 **`Database_Documentation_v4.8.md`**
 - `Application_Apply` SP: confirm params shown as `p_Motivation TEXT`, `p_RequestedSessions TEXT`

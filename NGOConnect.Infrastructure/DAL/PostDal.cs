@@ -16,10 +16,12 @@ namespace NGOConnect.Infrastructure.DAL
                 var model = await ExecuteGetAsync("Post_GetPermissions",
                     r => new PostPermissionsModel
                     {
-                        IsMember       = Col<bool>(r, "IsMember"),
-                        CanPost        = Col<bool>(r, "CanPost"),
-                        MaxPostsPerDay = Col<int>(r,  "MaxPostsPerDay"),
-                        TodayPostCount = Col<int>(r,  "TodayPostCount"),
+                        IsMember         = Col<bool>(r, "IsMember"),
+                        CanPost          = Col<bool>(r, "CanPost"),
+                        CanComment       = Col<bool>(r, "CanComment"),
+                        CanCommunityPost = Col<bool>(r, "CanCommunityPost"),
+                        MaxPostsPerDay   = Col<int>(r,  "MaxPostsPerDay"),
+                        TodayPostCount   = Col<int>(r,  "TodayPostCount"),
                     },
                     cmd =>
                     {

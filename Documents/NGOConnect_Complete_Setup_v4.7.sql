@@ -7998,6 +7998,10 @@ BEGIN
         LEFT JOIN LookupValues lv_mt   ON lv_mt.LookupValueId   = pm.MediaTypeLkpId
 
         WHERE p.IsDeleted = 0
+          AND NOT EXISTS (
+              SELECT 1 FROM PostReports pr
+              WHERE pr.PostId = p.PostId AND pr.ReportedByUserId = p_UserId
+          )
 
         GROUP BY
             p.PostId,      p.Content,       p.IsPinned,    p.IsEmergency, p.IsEvergreen,

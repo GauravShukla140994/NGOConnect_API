@@ -18,6 +18,7 @@ namespace NGOConnect.Core.Interfaces
         Task<ApiResponse<DynamicRow>>              GetOrgDetailAsync(int orgId);
         Task<ApiResponse<List<DynamicRow>>>        GetOrgDocumentsAsync(int orgId);
         Task<ApiResponse>                          VerifyOrgDocumentAsync(VerifyOrgDocumentRequest request, int superAdminUserId);
+        Task<ApiResponse>                          VerifyOrgProfileAsync(int orgId, string statusCode, int superAdminUserId);
         Task<ApiResponse>                          ApproveOrgAsync(int orgId, int superAdminUserId);
         Task<ApiResponse>                          RejectOrgAsync(RejectOrgRequest request, int superAdminUserId);
         Task<ApiResponse>                          SuspendOrgAsync(SuspendOrgRequest request, int superAdminUserId);

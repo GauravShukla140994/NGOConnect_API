@@ -37,16 +37,22 @@ namespace NGOConnect.Core.Models.Post
     public class PostPermissionsModel
     {
         /// <summary>True if user is an APPROVED member of the org.</summary>
-        public bool IsMember       { get; set; }
+        public bool IsMember          { get; set; }
 
         /// <summary>Org admin's per-member posting toggle (OrgMembers.CanPost).</summary>
-        public bool CanPost        { get; set; }
+        public bool CanPost           { get; set; }
+
+        /// <summary>Org admin's per-member commenting toggle (OrgMembers.CanComment).</summary>
+        public bool CanComment        { get; set; }
+
+        /// <summary>Org admin's toggle for community posts/polls (OrgMembers.CanCommunityPost).</summary>
+        public bool CanCommunityPost  { get; set; }
 
         /// <summary>Max posts allowed per calendar day (OrgMembers.MaxPostsPerDay).</summary>
-        public int  MaxPostsPerDay { get; set; }
+        public int  MaxPostsPerDay    { get; set; }
 
         /// <summary>Posts this user has already created today for this org.</summary>
-        public int  TodayPostCount { get; set; }
+        public int  TodayPostCount    { get; set; }
     }
 
     public class AddCommentRequest

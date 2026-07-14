@@ -278,12 +278,14 @@ CREATE TABLE Organisations (
     CreatedBy       INT UNSIGNED    NOT NULL,
     UpdatedAt       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UpdatedBy       INT UNSIGNED    NULL,
-    FollowerCount   INT UNSIGNED    NOT NULL DEFAULT 0    COMMENT 'Denormalized follower count — maintained by Org_Follow / Org_Unfollow SPs',
+    FollowerCount           INT UNSIGNED    NOT NULL DEFAULT 0    COMMENT 'Denormalized follower count — maintained by Org_Follow / Org_Unfollow SPs',
+    VerificationStatusLkpId INT UNSIGNED    NULL     COMMENT 'Super Admin document/legal verification state — FK to ORG_VERIFICATION_STATUS LookupType',
     PRIMARY KEY (OrgId),
     UNIQUE KEY uq_org_regnumber (RegNumber, IsDeleted),
-    INDEX idx_org_status   (StatusLkpId, IsDeleted),
-    INDEX idx_org_city     (City, IsDeleted),
-    INDEX idx_org_category (Category, IsDeleted)
+    INDEX idx_org_status       (StatusLkpId, IsDeleted),
+    INDEX idx_org_city         (City, IsDeleted),
+    INDEX idx_org_category     (Category, IsDeleted),
+    INDEX idx_org_verification (VerificationStatusLkpId)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE OrgDocuments (
@@ -1100,6 +1102,7 @@ INSERT INTO LookupTypes (TypeCode, TypeName, Description, IsSystemType, CreatedB
 ('POST_TYPE_COMMUNITY', 'Community Post Type',       'Type of post in an org community',             1, 1),
 ('POST_VISIBILITY',     'Post Visibility',           'Who can see a feed post',                      1, 1),
 ('REPORT_REASON',       'Report Reason',             'Reason for reporting a post',                  1, 1),
+('REPORT_STATUS',       'Report Status',             'Review status of a post report',               1, 1),
 ('SOS_ALERT_TYPE',      'SOS Alert Type',            'Type of emergency alert',                      1, 1),
 ('SOS_STATUS',          'SOS Status',                'Current state of an SOS incident',             1, 1),
 ('RESPONDER_STATUS',    'Responder Approval Status', 'Admin approval status of an SOS responder',    1, 1),
@@ -1125,8 +1128,9 @@ INSERT INTO LookupTypes (TypeCode, TypeName, Description, IsSystemType, CreatedB
 ('SOS_RESOLVED_BY',     'SOS Resolved By',           'Who resolved the SOS incident',                1, 1),
 ('AUDIENCE_TYPE',       'Audience Type',             'Target audience for community posts',          1, 1),
 ('LOCATION_SHARING',    'Location Sharing',          'When a member shares location with org',       1, 1),
-('PROFILE_VERIFICATION_STATUS', 'Profile Verification Status', 'Super Admin document/profile verification state for a member', 1, 1);
--- ^ #44 is LOCATION_SHARING, #45 is PROFILE_VERIFICATION_STATUS — added v4.6
+('PROFILE_VERIFICATION_STATUS', 'Profile Verification Status', 'Super Admin document/profile verification state for a member', 1, 1),
+('ORG_VERIFICATION_STATUS',     'Org Verification Status',     'Super Admin legal document verification state for an organisation', 1, 1);
+-- ^ #44 is LOCATION_SHARING, #45 is PROFILE_VERIFICATION_STATUS, #46 is ORG_VERIFICATION_STATUS — added v4.8
 
 -- ============================================================
 -- SECTION 3: SEED DATA — LookupValues
@@ -1281,6 +1285,12 @@ SELECT LookupTypeId, 'HATE', 'Hate speech', 2, 1, 1 FROM LookupTypes WHERE TypeC
 SELECT LookupTypeId, 'INAPPROPRIATE', 'Inappropriate', 3, 1, 1 FROM LookupTypes WHERE TypeCode = 'REPORT_REASON' UNION ALL
 SELECT LookupTypeId, 'SCAM', 'Scam / Fraud', 4, 1, 1 FROM LookupTypes WHERE TypeCode = 'REPORT_REASON' UNION ALL
 SELECT LookupTypeId, 'OTHER', 'Other', 5, 1, 1 FROM LookupTypes WHERE TypeCode = 'REPORT_REASON';
+
+-- REPORT_STATUS
+INSERT INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue, IsDefault)
+SELECT LookupTypeId, 'PENDING',  'Pending Review', 1, 1, 1 FROM LookupTypes WHERE TypeCode = 'REPORT_STATUS' UNION ALL
+SELECT LookupTypeId, 'REVIEWED', 'Reviewed',       2, 1, 0 FROM LookupTypes WHERE TypeCode = 'REPORT_STATUS' UNION ALL
+SELECT LookupTypeId, 'RESOLVED', 'Resolved',       3, 1, 0 FROM LookupTypes WHERE TypeCode = 'REPORT_STATUS';
 
 -- SOS_ALERT_TYPE
 INSERT INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue, CreatedBy)
@@ -1469,20 +1479,36 @@ SELECT LookupTypeId, 'ARTS',          'Arts',           5, 1, 1 FROM LookupTypes
 SELECT LookupTypeId, 'TECHNOLOGY',    'Technology',     6, 1, 1 FROM LookupTypes WHERE TypeCode = 'INTEREST_TYPE' UNION ALL
 SELECT LookupTypeId, 'COMMUNITY',     'Community',      7, 1, 1 FROM LookupTypes WHERE TypeCode = 'INTEREST_TYPE' UNION ALL
 SELECT LookupTypeId, 'ANIMAL_WELFARE','Animal Welfare', 8, 1, 1 FROM LookupTypes WHERE TypeCode = 'INTEREST_TYPE';
--- PROFILE_VERIFICATION_STATUS (v4.6 NEW)
+-- PROFILE_VERIFICATION_STATUS (v4.6 NEW, v4.8 added REJECTED)
 INSERT INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue, CreatedBy)
 SELECT lt.LookupTypeId, v.ValueCode, v.ValueName, v.OrderNo, 1, 1
 FROM LookupTypes lt
 JOIN (
     SELECT 'PENDING'      AS ValueCode, 'Not Reviewed' AS ValueName, 1 AS OrderNo UNION ALL
     SELECT 'VERIFIED',       'Verified',               2 UNION ALL
-    SELECT 'NEEDS_UPDATE',   'Needs Update',            3
+    SELECT 'NEEDS_UPDATE',   'Needs Update',            3 UNION ALL
+    SELECT 'REJECTED',       'Rejected',                4
 ) v ON 1=1
 WHERE lt.TypeCode = 'PROFILE_VERIFICATION_STATUS';
+
+-- ORG_VERIFICATION_STATUS (v4.8 NEW)
+INSERT INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue, CreatedBy)
+SELECT lt.LookupTypeId, v.ValueCode, v.ValueName, v.OrderNo, 1, 1
+FROM LookupTypes lt
+JOIN (
+    SELECT 'PENDING'  AS ValueCode, 'Pending Review' AS ValueName, 1 AS OrderNo UNION ALL
+    SELECT 'VERIFIED',   'Verified',                  2 UNION ALL
+    SELECT 'REJECTED',   'Rejected',                  3
+) v ON 1=1
+WHERE lt.TypeCode = 'ORG_VERIFICATION_STATUS';
 
 -- FK: Users.ProfileVerificationLkpId → LookupValues (v4.6 NEW)
 ALTER TABLE Users ADD CONSTRAINT fk_users_profileverification
     FOREIGN KEY (ProfileVerificationLkpId) REFERENCES LookupValues(LookupValueId);
+
+-- FK: Organisations.VerificationStatusLkpId → LookupValues (v4.8 NEW)
+ALTER TABLE Organisations ADD CONSTRAINT fk_orgs_verificationstatus
+    FOREIGN KEY (VerificationStatusLkpId) REFERENCES LookupValues(LookupValueId);
 
 -- ============================================================
 -- SECTION 4: SEED DATA — Settings + IdSequences
@@ -2919,6 +2945,10 @@ BEGIN
     LEFT JOIN LookupValues lv_mt   ON lv_mt.LookupValueId  = pm.MediaTypeLkpId
     WHERE  p.IsDeleted = 0
       AND  (p_OrgId IS NULL OR p.OrgId = p_OrgId)
+      AND  NOT EXISTS (
+               SELECT 1 FROM PostReports pr
+               WHERE pr.PostId = p.PostId AND pr.ReportedByUserId = p_UserId
+           )
     GROUP BY
         p.PostId, p.Content, p.IsPinned,
         lv_type.ValueCode, lv_type.ValueName,
@@ -2932,7 +2962,11 @@ BEGIN
     SELECT COUNT(*) AS TotalCount
     FROM   Posts p
     WHERE  p.IsDeleted = 0
-      AND  (p_OrgId IS NULL OR p.OrgId = p_OrgId);
+      AND  (p_OrgId IS NULL OR p.OrgId = p_OrgId)
+      AND  NOT EXISTS (
+               SELECT 1 FROM PostReports pr
+               WHERE pr.PostId = p.PostId AND pr.ReportedByUserId = p_UserId
+           );
 END //
 
 -- v4.0 MODIFIED: includes media URLs
@@ -2969,11 +3003,44 @@ BEGIN
     SELECT 1 AS IsSuccess, 'Post unliked.' AS Message;
 END //
 
+-- Updated: enforces CanComment from OrgMembers for org-scoped posts (Permission Enforcement patch)
 CREATE PROCEDURE Post_AddComment(IN p_PostId INT UNSIGNED, IN p_UserId INT UNSIGNED, IN p_Content TEXT, IN p_ParentCommentId INT UNSIGNED)
 BEGIN
-    INSERT INTO PostComments (PostId, UserId, ParentCommentId, Content) VALUES (p_PostId, p_UserId, p_ParentCommentId, p_Content);
-    UPDATE Posts SET CommentCount = CommentCount + 1 WHERE PostId = p_PostId;
-    SELECT 1 AS IsSuccess, 'Comment added.' AS Message, LAST_INSERT_ID() AS CommentId;
+    DECLARE v_OrgId         INT UNSIGNED DEFAULT 0;
+    DECLARE v_ApprovedLkpId INT UNSIGNED DEFAULT 0;
+    DECLARE v_IsMember      TINYINT(1)  DEFAULT 0;
+    DECLARE v_CanComment    TINYINT(1)  DEFAULT 1;  -- default allow (no OrgId = public post)
+
+    -- Look up the post's OrgId
+    SELECT OrgId INTO v_OrgId
+    FROM   Posts WHERE PostId = p_PostId AND IsDeleted = 0 LIMIT 1;
+
+    -- Enforce CanComment only for org-scoped posts
+    IF v_OrgId > 0 THEN
+        SELECT lv.LookupValueId INTO v_ApprovedLkpId
+        FROM   LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+        WHERE  lt.TypeCode = 'MEMBER_STATUS' AND lv.ValueCode = 'APPROVED' LIMIT 1;
+
+        SELECT 1, om.CanComment INTO v_IsMember, v_CanComment
+        FROM   OrgMembers om
+        WHERE  om.OrgId = v_OrgId AND om.UserId = p_UserId
+          AND  om.StatusLkpId = v_ApprovedLkpId AND om.IsDeleted = 0
+        LIMIT 1;
+
+        -- Non-members cannot comment on org posts
+        IF v_IsMember = 0 THEN SET v_CanComment = 0; END IF;
+    END IF;
+
+    IF v_CanComment = 0 THEN
+        SELECT 0    AS IsSuccess,
+               'You do not have permission to comment in this organisation.' AS Message,
+               NULL AS CommentId;
+    ELSE
+        INSERT INTO PostComments (PostId, UserId, ParentCommentId, Content)
+        VALUES (p_PostId, p_UserId, p_ParentCommentId, p_Content);
+        UPDATE Posts SET CommentCount = CommentCount + 1 WHERE PostId = p_PostId;
+        SELECT 1 AS IsSuccess, 'Comment added.' AS Message, LAST_INSERT_ID() AS CommentId;
+    END IF;
 END //
 
 CREATE PROCEDURE Post_GetComments(IN p_PostId INT UNSIGNED, IN p_PageNumber INT, IN p_PageSize INT)
@@ -2986,17 +3053,6 @@ BEGIN
     WHERE c.PostId = p_PostId AND c.IsDeleted = 0
     ORDER BY c.CreatedAt ASC LIMIT p_PageSize OFFSET v_Offset;
     SELECT COUNT(*) AS TotalCount FROM PostComments WHERE PostId = p_PostId AND IsDeleted = 0;
-END //
-
-CREATE PROCEDURE Post_Report(IN p_PostId INT UNSIGNED, IN p_UserId INT UNSIGNED, IN p_ReasonLkpId INT UNSIGNED, IN p_Details TEXT)
-BEGIN
-    DECLARE v_StatusLkpId INT UNSIGNED;
-    SELECT LookupValueId INTO v_StatusLkpId FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
-    WHERE lt.TypeCode = 'REPORT_REASON' AND lv.ValueCode = 'SPAM' LIMIT 1;
-    INSERT INTO PostReports (PostId, ReportedByUserId, ReasonLkpId, Details, StatusLkpId)
-    VALUES (p_PostId, p_UserId, p_ReasonLkpId, p_Details,
-        (SELECT LookupValueId FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId=lt.LookupTypeId WHERE lt.TypeCode='ORG_STATUS' AND lv.ValueCode='PENDING' LIMIT 1));
-    SELECT 1 AS IsSuccess, 'Post reported.' AS Message;
 END //
 
 -- v4.0 NEW: Soft-delete a post
@@ -3821,14 +3877,16 @@ BEGIN
                 WHERE om2.OrgId = o.OrgId AND om2.IsDeleted = 0
                   AND lt2.TypeCode = 'MEMBER_STATUS' AND lv2.ValueCode = 'APPROVED'), 0) AS MemberCount,
         o.AvgRating, o.Latitude, o.Longitude,
+        COALESCE(vv.ValueCode, 'PENDING') AS VerificationStatusCode,
         COUNT(ui.UserInterestId) AS MatchScore
     FROM Organisations o
     JOIN UserInterests ui ON ui.UserId = p_UserId
     JOIN LookupValues  lv ON ui.InterestLkpId = lv.LookupValueId
+    LEFT JOIN LookupValues vv ON o.VerificationStatusLkpId = vv.LookupValueId
     WHERE o.IsDeleted = 0
       AND o.StatusLkpId = v_ApprovedId
       AND lv.ValueCode = o.Category
-    GROUP BY o.OrgId
+    GROUP BY o.OrgId, vv.ValueCode
     ORDER BY MatchScore DESC, o.AvgRating DESC
     LIMIT 20;
 END //
@@ -4251,6 +4309,7 @@ END //
 
 -- ── REPLACED SP: Community_CreatePost ───────────────────────────
 -- v4.3: Fixed audience TypeCode POST_VISIBILITY → AUDIENCE_TYPE; added CreatedBy.
+-- Updated: enforces CanCommunityPost from OrgMembers (Permission Enforcement patch)
 DROP PROCEDURE IF EXISTS Community_CreatePost //
 CREATE PROCEDURE Community_CreatePost(
     IN p_UserId         INT UNSIGNED,
@@ -4261,30 +4320,49 @@ CREATE PROCEDURE Community_CreatePost(
     IN p_AudienceLkpId  INT UNSIGNED
 )
 BEGIN
+    DECLARE v_ApprovedLkpId        INT UNSIGNED DEFAULT 0;
+    DECLARE v_CanCommunityPost     TINYINT(1)  DEFAULT 0;
     DECLARE v_DefaultAudienceLkpId INT UNSIGNED DEFAULT 0;
 
-    IF p_AudienceLkpId IS NULL OR p_AudienceLkpId = 0 THEN
-        SELECT lv.LookupValueId INTO v_DefaultAudienceLkpId
-        FROM   LookupValues lv
-        JOIN   LookupTypes  lt ON lt.LookupTypeId = lv.LookupTypeId
-        WHERE  lt.TypeCode = 'AUDIENCE_TYPE' AND lv.ValueCode = 'ALL_MEMBERS'
-        LIMIT  1;
-        SET p_AudienceLkpId = COALESCE(v_DefaultAudienceLkpId, 1);
+    SELECT lv.LookupValueId INTO v_ApprovedLkpId
+    FROM   LookupValues lv JOIN LookupTypes lt ON lt.LookupTypeId = lv.LookupTypeId
+    WHERE  lt.TypeCode = 'MEMBER_STATUS' AND lv.ValueCode = 'APPROVED' LIMIT 1;
+
+    SELECT om.CanCommunityPost INTO v_CanCommunityPost
+    FROM   OrgMembers om
+    WHERE  om.OrgId = p_OrgId AND om.UserId = p_UserId
+      AND  om.StatusLkpId = v_ApprovedLkpId AND om.IsDeleted = 0
+    LIMIT 1;
+
+    IF v_CanCommunityPost = 0 THEN
+        SELECT 0    AS IsSuccess,
+               'You do not have permission to post in this community.' AS Message,
+               NULL AS CommunityPostId;
+    ELSE
+        IF p_AudienceLkpId IS NULL OR p_AudienceLkpId = 0 THEN
+            SELECT lv.LookupValueId INTO v_DefaultAudienceLkpId
+            FROM   LookupValues lv
+            JOIN   LookupTypes  lt ON lt.LookupTypeId = lv.LookupTypeId
+            WHERE  lt.TypeCode = 'AUDIENCE_TYPE' AND lv.ValueCode = 'ALL_MEMBERS'
+            LIMIT  1;
+            SET p_AudienceLkpId = COALESCE(v_DefaultAudienceLkpId, 1);
+        END IF;
+
+        INSERT INTO CommunityPosts
+            (OrgId, UserId, PostTypeLkpId, Title, Content, AudienceLkpId, CreatedBy)
+        VALUES
+            (p_OrgId, p_UserId, p_PostTypeLkpId, p_Title, p_Content, p_AudienceLkpId, p_UserId);
+
+        SELECT 1                    AS IsSuccess,
+               'Post created.'      AS Message,
+               LAST_INSERT_ID()     AS CommunityPostId;
     END IF;
-
-    INSERT INTO CommunityPosts
-        (OrgId, UserId, PostTypeLkpId, Title, Content, AudienceLkpId, CreatedBy)
-    VALUES
-        (p_OrgId, p_UserId, p_PostTypeLkpId, p_Title, p_Content, p_AudienceLkpId, p_UserId);
-
-    SELECT 1                    AS IsSuccess,
-           'Post created.'      AS Message,
-           LAST_INSERT_ID()     AS CommunityPostId;
 END //
 
 -- ── REPLACED SP: Community_CreatePoll ───────────────────────────
 -- v4.3: Fixed TypeCode COMMUNITY_POST_TYPE → POST_TYPE_COMMUNITY; AUDIENCE_TYPE fix;
 --       added p_IsMultiChoice; JSON_TABLE for options; PollIsMultiChoice in INSERT.
+-- Updated: enforces CanCommunityPost from OrgMembers (Permission Enforcement patch)
 DROP PROCEDURE IF EXISTS Community_CreatePoll //
 CREATE PROCEDURE Community_CreatePoll(
     IN p_UserId         INT UNSIGNED,
@@ -4295,43 +4373,61 @@ CREATE PROCEDURE Community_CreatePoll(
     IN p_IsMultiChoice  TINYINT(1)
 )
 BEGIN
-    DECLARE v_PollTypeLkpId INT UNSIGNED DEFAULT 0;
-    DECLARE v_AudienceLkpId INT UNSIGNED DEFAULT 0;
+    DECLARE v_ApprovedLkpId    INT UNSIGNED DEFAULT 0;
+    DECLARE v_CanCommunityPost TINYINT(1)  DEFAULT 0;
+    DECLARE v_PollTypeLkpId    INT UNSIGNED DEFAULT 0;
+    DECLARE v_AudienceLkpId    INT UNSIGNED DEFAULT 0;
 
-    SELECT lv.LookupValueId INTO v_PollTypeLkpId
+    SELECT lv.LookupValueId INTO v_ApprovedLkpId
     FROM   LookupValues lv JOIN LookupTypes lt ON lt.LookupTypeId = lv.LookupTypeId
-    WHERE  lt.TypeCode = 'POST_TYPE_COMMUNITY' AND lv.ValueCode = 'POLL' LIMIT 1;
+    WHERE  lt.TypeCode = 'MEMBER_STATUS' AND lv.ValueCode = 'APPROVED' LIMIT 1;
 
-    SELECT lv.LookupValueId INTO v_AudienceLkpId
-    FROM   LookupValues lv JOIN LookupTypes lt ON lt.LookupTypeId = lv.LookupTypeId
-    WHERE  lt.TypeCode = 'AUDIENCE_TYPE' AND lv.ValueCode = 'ALL_MEMBERS' LIMIT 1;
+    SELECT om.CanCommunityPost INTO v_CanCommunityPost
+    FROM   OrgMembers om
+    WHERE  om.OrgId = p_OrgId AND om.UserId = p_UserId
+      AND  om.StatusLkpId = v_ApprovedLkpId AND om.IsDeleted = 0
+    LIMIT 1;
 
-    IF v_PollTypeLkpId = 0 THEN SET v_PollTypeLkpId = 1; END IF;
-    IF v_AudienceLkpId = 0 THEN SET v_AudienceLkpId = 1; END IF;
+    IF v_CanCommunityPost = 0 THEN
+        SELECT 0    AS IsSuccess,
+               'You do not have permission to create polls in this community.' AS Message,
+               NULL AS PollId;
+    ELSE
+        SELECT lv.LookupValueId INTO v_PollTypeLkpId
+        FROM   LookupValues lv JOIN LookupTypes lt ON lt.LookupTypeId = lv.LookupTypeId
+        WHERE  lt.TypeCode = 'POST_TYPE_COMMUNITY' AND lv.ValueCode = 'POLL' LIMIT 1;
 
-    INSERT INTO CommunityPosts
-        (OrgId, UserId, PostTypeLkpId, Title, AudienceLkpId, PollEndsAt, PollIsMultiChoice, CreatedBy)
-    VALUES (
-        p_OrgId, p_UserId, v_PollTypeLkpId, p_Question,
-        v_AudienceLkpId,
-        CASE WHEN p_ExpiresInHours > 0
-             THEN DATE_ADD(NOW(), INTERVAL p_ExpiresInHours HOUR)
-             ELSE NULL END,
-        COALESCE(p_IsMultiChoice, 0),
-        p_UserId
-    );
+        SELECT lv.LookupValueId INTO v_AudienceLkpId
+        FROM   LookupValues lv JOIN LookupTypes lt ON lt.LookupTypeId = lv.LookupTypeId
+        WHERE  lt.TypeCode = 'AUDIENCE_TYPE' AND lv.ValueCode = 'ALL_MEMBERS' LIMIT 1;
 
-    SET @PollId = LAST_INSERT_ID();
+        IF v_PollTypeLkpId = 0 THEN SET v_PollTypeLkpId = 1; END IF;
+        IF v_AudienceLkpId = 0 THEN SET v_AudienceLkpId = 1; END IF;
 
-    INSERT INTO PollOptions (CommunityPostId, OptionText, SortOrder)
-    SELECT @PollId, jt.opt, jt.rn
-    FROM JSON_TABLE(p_OptionsJson, '$[*]' COLUMNS (
-        rn   FOR ORDINALITY,
-        opt  VARCHAR(200) PATH '$'
-    )) AS jt
-    WHERE TRIM(jt.opt) != '';
+        INSERT INTO CommunityPosts
+            (OrgId, UserId, PostTypeLkpId, Title, AudienceLkpId, PollEndsAt, PollIsMultiChoice, CreatedBy)
+        VALUES (
+            p_OrgId, p_UserId, v_PollTypeLkpId, p_Question,
+            v_AudienceLkpId,
+            CASE WHEN p_ExpiresInHours > 0
+                 THEN DATE_ADD(NOW(), INTERVAL p_ExpiresInHours HOUR)
+                 ELSE NULL END,
+            COALESCE(p_IsMultiChoice, 0),
+            p_UserId
+        );
 
-    SELECT 1 AS IsSuccess, 'Poll created successfully.' AS Message, @PollId AS PollId;
+        SET @PollId = LAST_INSERT_ID();
+
+        INSERT INTO PollOptions (CommunityPostId, OptionText, SortOrder)
+        SELECT @PollId, jt.opt, jt.rn
+        FROM JSON_TABLE(p_OptionsJson, '$[*]' COLUMNS (
+            rn   FOR ORDINALITY,
+            opt  VARCHAR(200) PATH '$'
+        )) AS jt
+        WHERE TRIM(jt.opt) != '';
+
+        SELECT 1 AS IsSuccess, 'Poll created successfully.' AS Message, @PollId AS PollId;
+    END IF;
 END //
 
 -- ── REPLACED SP: Community_Vote ─────────────────────────────────
@@ -4661,7 +4757,6 @@ BEGIN
         Latitude, Longitude, GoogleMapsUrl,
         MaxVolunteers, JoinTypeLkpId, IsPublic,
         AgeRestriction, IdVerRequired, MinReliability,
-        RequiresApproval, GenderRestriction, CoverImageUrl,
         StatusLkpId, CreatedBy
     ) VALUES (
         p_OrgId,
@@ -4688,9 +4783,6 @@ BEGIN
         IF(COALESCE(p_MinAge, 0) >= 18, 1, 0),
         0,
         0.00,
-        COALESCE(p_RequiresApproval, 0),
-        p_GenderRestriction,
-        p_CoverImageUrl,
         v_StatusLkpId,
         p_UserId
     );
@@ -4800,9 +4892,6 @@ BEGIN
         JoinTypeLkpId     = COALESCE(v_JoinTypeLkpId,     JoinTypeLkpId),
         IsPublic          = COALESCE(p_IsPublic,          IsPublic),
         AgeRestriction    = IF(p_MinAge IS NOT NULL, IF(p_MinAge >= 18, 1, 0), AgeRestriction),
-        RequiresApproval  = COALESCE(p_RequiresApproval,  RequiresApproval),
-        GenderRestriction = COALESCE(p_GenderRestriction, GenderRestriction),
-        CoverImageUrl     = COALESCE(p_CoverImageUrl,     CoverImageUrl),
         StatusLkpId       = COALESCE(v_StatusLkpId,       StatusLkpId),
         UpdatedBy         = p_UserId,
         UpdatedAt         = NOW()
@@ -6186,6 +6275,8 @@ BEGIN
         tv.ValueName AS OrgType,
         o.StatusLkpId,
         sv.ValueName AS OrgStatus,
+        sv.ValueCode AS OrgStatusCode,
+        COALESCE(vv.ValueCode, 'PENDING') AS VerificationStatusCode,
         o.AvgRating, o.RatingCount, o.Latitude, o.Longitude, o.CreatedAt,
         o.FollowerCount,
         IFNULL((SELECT of2.IsFollowing
@@ -6209,14 +6300,16 @@ BEGIN
                AND lv4.ValueCode = 'PENDING' LIMIT 1)
         ) AS MemberStatusCode
     FROM Organisations o
-    LEFT JOIN LookupValues tv ON o.OrgTypeLkpId = tv.LookupValueId
-    LEFT JOIN LookupValues sv ON o.StatusLkpId  = sv.LookupValueId
+    LEFT JOIN LookupValues tv ON o.OrgTypeLkpId         = tv.LookupValueId
+    LEFT JOIN LookupValues sv ON o.StatusLkpId          = sv.LookupValueId
+    LEFT JOIN LookupValues vv ON o.VerificationStatusLkpId = vv.LookupValueId
     WHERE o.OrgId = p_OrgId AND o.IsDeleted = 0;
 END //
 
 
 -- ── 3.16 Org_GetMembers ─────────────────────────────────────────────────────
 -- Fixed: removed p_PageNumber/p_PageSize (DAL passes only p_OrgId); column aliases match frontend
+-- v4.8: added ProfileVerificationStatusCode for verified badge in admin volunteer screen
 -- (Source: NGOConnect_Patch_VolunteerSPs.sql)
 DROP PROCEDURE IF EXISTS Org_GetMembers //
 CREATE PROCEDURE Org_GetMembers(IN p_OrgId INT UNSIGNED)
@@ -6237,13 +6330,15 @@ BEGIN
         CASE WHEN lsv.ValueCode IS NOT NULL AND lsv.ValueCode != 'DISABLED' THEN 1 ELSE 0 END AS LocationSharing,
         om.JoinedAt,
         u.IsActive,
-        u.LastLoginAt                                      AS LastActiveAt
+        u.LastLoginAt                                      AS LastActiveAt,
+        COALESCE(pv.ValueCode, 'PENDING')                  AS ProfileVerificationStatusCode
     FROM OrgMembers om
     JOIN Users        u  ON om.UserId = u.UserId  AND u.IsDeleted  = 0
     JOIN UserProfiles up ON om.UserId = up.UserId AND up.IsDeleted = 0
-    LEFT JOIN LookupValues rv  ON om.RoleLkpId            = rv.LookupValueId
-    LEFT JOIN LookupValues sv  ON om.StatusLkpId          = sv.LookupValueId
-    LEFT JOIN LookupValues lsv ON om.LocationSharingLkpId = lsv.LookupValueId
+    LEFT JOIN LookupValues rv  ON om.RoleLkpId               = rv.LookupValueId
+    LEFT JOIN LookupValues sv  ON om.StatusLkpId             = sv.LookupValueId
+    LEFT JOIN LookupValues lsv ON om.LocationSharingLkpId    = lsv.LookupValueId
+    LEFT JOIN LookupValues pv  ON u.ProfileVerificationLkpId = pv.LookupValueId
     WHERE om.OrgId = p_OrgId AND om.IsDeleted = 0
     ORDER BY om.JoinedAt ASC;
 END //
@@ -6251,6 +6346,7 @@ END //
 
 -- ── 3.17 Org_GetPendingMembers ──────────────────────────────────────────────
 -- v4.7 FINAL: MembershipRequestId alias + IFNULL pagination defaults
+-- v4.8: added ProfileVerificationStatusCode for verified badge in admin pending tab
 DROP PROCEDURE IF EXISTS Org_GetPendingMembers //
 CREATE PROCEDURE Org_GetPendingMembers(
     IN p_OrgId      INT UNSIGNED,
@@ -6284,9 +6380,12 @@ BEGIN
         mr.VolunteerSkills,
         mr.AreasOfInterest,
         mr.WhyJoin,
-        mr.CreatedAt AS RequestedAt
+        mr.CreatedAt AS RequestedAt,
+        COALESCE(pv.ValueCode, 'PENDING') AS ProfileVerificationStatusCode
     FROM OrgMembershipRequests mr
     JOIN UserProfiles up ON mr.UserId = up.UserId AND up.IsDeleted = 0
+    JOIN Users        u  ON mr.UserId = u.UserId  AND u.IsDeleted  = 0
+    LEFT JOIN LookupValues pv ON u.ProfileVerificationLkpId = pv.LookupValueId
     WHERE mr.OrgId = p_OrgId
       AND mr.StatusLkpId = v_PendingLkpId
       AND mr.IsDeleted = 0
@@ -6779,7 +6878,8 @@ END //
 
 -- ── 3.25 Post_Create ────────────────────────────────────────────────────────
 -- Updated: auto-detects VIDEO vs IMAGE from URL extension via REGEXP
--- (Source: NGOConnect_Patch_PostFeed_VideoSupport.sql)
+-- Updated: enforces CanPost + MaxPostsPerDay from OrgMembers (Permission Enforcement patch)
+-- (Source: NGOConnect_Patch_PostFeed_VideoSupport.sql + NGOConnect_Patch_PermissionEnforcement.sql)
 DROP PROCEDURE IF EXISTS Post_Create //
 CREATE PROCEDURE Post_Create(
     IN p_UserId          INT UNSIGNED,
@@ -6790,65 +6890,102 @@ CREATE PROCEDURE Post_Create(
     IN p_VisibilityLkpId INT UNSIGNED
 )
 BEGIN
+    DECLARE v_ApprovedLkpId    INT UNSIGNED DEFAULT 0;
+    DECLARE v_CanPost          TINYINT(1)  DEFAULT 0;
+    DECLARE v_MaxPerDay        INT         DEFAULT 10;
+    DECLARE v_TodayCount       INT         DEFAULT 0;
     DECLARE v_ImageTypeLkpId   INT UNSIGNED DEFAULT 0;
     DECLARE v_VideoTypeLkpId   INT UNSIGNED DEFAULT 0;
     DECLARE v_DefaultTypeLkpId INT UNSIGNED DEFAULT 0;
 
-    IF p_PostTypeLkpId IS NULL THEN
-        SELECT lv.LookupValueId INTO v_DefaultTypeLkpId
-        FROM   LookupValues lv JOIN LookupTypes lt ON lt.LookupTypeId = lv.LookupTypeId
-        WHERE  lt.TypeCode = 'POST_TYPE_FEED' AND lv.ValueCode = 'GENERAL' LIMIT 1;
-        SET p_PostTypeLkpId = COALESCE(v_DefaultTypeLkpId, 1);
+    -- Resolve APPROVED status LkpId
+    SELECT lv.LookupValueId INTO v_ApprovedLkpId
+    FROM   LookupValues lv JOIN LookupTypes lt ON lt.LookupTypeId = lv.LookupTypeId
+    WHERE  lt.TypeCode = 'MEMBER_STATUS' AND lv.ValueCode = 'APPROVED' LIMIT 1;
+
+    -- Load member's posting permission
+    SELECT om.CanPost, om.MaxPostsPerDay INTO v_CanPost, v_MaxPerDay
+    FROM   OrgMembers om
+    WHERE  om.OrgId = p_OrgId AND om.UserId = p_UserId
+      AND  om.StatusLkpId = v_ApprovedLkpId AND om.IsDeleted = 0
+    LIMIT 1;
+
+    IF v_CanPost = 0 THEN
+        SELECT 0 AS IsSuccess,
+               'You do not have permission to post in this organisation.' AS Message,
+               NULL AS PostId;
+    ELSE
+        -- Count today's posts for daily limit check
+        SELECT COUNT(*) INTO v_TodayCount
+        FROM   Posts
+        WHERE  UserId = p_UserId AND OrgId = p_OrgId
+          AND  DATE(CreatedAt) = CURDATE() AND IsDeleted = 0;
+
+        IF v_MaxPerDay > 0 AND v_TodayCount >= v_MaxPerDay THEN
+            SELECT 0 AS IsSuccess,
+                   CONCAT('Daily post limit of ', v_MaxPerDay, ' reached.') AS Message,
+                   NULL AS PostId;
+        ELSE
+            IF p_PostTypeLkpId IS NULL THEN
+                SELECT lv.LookupValueId INTO v_DefaultTypeLkpId
+                FROM   LookupValues lv JOIN LookupTypes lt ON lt.LookupTypeId = lv.LookupTypeId
+                WHERE  lt.TypeCode = 'POST_TYPE_FEED' AND lv.ValueCode = 'GENERAL' LIMIT 1;
+                SET p_PostTypeLkpId = COALESCE(v_DefaultTypeLkpId, 1);
+            END IF;
+
+            INSERT INTO Posts (UserId, OrgId, Content, PostTypeLkpId, VisibilityLkpId, LikeCount, CommentCount, CreatedBy)
+            VALUES (p_UserId, p_OrgId, p_Content, p_PostTypeLkpId, p_VisibilityLkpId, 0, 0, p_UserId);
+
+            SET @NewPostId = LAST_INSERT_ID();
+
+            IF p_MediaUrls IS NOT NULL AND p_MediaUrls != '' THEN
+                SELECT lv.LookupValueId INTO v_ImageTypeLkpId
+                FROM   LookupValues lv JOIN LookupTypes lt ON lt.LookupTypeId = lv.LookupTypeId
+                WHERE  lt.TypeCode = 'MEDIA_TYPE' AND lv.ValueCode = 'IMAGE' LIMIT 1;
+
+                SELECT lv.LookupValueId INTO v_VideoTypeLkpId
+                FROM   LookupValues lv JOIN LookupTypes lt ON lt.LookupTypeId = lv.LookupTypeId
+                WHERE  lt.TypeCode = 'MEDIA_TYPE' AND lv.ValueCode = 'VIDEO' LIMIT 1;
+
+                IF v_ImageTypeLkpId = 0 THEN SET v_ImageTypeLkpId = 1; END IF;
+                IF v_VideoTypeLkpId = 0 THEN SET v_VideoTypeLkpId = v_ImageTypeLkpId; END IF;
+
+                INSERT INTO PostMedia (PostId, FileUrl, MediaTypeLkpId, SortOrder)
+                SELECT
+                    @NewPostId,
+                    TRIM(j.val),
+                    CASE WHEN LOWER(TRIM(j.val)) REGEXP '\\.(mp4|mov|avi|mkv|webm|m4v|3gp|wmv)$'
+                         THEN v_VideoTypeLkpId ELSE v_ImageTypeLkpId END,
+                    j.rn
+                FROM JSON_TABLE(
+                    CONCAT('["', REPLACE(p_MediaUrls, ',', '","'), '"]'),
+                    '$[*]' COLUMNS (rn FOR ORDINALITY, val VARCHAR(500) PATH '$')
+                ) AS j
+                WHERE TRIM(j.val) != '';
+            END IF;
+
+            SELECT 1 AS IsSuccess, 'Post created successfully.' AS Message, @NewPostId AS PostId;
+        END IF;
     END IF;
-
-    INSERT INTO Posts (UserId, OrgId, Content, PostTypeLkpId, VisibilityLkpId, LikeCount, CommentCount, CreatedBy)
-    VALUES (p_UserId, p_OrgId, p_Content, p_PostTypeLkpId, p_VisibilityLkpId, 0, 0, p_UserId);
-
-    SET @NewPostId = LAST_INSERT_ID();
-
-    IF p_MediaUrls IS NOT NULL AND p_MediaUrls != '' THEN
-        SELECT lv.LookupValueId INTO v_ImageTypeLkpId
-        FROM   LookupValues lv JOIN LookupTypes lt ON lt.LookupTypeId = lv.LookupTypeId
-        WHERE  lt.TypeCode = 'MEDIA_TYPE' AND lv.ValueCode = 'IMAGE' LIMIT 1;
-
-        SELECT lv.LookupValueId INTO v_VideoTypeLkpId
-        FROM   LookupValues lv JOIN LookupTypes lt ON lt.LookupTypeId = lv.LookupTypeId
-        WHERE  lt.TypeCode = 'MEDIA_TYPE' AND lv.ValueCode = 'VIDEO' LIMIT 1;
-
-        IF v_ImageTypeLkpId = 0 THEN SET v_ImageTypeLkpId = 1; END IF;
-        IF v_VideoTypeLkpId = 0 THEN SET v_VideoTypeLkpId = v_ImageTypeLkpId; END IF;
-
-        INSERT INTO PostMedia (PostId, FileUrl, MediaTypeLkpId, SortOrder)
-        SELECT
-            @NewPostId,
-            TRIM(j.val),
-            CASE WHEN LOWER(TRIM(j.val)) REGEXP '\\.(mp4|mov|avi|mkv|webm|m4v|3gp|wmv)$'
-                 THEN v_VideoTypeLkpId ELSE v_ImageTypeLkpId END,
-            j.rn
-        FROM JSON_TABLE(
-            CONCAT('["', REPLACE(p_MediaUrls, ',', '","'), '"]'),
-            '$[*]' COLUMNS (rn FOR ORDINALITY, val VARCHAR(500) PATH '$')
-        ) AS j
-        WHERE TRIM(j.val) != '';
-    END IF;
-
-    SELECT 1 AS IsSuccess, 'Post created successfully.' AS Message, @NewPostId AS PostId;
 END //
 
 
 -- ── Post_GetPermissions ──────────────────────────────────────────────────────
--- Returns one row: membership status + posting permissions + today's post count.
+-- Returns one row: membership status + all posting permissions + today's post count.
 -- Always returns exactly one row regardless of membership state (uses DECLARE defaults).
--- Used by mobile before opening Create Post modal to enforce org-level posting rules.
+-- Used by mobile before opening Create Post / Comment / Community Post to enforce rules.
+-- Updated: added CanComment + CanCommunityPost columns (Permission Enforcement patch)
 DELIMITER //
 DROP PROCEDURE IF EXISTS Post_GetPermissions //
 CREATE PROCEDURE Post_GetPermissions(IN p_OrgId INT UNSIGNED, IN p_UserId INT UNSIGNED)
 BEGIN
-    DECLARE v_ApprovedLkpId INT UNSIGNED DEFAULT 0;
-    DECLARE v_IsMember      TINYINT(1)  DEFAULT 0;
-    DECLARE v_CanPost       TINYINT(1)  DEFAULT 0;
-    DECLARE v_MaxPerDay     INT         DEFAULT 10;
-    DECLARE v_TodayCount    INT         DEFAULT 0;
+    DECLARE v_ApprovedLkpId    INT UNSIGNED DEFAULT 0;
+    DECLARE v_IsMember         TINYINT(1)  DEFAULT 0;
+    DECLARE v_CanPost          TINYINT(1)  DEFAULT 0;
+    DECLARE v_CanComment       TINYINT(1)  DEFAULT 0;
+    DECLARE v_CanCommunityPost TINYINT(1)  DEFAULT 0;
+    DECLARE v_MaxPerDay        INT         DEFAULT 10;
+    DECLARE v_TodayCount       INT         DEFAULT 0;
 
     -- Resolve APPROVED status lookup id
     SELECT lv.LookupValueId INTO v_ApprovedLkpId
@@ -6858,8 +6995,8 @@ BEGIN
     LIMIT 1;
 
     -- Load member's permissions (only if APPROVED member)
-    SELECT 1, om.CanPost, om.MaxPostsPerDay
-    INTO   v_IsMember, v_CanPost, v_MaxPerDay
+    SELECT 1, om.CanPost, om.CanComment, om.CanCommunityPost, om.MaxPostsPerDay
+    INTO   v_IsMember, v_CanPost, v_CanComment, v_CanCommunityPost, v_MaxPerDay
     FROM   OrgMembers om
     WHERE  om.OrgId = p_OrgId AND om.UserId = p_UserId
       AND  om.StatusLkpId = v_ApprovedLkpId AND om.IsDeleted = 0
@@ -6872,10 +7009,12 @@ BEGIN
       AND  DATE(CreatedAt) = CURDATE() AND IsDeleted = 0;
 
     SELECT
-        v_IsMember   AS IsMember,
-        v_CanPost    AS CanPost,
-        v_MaxPerDay  AS MaxPostsPerDay,
-        v_TodayCount AS TodayPostCount;
+        v_IsMember          AS IsMember,
+        v_CanPost           AS CanPost,
+        v_CanComment        AS CanComment,
+        v_CanCommunityPost  AS CanCommunityPost,
+        v_MaxPerDay         AS MaxPostsPerDay,
+        v_TodayCount        AS TodayPostCount;
 END //
 DELIMITER ;
 
@@ -7639,60 +7778,51 @@ proc: BEGIN
     FROM OtpTokens
     WHERE Recipient    = p_Value
       AND PurposeLkpId = v_PurposeLkpId
-      AND CreatedAt   >= DATE_SUB(NOW(), INTERVAL 10 MINUTE)
-      AND IsUsed       = 0;
+      AND CreatedAt   >= DATE
+-- ============================================================
+-- v4.8 ADDITIONS — VERIFICATION BADGES
+-- New SP: SuperAdmin_Org_VerifyProfile
+-- Changes: ORG_VERIFICATION_STATUS LookupType, VerificationStatusLkpId on Organisations,
+--          Org_GetMembers + Org_GetPendingMembers return ProfileVerificationStatusCode,
+--          Org_GetProfile + Org_ListRecommended return VerificationStatusCode,
+--          REJECTED added to PROFILE_VERIFICATION_STATUS
+-- ============================================================
 
-    IF v_RecentCount >= 3 THEN
-        SELECT 0 AS IsSuccess, 'Too many OTP requests. Please wait 10 minutes before trying again.' AS Message;
-        LEAVE proc;
-    END IF;
+DELIMITER //
 
-    -- Invalidate old unused OTPs for this recipient + purpose
-    UPDATE OtpTokens
-    SET    IsUsed = 1
-    WHERE  Recipient    = p_Value
-      AND  PurposeLkpId = v_PurposeLkpId
-      AND  IsUsed       = 0;
-
-    -- Insert new OTP (10-minute expiry)
-    INSERT INTO OtpTokens (UserId, Recipient, OtpCode, PurposeLkpId, IpAddress, ExpiresAt)
-    VALUES (p_UserId, p_Value, p_OtpCode, v_PurposeLkpId, p_IpAddress, DATE_ADD(NOW(), INTERVAL 10 MINUTE));
-
-    SELECT 1 AS IsSuccess, 'OTP sent successfully.' AS Message;
-END proc //
-
-DROP PROCEDURE IF EXISTS User_VerifyContactOtp //
-CREATE PROCEDURE User_VerifyContactOtp(
-    IN p_UserId    INT UNSIGNED,
-    IN p_Type      VARCHAR(10),    -- 'EMAIL' or 'PHONE'
-    IN p_Value     VARCHAR(200),
-    IN p_OtpCode   VARCHAR(6),
-    IN p_IpAddress VARCHAR(45)
+-- ── SuperAdmin_Org_VerifyProfile ─────────────────────────────────────────────
+-- Sets Organisations.VerificationStatusLkpId to any ORG_VERIFICATION_STATUS value.
+-- Called by Super Admin to mark org legal documents as verified/rejected.
+DROP PROCEDURE IF EXISTS SuperAdmin_Org_VerifyProfile //
+CREATE PROCEDURE SuperAdmin_Org_VerifyProfile(
+    IN p_OrgId          INT UNSIGNED,
+    IN p_StatusCode     VARCHAR(50),   -- PENDING | VERIFIED | REJECTED
+    IN p_SuperAdminId   INT UNSIGNED
 )
-proc: BEGIN
-    DECLARE v_PurposeLkpId   INT UNSIGNED DEFAULT 0;
-    DECLARE v_OtpTokenId     INT UNSIGNED DEFAULT 0;
-    DECLARE v_StoredOtp      VARCHAR(6)   DEFAULT '';
-    DECLARE v_AttemptCount   TINYINT      DEFAULT 0;
-    DECLARE v_ExpiresAt      DATETIME;
-    DECLARE v_DuplicateCount INT          DEFAULT 0;
-    DECLARE v_ValueCode      VARCHAR(20);
+BEGIN
+    DECLARE v_StatusLkpId INT UNSIGNED;
 
-    -- Re-check duplicate (race condition guard)
-    IF p_Type = 'EMAIL' THEN
-        SET v_ValueCode = 'ADD_EMAIL';
-        SELECT COUNT(*) INTO v_DuplicateCount
-        FROM Users
-        WHERE Email = p_Value AND UserId != p_UserId AND IsDeleted = 0;
+    SELECT lv.LookupValueId INTO v_StatusLkpId
+    FROM   LookupValues lv
+    JOIN   LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE  lt.TypeCode = 'ORG_VERIFICATION_STATUS' AND lv.ValueCode = p_StatusCode
+    LIMIT  1;
+
+    IF v_StatusLkpId IS NULL THEN
+        SELECT 0 AS IsSuccess, CONCAT('Unknown status code: ', p_StatusCode) AS Message;
     ELSE
-        SET v_ValueCode = 'ADD_PHONE';
-        SELECT COUNT(*) INTO v_DuplicateCount
-        FROM Users
-        WHERE Mobile = p_Value AND UserId != p_UserId AND IsDeleted = 0;
-    END IF;
+        UPDATE Organisations
+        SET    VerificationStatusLkpId = v_StatusLkpId,
+               UpdatedBy               = p_SuperAdminId
+        WHERE  OrgId = p_OrgId AND IsDeleted = 0;
 
-    IF v_DuplicateCount > 0 THEN
-        SELECT 0 AS IsSuccess, 'This contact is already registered with another account.' AS Message;
+        SELECT 1 AS IsSuccess,
+               CONCAT('Organisation verification status set to ', p_StatusCode, '.') AS Message;
+    END IF;
+END //
+
+DELIMITER ;
+ SELECT 0 AS IsSuccess, 'This contact is already registered with another account.' AS Message;
         LEAVE proc;
     END IF;
 
