@@ -488,7 +488,7 @@ namespace NGOConnect.Infrastructure.DAL
                 {
                     _db.AddParameter(cmd, "p_OrgId",     orgId);
                     _db.AddParameter(cmd, "p_MemberId",  request.MemberId);
-                    _db.AddParameter(cmd, "p_RoleLkpId", request.RoleLkpId);
+                    _db.AddParameter(cmd, "p_RoleCode",  request.RoleCode);
                     _db.AddParameter(cmd, "p_UpdatedBy", updatedBy);
                 });
                 return result.ToApiResponse();

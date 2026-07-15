@@ -89,6 +89,7 @@ namespace NGOConnect.Infrastructure.DAL
                 _db.AddParameter(cmd, "p_OtpCode",      request.OtpCode);
                 _db.AddParameter(cmd, "p_PurposeLkpId", request.PurposeLkpId);
                 _db.AddParameter(cmd, "p_IpAddress",    ipAddress);
+                _db.AddParameter(cmd, "p_CountryCode",  request.CountryCode);
 
                 var ds = await _db.FillDataSetAsync(cmd);
 

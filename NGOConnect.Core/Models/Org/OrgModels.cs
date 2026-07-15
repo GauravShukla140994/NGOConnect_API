@@ -144,8 +144,8 @@ namespace NGOConnect.Core.Models.Org
     // ── Update member role (s-admin-vols screen) ─────────────────────────────────
     public class UpdateMemberRoleRequest
     {
-        [Required] public int MemberId  { get; set; }
-        [Required] public int RoleLkpId { get; set; }   // LookupType: MEMBER_ROLE
+        [Required] public int    MemberId { get; set; }
+        [Required] public string RoleCode { get; set; } = "MEMBER";  // ValueCode from MEMBER_ROLE — SP resolves to LkpId internally
     }
 
     // ── Mark attendance no-show as excused (s-participants screen) ───────────────

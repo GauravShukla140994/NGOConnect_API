@@ -35,6 +35,9 @@ namespace NGOConnect.Core.Models.Auth
         /// <summary>LookupValueId from OTP_PURPOSE lookup type</summary>
         [Required]
         public int PurposeLkpId { get; set; }
+
+        /// <summary>Dial code e.g. +44, +91 — stored on Users.CountryCode for new registrations</summary>
+        public string CountryCode { get; set; } = "+91";
     }
 
     public class VerifyOtpResponse

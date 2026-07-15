@@ -269,6 +269,38 @@ When there is a conflict between files, this priority order applies:
 **Mobile — `HomeScreen.tsx`** (2026-07-14)
 - `submitReport()`: now checks `res.data?.isSuccess` before calling `setReportDone(true)`; shows server error message if `isSuccess = 0` instead of silently showing fake success
 
+**SQL — `NGOConnect_Complete_Setup_v4.8.sql`** (2026-07-15)
+- `Auth_VerifyOTP` SP: added `IN p_CountryCode VARCHAR(6)` parameter; new-user INSERT now uses `IFNULL(NULLIF(p_CountryCode, ''), '+91')` instead of hardcoded `'+91'`
+
+**Patch file** — `NGOConnect_Patch_AuthVerifyOTP_CountryCode.sql` — apply to Railway staging + production:
+- Full rewrite of `Auth_VerifyOTP` SP with `p_CountryCode` param + correct INSERT
+
+**C# — `NGOConnect.Core/Models/Auth/AuthModels.cs`** (2026-07-15)
+- `VerifyOtpRequest`: added `CountryCode` property (default `"+91"`)
+
+**C# — `NGOConnect.Infrastructure/DAL/AuthDal.cs`** (2026-07-15)
+- `VerifyOtpAsync`: passes `p_CountryCode = request.CountryCode` to `Auth_VerifyOTP`
+
+**Mobile — `OtpScreen.tsx`** (2026-07-15)
+- `handleVerify()`: now passes `countryCode` (from route params) to `authApi.verifyOtp`
+
+**Mobile — `src/constants/countries.ts`** (2026-07-15) — NEW FILE
+- Shared country list (61 countries, India first, all European countries), `Country` interface, `DEFAULT_COUNTRY`, `EMAIL_REGEX`
+
+**Mobile — `LoginScreen.tsx`** (2026-07-15)
+- Country picker replaced with full bottom-sheet Modal + FlatList + search (61 countries)
+- Per-country digit validation (minLen/maxLen), email regex validation
+- Hint text ("Enter 10 digit number for India") removed
+- Imports `COUNTRIES`, `DEFAULT_COUNTRY`, `EMAIL_REGEX` from shared constants
+
+**Mobile — `ContactUpdateModal.tsx`** (2026-07-15) — REWRITTEN
+- Country picker (inline, no nested Modal) with search, 61-country list
+- Per-country digit validation; passes `country.dial` as `countryCode` to `sendContactOtp`
+- Two-step flow: enter contact → enter OTP; step indicator, resend/back
+
+**Mobile — `user.api.ts`** (2026-07-15)
+- `sendContactOtp`: added optional `countryCode?: string` param; included in POST body
+
 **Mobile — `CreateProjectScreen.tsx`**
 - GPS options: `enableHighAccuracy: true → false`, `maximumAge: 60000 → 300000` — fixes location not detected on tester devices (GPS satellite lock required indoors; network/WiFi location used instead, matching HomeScreen behaviour)
 
@@ -278,6 +310,26 @@ When there is a conflict between files, this priority order applies:
 
 **`NGOConnect_Complete_Setup_v4.8.sql`**
 - `Application_Apply` SP: remove the duplicate DROP+CREATE block at the bottom of the file (line ~5506) that incorrectly uses `AppliedAt` column (not in v4.8 table schema) and lacks the duplicate-application check. The correct version already exists earlier in the file with `p_Motivation`, `p_RequestedSessions`, `CreatedBy`, and duplicate guard.
+
+**Fix: Member Role Update — all 3 layers** (2026-07-14)
+(Patch file: `NGOConnect_Patch_UpdateMemberRole_RoleCode.sql` — apply to Railway staging + production)
+
+**SQL — `NGOConnect_Complete_Setup_v4.8.sql`**
+- `Org_UpdateMemberRole` SP: changed `p_RoleLkpId INT` → `p_RoleCode VARCHAR(50)`; SP now resolves to LkpId internally via MEMBER_ROLE lookup (same pattern as Org_AddMember)
+
+**C# — `NGOConnect.Core/Models/Org/OrgModels.cs`**
+- `UpdateMemberRoleRequest`: changed `RoleLkpId int` → `RoleCode string`
+
+**C# — `NGOConnect.Infrastructure/DAL/OrgDal.cs`**
+- `UpdateMemberRoleAsync`: changed `p_RoleLkpId` → `p_RoleCode` parameter
+
+**Mobile — `App/src/api/org.api.ts`**
+- `updateMemberRole`: changed `data: { memberId, roleLkpId: number }` → `{ memberId, roleCode: string }`
+
+**Mobile — `App/src/screens/admin/AdminVolunteersScreen.tsx`**
+- `MemberDetailsSheet`: added `saveRole` callback + "Save Role" button below role picker dropdown (was previously missing — role change was never sent to API)
+
+---
 
 **Permission Enforcement — all 3 layers** (2026-07-14)
 (Patch file: `NGOConnect_Patch_PermissionEnforcement.sql` — apply to Railway staging + production)
@@ -308,6 +360,31 @@ When there is a conflict between files, this priority order applies:
 - Added `communityPermChecking` state
 - Added `handleComposeFabPress` callback: checks `canCommunityPost` via `feedApi.getPostPermissions(orgId)` before opening NewPostModal
 - FAB `onPress` changed from `() => setShowModal(true)` → `handleComposeFabPress`
+
+---
+
+### Timezone Fix — UTC Timestamp Parsing (2026-07-15)
+
+**Root cause:** Railway's MySQL server runs in UTC. All `NOW()` calls store UTC datetimes. C#/ASP.NET serializes `DateTime` (Kind=Unspecified from MySQL) as `"2026-07-14T09:00:00"` — no `Z` suffix. JavaScript's `new Date("2026-07-14T09:00:00")` (no timezone marker) treats the value as **local time**, not UTC (per ECMAScript spec). On a device in IST (UTC+5:30), a UTC timestamp of 09:00 is parsed as IST 09:00 (= UTC 03:30), creating a 5.5-hour offset — shown as "5H ago" for a just-created record.
+
+**Fix (mobile only — no DB or C# changes needed):** Added `asUtc()` helper in each file that force-appends `Z` to the string before parsing. This is timezone-agnostic: `Date.now()` and `asUtc(iso).getTime()` are both UTC ms, so the diff is correct for any user worldwide.
+
+**Mobile — `App/src/components/home/FeedCommentsModal.tsx`**
+- Added `asUtc(iso: string): Date` helper
+- `timeAgoFromDate`: replaced `new Date(iso)` → `asUtc(iso)` (both the diff calculation and the `toLocaleDateString` fallback)
+
+**Mobile — `App/src/components/community/CommunityCommentsModal.tsx`**
+- Added `asUtc(iso: string): Date` helper
+- `timeAgoFromDate`: replaced `new Date(iso)` → `asUtc(iso)` in diff calculation and date fallback
+
+**Mobile — `App/src/screens/community/CommunityScreen.tsx`**
+- Added `asUtc(iso: string): Date` helper
+- `timeAgoShort`: replaced `new Date(iso)` → `asUtc(iso)`
+
+**Mobile — `App/src/screens/sos/LiveLocationScreen.tsx`**
+- Added `asUtc(iso: string): Date` helper
+- `timeAgoShort`: replaced `new Date(iso)` → `asUtc(iso)`
+- `fmtTime`: replaced `new Date(iso)` → `asUtc(iso)` (SOS timestamp display)
 
 ---
 

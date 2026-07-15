@@ -1652,7 +1652,8 @@ CREATE PROCEDURE Auth_VerifyOTP(
     IN p_Recipient     VARCHAR(255),
     IN p_OtpCode       VARCHAR(6),
     IN p_PurposeLkpId  INT UNSIGNED,
-    IN p_IpAddress     VARCHAR(45)
+    IN p_IpAddress     VARCHAR(45),
+    IN p_CountryCode   VARCHAR(6)
 )
 BEGIN
     DECLARE v_OtpTokenId     INT UNSIGNED DEFAULT 0;
@@ -1729,10 +1730,10 @@ BEGIN
             -- NEW USER — create user row
             IF p_Recipient LIKE '%@%' THEN
                 INSERT INTO Users (Email, CountryCode, IsVerified)
-                VALUES (p_Recipient, '+91', 1);
+                VALUES (p_Recipient, IFNULL(NULLIF(p_CountryCode, ''), '+91'), 1);
             ELSE
                 INSERT INTO Users (Mobile, CountryCode, IsVerified)
-                VALUES (p_Recipient, '+91', 1);
+                VALUES (p_Recipient, IFNULL(NULLIF(p_CountryCode, ''), '+91'), 1);
             END IF;
 
             SET v_UserId    = LAST_INSERT_ID();
@@ -4129,25 +4130,38 @@ BEGIN
 END //
 
 -- ── Org_UpdateMemberRole ─────────────────────────────────────
+-- Updated: accepts p_RoleCode (ValueCode string) instead of p_RoleLkpId (int)
+-- SP resolves to LkpId internally — consistent with Org_AddMember pattern
 CREATE PROCEDURE Org_UpdateMemberRole(
     IN p_OrgId     INT,
     IN p_MemberId  INT,
-    IN p_RoleLkpId INT,
+    IN p_RoleCode  VARCHAR(50),
     IN p_UpdatedBy INT
 )
 BEGIN
-    UPDATE OrgMembers
-    SET RoleLkpId = p_RoleLkpId,
-        UpdatedAt = NOW(),
-        UpdatedBy = p_UpdatedBy
-    WHERE OrgMemberId = p_MemberId
-      AND OrgId       = p_OrgId
-      AND IsDeleted   = 0;
+    DECLARE v_RoleLkpId INT UNSIGNED DEFAULT 0;
 
-    IF ROW_COUNT() = 0 THEN
-        SELECT 0 AS IsSuccess, 'Member not found or already deleted.' AS Message;
+    SELECT lv.LookupValueId INTO v_RoleLkpId
+    FROM   LookupValues lv JOIN LookupTypes lt ON lt.LookupTypeId = lv.LookupTypeId
+    WHERE  lt.TypeCode = 'MEMBER_ROLE' AND lv.ValueCode = p_RoleCode
+    LIMIT  1;
+
+    IF v_RoleLkpId = 0 THEN
+        SELECT 0 AS IsSuccess, CONCAT('Unknown role: ', p_RoleCode) AS Message;
     ELSE
-        SELECT 1 AS IsSuccess, 'Member role updated.' AS Message;
+        UPDATE OrgMembers
+        SET RoleLkpId = v_RoleLkpId,
+            UpdatedAt = NOW(),
+            UpdatedBy = p_UpdatedBy
+        WHERE OrgMemberId = p_MemberId
+          AND OrgId       = p_OrgId
+          AND IsDeleted   = 0;
+
+        IF ROW_COUNT() = 0 THEN
+            SELECT 0 AS IsSuccess, 'Member not found or already deleted.' AS Message;
+        ELSE
+            SELECT 1 AS IsSuccess, 'Member role updated.' AS Message;
+        END IF;
     END IF;
 END //
 
@@ -7692,143 +7706,4 @@ BEGIN
         (SELECT rv.ValueName FROM OrgMembers om2
             JOIN LookupValues rv ON om2.RoleLkpId = rv.LookupValueId
             WHERE om2.UserId = u.UserId AND om2.IsDeleted = 0
-            ORDER BY om2.JoinedAt DESC LIMIT 1) AS Role,
-        IF(u.IsActive = 1, 'ACTIVE', 'SUSPENDED') AS AccountStatus,
-        COALESCE(pv.ValueCode, 'PENDING') AS ProfileVerificationStatus,
-        up.ReliabilityPct AS Reliability,
-        (SELECT ROUND(SUM(pa.HoursLogged), 1)
-            FROM ProjectAttendance pa
-            JOIN LookupValues av ON pa.AttendStatusLkpId = av.LookupValueId
-            WHERE pa.UserId = u.UserId AND av.ValueCode = 'ATTENDED') AS Hours,
-        (SELECT COUNT(DISTINCT ps.ProjectId)
-            FROM ProjectAttendance pa
-            JOIN ProjectSessions ps ON pa.SessionId  = ps.SessionId
-            JOIN Projects p         ON ps.ProjectId  = p.ProjectId
-            JOIN LookupValues av    ON pa.AttendStatusLkpId = av.LookupValueId
-            WHERE pa.UserId = u.UserId AND av.ValueCode = 'ATTENDED'
-              AND p.StatusLkpId = (
-                  SELECT LookupValueId FROM LookupValues lv
-                  JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
-                  WHERE lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'COMPLETED' LIMIT 1)
-        ) AS Projects
-    FROM Users u
-    JOIN UserProfiles up ON up.UserId = u.UserId AND up.IsDeleted = 0
-    LEFT JOIN OrgMembers om ON om.UserId = u.UserId AND om.IsDeleted = 0
-    LEFT JOIN Organisations o ON om.OrgId = o.OrgId AND o.IsDeleted = 0
-    LEFT JOIN LookupValues pv ON u.ProfileVerificationLkpId = pv.LookupValueId
-    WHERE u.UserId = p_UserId AND u.IsDeleted = 0
-    GROUP BY u.UserId, up.FirstName, up.LastName, u.Email, u.Mobile,
-             up.ProfilePhoto, u.IsActive, pv.V
-
--- ============================================================
--- v4.7 ADDITIONS — USER CONTACT UPDATE FEATURE
--- New SPs: User_SendContactOtp + User_VerifyContactOtp
--- Seeds: ADD_PHONE + ADD_EMAIL OTP_PURPOSE lookup values
--- Note: LookupValue seeds added at line ~1319 (OTP_PURPOSE block)
--- ============================================================
-
-DELIMITER //
-
-DROP PROCEDURE IF EXISTS User_SendContactOtp //
-CREATE PROCEDURE User_SendContactOtp(
-    IN p_UserId    INT UNSIGNED,
-    IN p_Type      VARCHAR(10),    -- 'EMAIL' or 'PHONE'
-    IN p_Value     VARCHAR(200),
-    IN p_OtpCode   VARCHAR(6),
-    IN p_IpAddress VARCHAR(45)
-)
-proc: BEGIN
-    DECLARE v_PurposeLkpId   INT UNSIGNED DEFAULT 0;
-    DECLARE v_DuplicateCount INT          DEFAULT 0;
-    DECLARE v_RecentCount    INT          DEFAULT 0;
-    DECLARE v_ValueCode      VARCHAR(20);
-
-    -- Determine purpose code + check duplicate across OTHER users
-    IF p_Type = 'EMAIL' THEN
-        SET v_ValueCode = 'ADD_EMAIL';
-        SELECT COUNT(*) INTO v_DuplicateCount
-        FROM Users
-        WHERE Email = p_Value AND UserId != p_UserId AND IsDeleted = 0;
-    ELSE
-        SET v_ValueCode = 'ADD_PHONE';
-        SELECT COUNT(*) INTO v_DuplicateCount
-        FROM Users
-        WHERE Mobile = p_Value AND UserId != p_UserId AND IsDeleted = 0;
-    END IF;
-
-    IF v_DuplicateCount > 0 THEN
-        SELECT 0 AS IsSuccess, 'This contact is already registered with another account.' AS Message;
-        LEAVE proc;
-    END IF;
-
-    -- Resolve PurposeLkpId from LookupValues
-    SELECT lv.LookupValueId INTO v_PurposeLkpId
-    FROM LookupValues lv
-    JOIN LookupTypes lt ON lt.LookupTypeId = lv.LookupTypeId
-    WHERE lt.TypeCode = 'OTP_PURPOSE' AND lv.ValueCode = v_ValueCode AND lv.IsDeleted = 0
-    LIMIT 1;
-
-    IF v_PurposeLkpId = 0 THEN
-        SELECT 0 AS IsSuccess, 'OTP purpose not configured. Please contact support.' AS Message;
-        LEAVE proc;
-    END IF;
-
-    -- Rate limit: max 3 requests in last 10 minutes (same as Auth_SendOTP)
-    SELECT COUNT(*) INTO v_RecentCount
-    FROM OtpTokens
-    WHERE Recipient    = p_Value
-      AND PurposeLkpId = v_PurposeLkpId
-      AND CreatedAt   >= DATE
--- ============================================================
--- v4.8 ADDITIONS — VERIFICATION BADGES
--- New SP: SuperAdmin_Org_VerifyProfile
--- Changes: ORG_VERIFICATION_STATUS LookupType, VerificationStatusLkpId on Organisations,
---          Org_GetMembers + Org_GetPendingMembers return ProfileVerificationStatusCode,
---          Org_GetProfile + Org_ListRecommended return VerificationStatusCode,
---          REJECTED added to PROFILE_VERIFICATION_STATUS
--- ============================================================
-
-DELIMITER //
-
--- ── SuperAdmin_Org_VerifyProfile ─────────────────────────────────────────────
--- Sets Organisations.VerificationStatusLkpId to any ORG_VERIFICATION_STATUS value.
--- Called by Super Admin to mark org legal documents as verified/rejected.
-DROP PROCEDURE IF EXISTS SuperAdmin_Org_VerifyProfile //
-CREATE PROCEDURE SuperAdmin_Org_VerifyProfile(
-    IN p_OrgId          INT UNSIGNED,
-    IN p_StatusCode     VARCHAR(50),   -- PENDING | VERIFIED | REJECTED
-    IN p_SuperAdminId   INT UNSIGNED
-)
-BEGIN
-    DECLARE v_StatusLkpId INT UNSIGNED;
-
-    SELECT lv.LookupValueId INTO v_StatusLkpId
-    FROM   LookupValues lv
-    JOIN   LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
-    WHERE  lt.TypeCode = 'ORG_VERIFICATION_STATUS' AND lv.ValueCode = p_StatusCode
-    LIMIT  1;
-
-    IF v_StatusLkpId IS NULL THEN
-        SELECT 0 AS IsSuccess, CONCAT('Unknown status code: ', p_StatusCode) AS Message;
-    ELSE
-        UPDATE Organisations
-        SET    VerificationStatusLkpId = v_StatusLkpId,
-               UpdatedBy               = p_SuperAdminId
-        WHERE  OrgId = p_OrgId AND IsDeleted = 0;
-
-        SELECT 1 AS IsSuccess,
-               CONCAT('Organisation verification status set to ', p_StatusCode, '.') AS Message;
-    END IF;
-END //
-
-DELIMITER ;
- SELECT 0 AS IsSuccess, 'This contact is already registered with another account.' AS Message;
-        LEAVE proc;
-    END IF;
-
-    -- Resolve PurposeLkpId
-    SELECT lv.LookupValueId INTO v_PurposeLkpId
-    FROM LookupValues lv
-    JOIN LookupTypes lt ON lt.LookupTypeId = lv.LookupTypeId
-    WHERE lt.TypeCode = 'OTP_PURPOSE' AND lv.ValueCode = v_ValueCode AND lv.IsDeleted = 0
-    LIMIT 1
+            ORDER BY om2.Jo
