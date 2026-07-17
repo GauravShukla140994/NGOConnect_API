@@ -7008,6 +7008,12 @@ CREATE PROCEDURE SuperAdmin_User_GetList(
 BEGIN
     DECLARE v_Offset INT DEFAULT (p_PageNumber - 1) * p_PageSize;
 
+    -- LEFT JOIN throughout (not INNER) so a member who has registered but never
+    -- joined/founded any organisation still appears. Their OrgNames/Role/
+    -- MembershipStatus come back NULL, JoinedAt falls back to Users.CreatedAt
+    -- (registration date). The org filter (p_OrgIds) is deliberately bypassed for
+    -- such members (om.OrgId IS NULL) since there's no org to filter them by —
+    -- they show under any org selection, including a narrowed one.
     SELECT
         u.UserId,
         CONCAT(up.FirstName, ' ', up.LastName) AS FullName,
@@ -7023,19 +7029,19 @@ BEGIN
             ORDER BY om2.JoinedAt DESC LIMIT 1) AS MembershipStatus,
         IF(u.IsActive = 1, 'ACTIVE', 'SUSPENDED') AS AccountStatus,
         COALESCE(pv.ValueCode, 'PENDING') AS ProfileVerificationStatus,
-        MIN(om.JoinedAt) AS JoinedAt
+        COALESCE(MIN(om.JoinedAt), u.CreatedAt) AS JoinedAt
     FROM Users u
     JOIN UserProfiles up ON up.UserId = u.UserId AND up.IsDeleted = 0
-    JOIN OrgMembers om ON om.UserId = u.UserId AND om.IsDeleted = 0
-        AND (p_OrgIds IS NULL OR p_OrgIds = '' OR FIND_IN_SET(om.OrgId, p_OrgIds) > 0)
-    JOIN Organisations o ON om.OrgId = o.OrgId AND o.IsDeleted = 0
+    LEFT JOIN OrgMembers om ON om.UserId = u.UserId AND om.IsDeleted = 0
+    LEFT JOIN Organisations o ON om.OrgId = o.OrgId AND o.IsDeleted = 0
     LEFT JOIN LookupValues pv ON u.ProfileVerificationLkpId = pv.LookupValueId
     WHERE u.IsDeleted = 0
+      AND (p_OrgIds IS NULL OR p_OrgIds = '' OR om.OrgId IS NULL OR FIND_IN_SET(om.OrgId, p_OrgIds) > 0)
       AND (p_Search IS NULL OR p_Search = ''
            OR CONCAT(up.FirstName,' ',up.LastName) LIKE CONCAT('%', p_Search, '%')
            OR u.Email LIKE CONCAT('%', p_Search, '%')
            OR u.Mobile LIKE CONCAT('%', p_Search, '%'))
-    GROUP BY u.UserId, up.FirstName, up.LastName, u.Email, u.Mobile, up.ProfilePhoto, u.IsActive, pv.ValueCode
+    GROUP BY u.UserId, up.FirstName, up.LastName, u.Email, u.Mobile, up.ProfilePhoto, u.IsActive, pv.ValueCode, u.CreatedAt
     ORDER BY JoinedAt DESC
     LIMIT p_PageSize OFFSET v_Offset;
 
@@ -7043,9 +7049,9 @@ BEGIN
         SELECT u.UserId
         FROM Users u
         JOIN UserProfiles up ON up.UserId = u.UserId AND up.IsDeleted = 0
-        JOIN OrgMembers om ON om.UserId = u.UserId AND om.IsDeleted = 0
-            AND (p_OrgIds IS NULL OR p_OrgIds = '' OR FIND_IN_SET(om.OrgId, p_OrgIds) > 0)
+        LEFT JOIN OrgMembers om ON om.UserId = u.UserId AND om.IsDeleted = 0
         WHERE u.IsDeleted = 0
+          AND (p_OrgIds IS NULL OR p_OrgIds = '' OR om.OrgId IS NULL OR FIND_IN_SET(om.OrgId, p_OrgIds) > 0)
           AND (p_Search IS NULL OR p_Search = ''
                OR CONCAT(up.FirstName,' ',up.LastName) LIKE CONCAT('%', p_Search, '%')
                OR u.Email LIKE CONCAT('%', p_Search, '%')

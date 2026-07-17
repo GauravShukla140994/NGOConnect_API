@@ -2394,7 +2394,8 @@ BEGIN
         CALL Org_AddMember(v_OrgId, v_UserId, 'MEMBER', p_ReviewedBy);
     END IF;
 
-    SELECT 1 AS IsSuccess, CONCAT('Request ', p_StatusCode, '.') AS Message;
+    SELECT 1 AS IsSuccess, CONCAT('Request ', p_StatusCode, '.') AS Message,
+           v_UserId AS ApplicantUserId, v_OrgId AS OrgId;
 END //
 
 -- v4.0 NEW: List pending membership requests for an org
@@ -2807,7 +2808,9 @@ BEGIN
     UPDATE ProjectApplications SET StatusLkpId = v_StatusLkpId, StatusUpdatedAt = NOW(),
         StatusUpdatedBy = p_ReviewedBy, RejectionReason = p_RejectionReason
     WHERE ApplicationId = p_ApplicationId AND IsDeleted = 0;
-    SELECT 1 AS IsSuccess, CONCAT('Application ', p_StatusCode, '.') AS Message;
+    SELECT 1 AS IsSuccess, CONCAT('Application ', p_StatusCode, '.') AS Message,
+           (SELECT UserId    FROM ProjectApplications WHERE ApplicationId = p_ApplicationId) AS ApplicantUserId,
+           (SELECT ProjectId FROM ProjectApplications WHERE ApplicationId = p_ApplicationId) AS ProjectId;
 END //
 
 CREATE PROCEDURE Application_GetByUser(IN p_UserId INT UNSIGNED, IN p_PageNumber INT, IN p_PageSize INT)
@@ -3298,13 +3301,18 @@ END //
 -- v4.0 NEW: Admin approves a responder and grants location access
 CREATE PROCEDURE Sos_ApproveResponder(IN p_SosResponderId INT UNSIGNED, IN p_ApprovedBy INT UNSIGNED, IN p_CanViewLocation TINYINT(1))
 BEGIN
-    DECLARE v_StatusLkpId INT UNSIGNED;
+    DECLARE v_StatusLkpId     INT UNSIGNED;
+    DECLARE v_ResponderUserId INT UNSIGNED;
+    DECLARE v_SosIncidentId   INT UNSIGNED;
     SELECT LookupValueId INTO v_StatusLkpId FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
     WHERE lt.TypeCode = 'RESPONDER_STATUS' AND lv.ValueCode = 'APPROVED' LIMIT 1;
+    SELECT UserId, SosIncidentId INTO v_ResponderUserId, v_SosIncidentId
+    FROM   SosResponders WHERE SosResponderId = p_SosResponderId;
     UPDATE SosResponders SET ApprovalStatusLkpId = v_StatusLkpId,
         ApprovedAt = NOW(), ApprovedBy = p_ApprovedBy, CanViewLocation = COALESCE(p_CanViewLocation, 0)
     WHERE SosResponderId = p_SosResponderId;
-    SELECT 1 AS IsSuccess, 'Responder approved.' AS Message;
+    SELECT 1 AS IsSuccess, 'Responder approved.' AS Message,
+           v_ResponderUserId AS ResponderUserId, v_SosIncidentId AS SosIncidentId;
 END //
 
 -- v4.0 NEW: Cancel an active SOS
@@ -3425,22 +3433,27 @@ END //
 CREATE PROCEDURE Donation_ConfirmPayment(IN p_TransactionId INT UNSIGNED, IN p_StatusCode VARCHAR(50), IN p_GatewayResponse JSON)
 BEGIN
     DECLARE v_StatusLkpId INT UNSIGNED;
-    DECLARE v_Amount DECIMAL(15,2);
-    DECLARE v_CampaignId INT UNSIGNED;
+    DECLARE v_Amount      DECIMAL(15,2);
+    DECLARE v_CampaignId  INT UNSIGNED;
+    DECLARE v_DonorUserId INT UNSIGNED;
+    DECLARE v_OrgId       INT UNSIGNED;
 
     SELECT LookupValueId INTO v_StatusLkpId FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
     WHERE lt.TypeCode = 'PAYMENT_STATUS' AND lv.ValueCode = p_StatusCode LIMIT 1;
 
-    SELECT Amount, CampaignId INTO v_Amount, v_CampaignId FROM DonationTransactions WHERE TransactionId = p_TransactionId;
+    SELECT DonationAmount, CampaignId, DonorUserId, OrgId
+    INTO   v_Amount, v_CampaignId, v_DonorUserId, v_OrgId
+    FROM   DonationTransactions WHERE TransactionId = p_TransactionId;
 
-    UPDATE DonationTransactions SET StatusLkpId = v_StatusLkpId, GatewayResponse = p_GatewayResponse, UpdatedAt = NOW()
+    UPDATE DonationTransactions SET PayStatusLkpId = v_StatusLkpId, GatewayResponse = p_GatewayResponse, UpdatedAt = NOW()
     WHERE TransactionId = p_TransactionId;
 
     IF p_StatusCode = 'SUCCESS' THEN
         UPDATE DonationCampaigns SET RaisedAmount = RaisedAmount + v_Amount WHERE CampaignId = v_CampaignId;
     END IF;
 
-    SELECT 1 AS IsSuccess, CONCAT('Payment ', p_StatusCode, '.') AS Message;
+    SELECT 1 AS IsSuccess, CONCAT('Payment ', p_StatusCode, '.') AS Message,
+           v_DonorUserId AS DonorUserId, v_OrgId AS OrgId, v_CampaignId AS CampaignId;
 END //
 
 CREATE PROCEDURE Donation_GetHistory(IN p_UserId INT UNSIGNED, IN p_PageNumber INT, IN p_PageSize INT)
@@ -3655,20 +3668,27 @@ END //
 
 -- ── NOTIFICATION SPs ────────────────────────────────────────────
 
-CREATE PROCEDURE Notification_GetByUser(IN p_UserId INT UNSIGNED, IN p_OnlyUnread TINYINT(1), IN p_PageNumber INT, IN p_PageSize INT)
+CREATE PROCEDURE Notification_GetByUser(
+    IN p_UserId     INT UNSIGNED,
+    IN p_OnlyUnread TINYINT(1),
+    IN p_PageNumber INT,
+    IN p_PageSize   INT
+)
 BEGIN
     DECLARE v_Offset INT DEFAULT (p_PageNumber - 1) * p_PageSize;
-    SELECT n.NotificationId, n.Title, n.Body, n.NotificationTypeLkpId,
-           ntv.ValueCode AS NotificationType, n.EntityId, n.EntityType,
-           n.IsRead, n.ReadAt, n.CreatedAt
-    FROM Notifications n
-    LEFT JOIN LookupValues ntv ON n.NotificationTypeLkpId = ntv.LookupValueId
-    WHERE n.UserId = p_UserId AND n.IsDeleted = 0
-      AND (p_OnlyUnread = 0 OR n.IsRead = 0)
-    ORDER BY n.CreatedAt DESC LIMIT p_PageSize OFFSET v_Offset;
 
-    SELECT COUNT(*) AS TotalCount FROM Notifications WHERE UserId = p_UserId AND IsDeleted = 0
-    AND (p_OnlyUnread = 0 OR IsRead = 0);
+    SELECT n.NotificationId, n.Title, n.Body, n.NotifType,
+           n.RefId, n.RefType, n.IsRead, n.ReadAt, n.CreatedAt
+    FROM   Notifications n
+    WHERE  n.UserId = p_UserId
+      AND  (p_OnlyUnread = 0 OR n.IsRead = 0)
+    ORDER  BY n.CreatedAt DESC
+    LIMIT  p_PageSize OFFSET v_Offset;
+
+    SELECT COUNT(*) AS TotalCount
+    FROM   Notifications
+    WHERE  UserId = p_UserId
+      AND  (p_OnlyUnread = 0 OR IsRead = 0);
 END //
 
 CREATE PROCEDURE Notification_MarkRead(IN p_NotificationId BIGINT UNSIGNED, IN p_UserId INT UNSIGNED)
@@ -3687,15 +3707,109 @@ END //
 
 CREATE PROCEDURE Notification_GetUnreadCount(IN p_UserId INT UNSIGNED)
 BEGIN
-    SELECT COUNT(*) AS UnreadCount FROM Notifications
-    WHERE UserId = p_UserId AND IsRead = 0 AND IsDeleted = 0;
+    SELECT COUNT(*) AS UnreadCount
+    FROM   Notifications
+    WHERE  UserId = p_UserId AND IsRead = 0;
 END //
 
-CREATE PROCEDURE Notification_Create(IN p_UserId INT UNSIGNED, IN p_Title VARCHAR(200), IN p_Body TEXT, IN p_NotificationTypeLkpId INT UNSIGNED, IN p_EntityId INT UNSIGNED, IN p_EntityType VARCHAR(50))
+CREATE PROCEDURE Notification_Create(
+    IN p_UserId    INT UNSIGNED,
+    IN p_Title     VARCHAR(200),
+    IN p_Body      TEXT,
+    IN p_NotifType VARCHAR(50),
+    IN p_RefId     INT UNSIGNED,
+    IN p_RefType   VARCHAR(50)
+)
 BEGIN
-    INSERT INTO Notifications (UserId, Title, Body, NotificationTypeLkpId, EntityId, EntityType)
-    VALUES (p_UserId, p_Title, p_Body, p_NotificationTypeLkpId, p_EntityId, p_EntityType);
-    SELECT 1 AS IsSuccess, 'Notification created.' AS Message, LAST_INSERT_ID() AS NotificationId;
+    INSERT INTO Notifications (UserId, Title, Body, NotifType, RefId, RefType, IsSent)
+    VALUES (p_UserId, p_Title, p_Body, p_NotifType, p_RefId, p_RefType, 0);
+
+    SELECT 1 AS IsSuccess, 'Notification created.' AS Message,
+           LAST_INSERT_ID() AS NotificationId;
+END //
+
+-- ── DEVICE TOKEN SPs ────────────────────────────────────────────
+
+CREATE PROCEDURE Notification_SaveDeviceToken(
+    IN p_UserId   INT UNSIGNED,
+    IN p_Token    VARCHAR(512),
+    IN p_Platform VARCHAR(20)
+)
+BEGIN
+    INSERT INTO UserDeviceTokens (UserId, Token, Platform, UpdatedAt)
+    VALUES (p_UserId, p_Token, p_Platform, NOW())
+    ON DUPLICATE KEY UPDATE Token = p_Token, UpdatedAt = NOW();
+
+    SELECT 1 AS IsSuccess, 'Token saved.' AS Message;
+END //
+
+CREATE PROCEDURE Notification_GetTokenByUserId(IN p_UserId INT UNSIGNED)
+BEGIN
+    SELECT Token, Platform
+    FROM   UserDeviceTokens
+    WHERE  UserId = p_UserId AND Token IS NOT NULL AND Token != '';
+END //
+
+-- All APPROVED org members (excludes p_ExcludeUserId — pass 0 for none)
+CREATE PROCEDURE Notification_GetTokensByOrgId(
+    IN p_OrgId         INT UNSIGNED,
+    IN p_ExcludeUserId INT UNSIGNED
+)
+BEGIN
+    SELECT DISTINCT dt.UserId, dt.Token
+    FROM   UserDeviceTokens dt
+    INNER JOIN OrgMembers   om  ON om.UserId = dt.UserId AND om.OrgId = p_OrgId
+    INNER JOIN LookupValues lv  ON lv.LookupValueId = om.StatusLkpId
+    INNER JOIN LookupTypes  lt  ON lt.LookupTypeId  = lv.LookupTypeId
+    WHERE  lt.TypeCode = 'MEMBER_STATUS' AND lv.ValueCode = 'APPROVED'
+      AND  om.IsDeleted = 0
+      AND  dt.Token IS NOT NULL AND dt.Token != ''
+      AND  (p_ExcludeUserId = 0 OR dt.UserId != p_ExcludeUserId);
+END //
+
+-- FOUNDER + ADMIN members only (for new-application / new-membership admin alerts)
+CREATE PROCEDURE Notification_GetAdminTokensByOrgId(IN p_OrgId INT UNSIGNED)
+BEGIN
+    SELECT DISTINCT dt.UserId, dt.Token
+    FROM   UserDeviceTokens dt
+    INNER JOIN OrgMembers   om  ON om.UserId = dt.UserId AND om.OrgId = p_OrgId
+    INNER JOIN LookupValues slv ON slv.LookupValueId = om.StatusLkpId
+    INNER JOIN LookupTypes  slt ON slt.LookupTypeId  = slv.LookupTypeId
+    INNER JOIN LookupValues rlv ON rlv.LookupValueId = om.RoleLkpId
+    INNER JOIN LookupTypes  rlt ON rlt.LookupTypeId  = rlv.LookupTypeId
+    WHERE  slt.TypeCode = 'MEMBER_STATUS' AND slv.ValueCode = 'APPROVED'
+      AND  rlt.TypeCode = 'MEMBER_ROLE'   AND rlv.ValueCode IN ('FOUNDER','ADMIN')
+      AND  om.IsDeleted = 0
+      AND  dt.Token IS NOT NULL AND dt.Token != '';
+END //
+
+-- Project applicants by status code (pass NULL for all)
+CREATE PROCEDURE Notification_GetTokensByProjectId(
+    IN p_ProjectId  INT UNSIGNED,
+    IN p_StatusCode VARCHAR(20)
+)
+BEGIN
+    SELECT DISTINCT dt.UserId, dt.Token
+    FROM   UserDeviceTokens dt
+    INNER JOIN ProjectApplications pa ON pa.UserId = dt.UserId AND pa.ProjectId = p_ProjectId
+    INNER JOIN LookupValues lv ON lv.LookupValueId = pa.StatusLkpId
+    INNER JOIN LookupTypes  lt ON lt.LookupTypeId  = lv.LookupTypeId
+    WHERE  lt.TypeCode = 'APPLICATION_STATUS'
+      AND  (p_StatusCode IS NULL OR lv.ValueCode = p_StatusCode)
+      AND  pa.IsDeleted = 0
+      AND  dt.Token IS NOT NULL AND dt.Token != '';
+END //
+
+-- APPROVED responders for a SOS incident (for resolve/cancel fan-out)
+CREATE PROCEDURE Notification_GetTokensBySosIncidentId(IN p_SosIncidentId INT UNSIGNED)
+BEGIN
+    SELECT DISTINCT dt.UserId, dt.Token
+    FROM   UserDeviceTokens dt
+    INNER JOIN SosResponders sr ON sr.UserId = dt.UserId AND sr.SosIncidentId = p_SosIncidentId
+    INNER JOIN LookupValues  lv ON lv.LookupValueId = sr.ApprovalStatusLkpId
+    INNER JOIN LookupTypes   lt ON lt.LookupTypeId  = lv.LookupTypeId
+    WHERE  lt.TypeCode = 'RESPONDER_STATUS' AND lv.ValueCode = 'APPROVED'
+      AND  dt.Token IS NOT NULL AND dt.Token != '';
 END //
 
 
@@ -5623,7 +5737,9 @@ BEGIN
     INSERT INTO ProjectApplications (ProjectId, UserId, StatusLkpId, Motivation, RequestedSessions, AppliedAt)
     VALUES (p_ProjectId, p_UserId, v_PendingLkpId, p_Motivation, p_RequestedSessions, NOW());
 
-    SELECT 1 AS IsSuccess, 'Application submitted.' AS Message, LAST_INSERT_ID() AS ApplicationId;
+    SELECT 1 AS IsSuccess, 'Application submitted.' AS Message,
+           LAST_INSERT_ID() AS ApplicationId,
+           (SELECT OrgId FROM Projects WHERE ProjectId = p_ProjectId) AS OrgId;
 END //
 
 
@@ -7673,7 +7789,15 @@ BEGIN
         u.UserId, up.FirstName, up.LastName, u.Email, u.Mobile,
         up.ProfilePhoto, u.IsActive, pv.ValueCode, u.CreatedAt
     HAVING
-        (COUNT(om.OrgMemberId) = 0 AND (p_OrgIds IS NULL OR p_OrgIds = ''))
+        -- A user with zero org memberships always passes, regardless of which
+        -- orgs are selected in the filter — there's no org to filter them by,
+        -- and "cross-NGO oversight" should still surface brand-new registrants.
+        -- (Previously this branch also required p_OrgIds to be NULL/empty, but
+        -- the frontend's "all organisations" selection always sends a real,
+        -- non-empty ID list, so that condition was never actually true in
+        -- practice — zero-org members were silently excluded on every real page
+        -- load.)
+        COUNT(om.OrgMemberId) = 0
         OR SUM(CASE WHEN sv.ValueCode = 'APPROVED' THEN 1 ELSE 0 END) > 0
     ORDER BY JoinedAt DESC
     LIMIT p_PageSize OFFSET v_Offset;
@@ -7692,7 +7816,7 @@ BEGIN
                OR u.Mobile LIKE CONCAT('%', p_Search, '%'))
         GROUP BY u.UserId
         HAVING
-            (COUNT(om.OrgMemberId) = 0 AND (p_OrgIds IS NULL OR p_OrgIds = ''))
+            COUNT(om.OrgMemberId) = 0
             OR SUM(CASE WHEN sv.ValueCode = 'APPROVED' THEN 1 ELSE 0 END) > 0
     ) t;
 END //

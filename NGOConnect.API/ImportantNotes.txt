@@ -1,0 +1,10 @@
+﻿We're using cloudinary for document upload
+We're uisng https://railway.com/project/1c58d779-c61d-4006-adfb-f1c8d0e1449e? for API pubish
+We're using https://bns-enterprises-2b.sentry.io/issues/ for Error logs
+
+Using Firebase to release testing app
+firebase appdistribution:distribute android/app/build/outputs/apk/release/app-release.apk `
+  --app 1:869899592:android:01c1f8c77dd063fe90e77d `
+  --groups "testers" `
+  --release-notes "Post time issue Fixed"
+

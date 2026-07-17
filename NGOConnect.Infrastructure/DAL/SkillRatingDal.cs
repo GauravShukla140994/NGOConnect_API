@@ -7,7 +7,11 @@ namespace NGOConnect.Infrastructure.DAL
 {
     public class SkillRatingDal : BaseDal, ISkillRatingDal
     {
-        public SkillRatingDal(IDbProvider db) : base(db) { }
+        private readonly INotificationDal _notif;
+        private readonly IFCMService      _fcm;
+
+        public SkillRatingDal(IDbProvider db, INotificationDal notif, IFCMService fcm)
+            : base(db) { _notif = notif; _fcm = fcm; }
 
         public async Task<ApiResponse> AddRatingAsync(int raterUserId, AddSkillRatingRequest request)
         {
@@ -15,14 +19,31 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var result = await ExecuteWriteAsync("UserSkillRating_Add", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_UserId",    request.RatedUserId);   // the volunteer being rated
-                    _db.AddParameter(cmd, "p_OrgId",     (object?)null);          // no org context here
+                    _db.AddParameter(cmd, "p_UserId",    request.RatedUserId);
+                    _db.AddParameter(cmd, "p_OrgId",     (object?)null);
                     _db.AddParameter(cmd, "p_ProjectId", request.ProjectId);
-                    _db.AddParameter(cmd, "p_SkillId",   request.UserSkillId);   // UserSkillId IS the skill being rated
+                    _db.AddParameter(cmd, "p_SkillId",   request.UserSkillId);
                     _db.AddParameter(cmd, "p_Rating",    request.Rating);
                     _db.AddParameter(cmd, "p_RatedBy",   raterUserId);
                     _db.AddParameter(cmd, "p_Notes",     request.Review);
                 });
+
+                if (result.Succeeded)
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await _notif.CreateAsync(request.RatedUserId, "⭐ Skill Rating Received",
+                                "Someone rated one of your skills. Check your impact profile!",
+                                "SKILL_RATING", request.ProjectId, "PROJECT");
+                            var tokens = await _notif.GetTokensByUserIdAsync(request.RatedUserId);
+                            await _fcm.SendMulticastAsync(tokens, "⭐ Skill Rating Received",
+                                "Someone rated one of your skills. Check your impact profile!",
+                                "SKILL_RATING", request.ProjectId, "PROJECT");
+                        }
+                        catch (Exception ex) { Log.Error(ex, "SkillRatingDal.AddRatingAsync notify failed"); }
+                    });
+
                 return result.ToApiResponse();
             }
             catch (Exception ex)

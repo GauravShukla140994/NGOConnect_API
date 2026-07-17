@@ -7,7 +7,11 @@ namespace NGOConnect.Infrastructure.DAL
 {
     public class OrgDal : BaseDal, IOrgDal
     {
-        public OrgDal(IDbProvider db) : base(db) { }
+        private readonly INotificationDal _notif;
+        private readonly IFCMService      _fcm;
+
+        public OrgDal(IDbProvider db, INotificationDal notif, IFCMService fcm)
+            : base(db) { _notif = notif; _fcm = fcm; }
 
         public async Task<ApiResponse<DynamicRow>> RegisterAsync(int userId, RegisterOrgRequest request)
         {
@@ -561,6 +565,8 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_UserId",    userId);
                     _db.AddParameter(cmd, "p_RemovedBy", requestedBy);
                 });
+                if (result.Succeeded)
+                    _ = FireUserNotifAsync(userId, "Membership Update", "Your membership has been removed from an organisation.", "MEMBER_REMOVED", orgId, "ORG");
                 return result.ToApiResponse();
             }
             catch (Exception ex)
@@ -583,6 +589,8 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_AreasOfInterest",   request.AreasOfInterest);
                     _db.AddParameter(cmd, "p_WhyJoin",           request.WhyJoin);
                 });
+                if (result.Succeeded)
+                    _ = FireAdminNotifAsync(orgId, "New Membership Request", "A volunteer wants to join your organisation.", "MEMBERSHIP_REQUEST", orgId, "ORG");
                 return result.ToApiResponse();
             }
             catch (Exception ex)
@@ -598,11 +606,21 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var result = await ExecuteWriteAsync("Org_ReviewMembership", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_RequestId", request.MembershipRequestId);
-                    _db.AddParameter(cmd, "p_ReviewedBy",          reviewedBy);
-                    _db.AddParameter(cmd, "p_StatusCode",          request.StatusCode);
-                    _db.AddParameter(cmd, "p_ReviewNote",          request.AdminNotes);
+                    _db.AddParameter(cmd, "p_RequestId",  request.MembershipRequestId);
+                    _db.AddParameter(cmd, "p_ReviewedBy", reviewedBy);
+                    _db.AddParameter(cmd, "p_StatusCode", request.StatusCode);
+                    _db.AddParameter(cmd, "p_ReviewNote", request.AdminNotes);
                 });
+                if (result.Succeeded && result.Row is not null)
+                {
+                    var applicantUserId = Col<int>(result.Row, "ApplicantUserId");
+                    var orgId           = Col<int>(result.Row, "OrgId");
+                    var isApproved = request.StatusCode?.Equals("APPROVED", StringComparison.OrdinalIgnoreCase) == true;
+                    if (isApproved)
+                        _ = FireUserNotifAsync(applicantUserId, "Membership Approved 🎉", "Welcome! You are now a member of the organisation.", "MEMBERSHIP_APPROVED", orgId, "ORG");
+                    else
+                        _ = FireUserNotifAsync(applicantUserId, "Membership Update", "Your membership request was not approved at this time.", "MEMBERSHIP_REJECTED", orgId, "ORG");
+                }
                 return result.ToApiResponse();
             }
             catch (Exception ex)
@@ -771,7 +789,7 @@ namespace NGOConnect.Infrastructure.DAL
                 var result = await ExecuteWriteAsync("Org_UploadDocument", cmd =>
                 {
                     _db.AddParameter(cmd, "p_OrgId",             orgId);
-                    _db.AddParameter(cmd, "p_UploadedBy",        userId);
+                    _db.AddParameter(cmd, "p_UserId",            userId);
                     _db.AddParameter(cmd, "p_DocumentTypeLkpId", request.DocumentTypeLkpId);
                     _db.AddParameter(cmd, "p_FileUrl",           request.FileUrl);
                     _db.AddParameter(cmd, "p_FileName",          request.FileName);
@@ -783,6 +801,31 @@ namespace NGOConnect.Infrastructure.DAL
                 Log.Error(ex, "UploadDocumentAsync failed OrgId={OrgId}", orgId);
                 return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
             }
+        }
+
+        // ── Notification helpers ──────────────────────────────────────────────────
+
+        private async Task FireUserNotifAsync(int userId, string title, string body,
+            string notifType, int? refId = null, string? refType = null)
+        {
+            try
+            {
+                await _notif.CreateAsync(userId, title, body, notifType, refId, refType);
+                var tokens = await _notif.GetTokensByUserIdAsync(userId);
+                await _fcm.SendMulticastAsync(tokens, title, body, notifType, refId, refType);
+            }
+            catch (Exception ex) { Log.Error(ex, "OrgDal.FireUserNotifAsync failed"); }
+        }
+
+        private async Task FireAdminNotifAsync(int orgId, string title, string body,
+            string notifType, int? refId = null, string? refType = null)
+        {
+            try
+            {
+                var tokens = await _notif.GetAdminTokensByOrgIdAsync(orgId);
+                await _fcm.SendMulticastAsync(tokens, title, body, notifType, refId, refType);
+            }
+            catch (Exception ex) { Log.Error(ex, "OrgDal.FireAdminNotifAsync failed"); }
         }
     }
 }

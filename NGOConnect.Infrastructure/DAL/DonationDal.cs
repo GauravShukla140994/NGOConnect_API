@@ -7,7 +7,11 @@ namespace NGOConnect.Infrastructure.DAL
 {
     public class DonationDal : BaseDal, IDonationDal
     {
-        public DonationDal(IDbProvider db) : base(db) { }
+        private readonly INotificationDal _notif;
+        private readonly IFCMService      _fcm;
+
+        public DonationDal(IDbProvider db, INotificationDal notif, IFCMService fcm)
+            : base(db) { _notif = notif; _fcm = fcm; }
 
         public async Task<ApiResponse<DynamicRow>> CreateCampaignAsync(int userId, CreateCampaignRequest request)
         {
@@ -135,6 +139,36 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_StatusCode",       "COMPLETED");
                     _db.AddParameter(cmd, "p_GatewayResponse",  (object?)null);
                 });
+
+                if (result.Succeeded && result.Row is not null)
+                {
+                    var donorUserId  = Col<int>(result.Row, "DonorUserId");
+                    var orgId        = Col<int>(result.Row, "OrgId");
+                    var campaignId   = Col<int>(result.Row, "CampaignId");
+
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await _notif.CreateAsync(donorUserId, "Donation Confirmed ✅",
+                                "Thank you! Your donation has been received.",
+                                "DONATION_CONFIRMED", campaignId, "CAMPAIGN");
+                            var donorTokens = await _notif.GetTokensByUserIdAsync(donorUserId);
+                            await _fcm.SendMulticastAsync(donorTokens, "Donation Confirmed ✅",
+                                "Thank you! Your donation has been received.",
+                                "DONATION_CONFIRMED", campaignId, "CAMPAIGN");
+
+                            if (orgId > 0)
+                            {
+                                var adminTokens = await _notif.GetAdminTokensByOrgIdAsync(orgId);
+                                await _fcm.SendMulticastAsync(adminTokens, "New Donation Received 💰",
+                                    "Your NGO has received a new donation.",
+                                    "DONATION_RECEIVED_ADMIN", campaignId, "CAMPAIGN");
+                            }
+                        }
+                        catch (Exception ex) { Log.Error(ex, "DonationDal.ConfirmPaymentAsync notify failed"); }
+                    });
+                }
                 return result.ToApiResponse();
             }
             catch (Exception ex)

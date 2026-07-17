@@ -8,7 +8,11 @@ namespace NGOConnect.Infrastructure.DAL
 {
     public class CommunityDal : BaseDal, ICommunityDal
     {
-        public CommunityDal(IDbProvider db) : base(db) { }
+        private readonly INotificationDal _notif;
+        private readonly IFCMService      _fcm;
+
+        public CommunityDal(IDbProvider db, INotificationDal notif, IFCMService fcm)
+            : base(db) { _notif = notif; _fcm = fcm; }
 
         public async Task<ApiResponse<DynamicRow>> CreatePostAsync(int userId, CreateCommunityPostRequest request)
         {
@@ -31,6 +35,21 @@ namespace NGOConnect.Infrastructure.DAL
                 var data = new DynamicRow();
                 data["communityPostId"] = postId;
                 data["message"]         = result.Message;
+
+                // Fan-out to org members (exclude author)
+                if (request.OrgId > 0)
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var tokens = await _notif.GetTokensByOrgIdAsync(request.OrgId, userId);
+                            await _fcm.SendMulticastAsync(tokens, "📢 New Community Post",
+                                "A new post has been shared in your community.",
+                                "COMMUNITY_POST", postId, "COMMUNITY_POST");
+                        }
+                        catch (Exception ex) { Log.Error(ex, "CommunityDal.CreatePostAsync notify failed"); }
+                    });
+
                 return ApiResponse<DynamicRow>.Success(data, result.Message);
             }
             catch (Exception ex)
@@ -139,6 +158,20 @@ namespace NGOConnect.Infrastructure.DAL
                 var data = new DynamicRow();
                 data["pollId"]  = pollId;
                 data["message"] = result.Message;
+
+                if (request.OrgId > 0)
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var tokens = await _notif.GetTokensByOrgIdAsync(request.OrgId, userId);
+                            await _fcm.SendMulticastAsync(tokens, "📊 New Poll",
+                                "A new poll has been posted in your community. Cast your vote!",
+                                "NEW_POLL", pollId, "POLL");
+                        }
+                        catch (Exception ex) { Log.Error(ex, "CommunityDal.CreatePollAsync notify failed"); }
+                    });
+
                 return ApiResponse<DynamicRow>.Success(data, result.Message);
             }
             catch (Exception ex)

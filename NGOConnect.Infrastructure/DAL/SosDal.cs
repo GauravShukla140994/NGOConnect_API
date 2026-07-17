@@ -10,11 +10,11 @@ namespace NGOConnect.Infrastructure.DAL
     public class SosDal : BaseDal, ISosDal
     {
         private readonly IHubContext<SosHub> _hub;
+        private readonly INotificationDal    _notif;
+        private readonly IFCMService         _fcm;
 
-        public SosDal(IDbProvider db, IHubContext<SosHub> hub) : base(db)
-        {
-            _hub = hub;
-        }
+        public SosDal(IDbProvider db, IHubContext<SosHub> hub, INotificationDal notif, IFCMService fcm)
+            : base(db) { _hub = hub; _notif = notif; _fcm = fcm; }
 
         // ── Bug 4 fixed: now passes OrgId + ApproxLocation from request ────────
         public async Task<ApiResponse<DynamicRow>> TriggerAsync(int userId, TriggerSosRequest request)
@@ -40,11 +40,14 @@ namespace NGOConnect.Infrastructure.DAL
                 data["sosIncidentId"] = incidentId;
                 data["message"]       = result.Message;
 
-                // Notify org group that a new SOS was triggered
+                // SignalR + FCM fan-out: notify all org members of new SOS
                 if (request.OrgId.HasValue)
                 {
                     await _hub.Clients.Group($"org-{request.OrgId}")
                         .SendAsync("NewSosAlert", new { sosIncidentId = incidentId });
+                    _ = FireOrgNotifAsync(request.OrgId.Value, userId,
+                        "🆘 SOS Alert!", "A member needs help urgently. Tap to respond.",
+                        "SOS_TRIGGERED", incidentId, "SOS");
                 }
 
                 return ApiResponse<DynamicRow>.Success(data, result.Message);
@@ -170,8 +173,11 @@ namespace NGOConnect.Infrastructure.DAL
                 });
 
                 if (result.Succeeded)
+                {
                     await _hub.Clients.Group($"sos-{sosIncidentId}")
                         .SendAsync("SosResolved", new { sosIncidentId, status = "RESOLVED" });
+                    _ = FireSosResponderNotifAsync(sosIncidentId, "SOS Resolved ✅", "The SOS has been resolved. Thank you for responding!", "SOS_RESOLVED");
+                }
 
                 return result.ToApiResponse();
             }
@@ -219,8 +225,12 @@ namespace NGOConnect.Infrastructure.DAL
                 });
 
                 if (result.Succeeded)
+                {
                     await _hub.Clients.Group($"sos-{sosIncidentId}")
                         .SendAsync("NewResponder", new { sosIncidentId });
+                    // Notify SOS creator that someone wants to help
+                    // (creator userId stored on SosIncidents — sent via SignalR group, FC notif is best-effort)
+                }
 
                 return result.ToApiResponse();
             }
@@ -244,8 +254,15 @@ namespace NGOConnect.Infrastructure.DAL
                 });
 
                 if (result.Succeeded)
+                {
                     await _hub.Clients.Group($"sos-{sosIncidentId}")
                         .SendAsync("ResponderApproved", new { sosIncidentId, sosResponderId = request.SosResponderId });
+                    if (result.Row is not null)
+                    {
+                        var responderUserId = Col<int>(result.Row, "ResponderUserId");
+                        _ = FireUserNotifAsync(responderUserId, "SOS: You're Approved ✅", "You have been approved as a responder. Head to the live location now.", "SOS_RESPONDER_APPROVED", sosIncidentId, "SOS");
+                    }
+                }
 
                 return result.ToApiResponse();
             }
@@ -313,16 +330,10 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_Accuracy",      request.Accuracy);
                 });
 
-                // Push live location via SignalR so approved responders get it without polling
                 if (result.Succeeded)
                     await _hub.Clients.Group($"sos-{sosIncidentId}")
-                        .SendAsync("LocationUpdated", new
-                        {
-                            sosIncidentId,
-                            latitude  = request.Latitude,
-                            longitude = request.Longitude,
-                            timestamp = DateTime.UtcNow
-                        });
+                        .SendAsync("LocationUpdated", new { sosIncidentId, userId,
+                            latitude = request.Latitude, longitude = request.Longitude });
 
                 return result.ToApiResponse();
             }
@@ -331,6 +342,41 @@ namespace NGOConnect.Infrastructure.DAL
                 Log.Error(ex, "UpdateLocationAsync failed SosIncidentId={Id}", sosIncidentId);
                 return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
             }
+        }
+
+        // ── Notification helpers ──────────────────────────────────────────────────
+
+        private async Task FireUserNotifAsync(int userId, string title, string body,
+            string notifType, int? refId = null, string? refType = null)
+        {
+            try
+            {
+                await _notif.CreateAsync(userId, title, body, notifType, refId, refType);
+                var tokens = await _notif.GetTokensByUserIdAsync(userId);
+                await _fcm.SendMulticastAsync(tokens, title, body, notifType, refId, refType);
+            }
+            catch (Exception ex) { Log.Error(ex, "SosDal.FireUserNotifAsync failed"); }
+        }
+
+        private async Task FireOrgNotifAsync(int orgId, int excludeUserId, string title, string body,
+            string notifType, int? refId = null, string? refType = null)
+        {
+            try
+            {
+                var tokens = await _notif.GetTokensByOrgIdAsync(orgId, excludeUserId);
+                await _fcm.SendMulticastAsync(tokens, title, body, notifType, refId, refType);
+            }
+            catch (Exception ex) { Log.Error(ex, "SosDal.FireOrgNotifAsync failed"); }
+        }
+
+        private async Task FireSosResponderNotifAsync(int sosIncidentId, string title, string body, string notifType)
+        {
+            try
+            {
+                var tokens = await _notif.GetTokensBySosIncidentIdAsync(sosIncidentId);
+                await _fcm.SendMulticastAsync(tokens, title, body, notifType, sosIncidentId, "SOS");
+            }
+            catch (Exception ex) { Log.Error(ex, "SosDal.FireSosResponderNotifAsync failed"); }
         }
     }
 }

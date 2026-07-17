@@ -163,6 +163,7 @@ When it is included in a Railway patch, update to `✅ Railway applied`.
 
 | File | What it covers | Status |
 |---|---|---|
+| `NGOConnect_Patch_SuperAdminMembersList_ShowUnlinked.sql` | SuperAdmin_User_GetList: HAVING clause's zero-org-membership branch no longer requires p_OrgIds to be NULL/empty — brand-new registrants with no org link now show regardless of which orgs are selected in the Members page filter | 🟡 Local only |
 | `NGOConnect_Patch_PostLike_FieldFix.sql` | Post_GetFeed + Post_GetById: rename IsLikedByMe → IsLiked alias | 🟡 Local only |
 | `NGOConnect_Patch_ImpactRankFix.sql` | User_GetImpact: TotalRanked counts all active users (fixes "#1 of 0") | 🟡 Local only |
 | `NGOConnect_Patch_ContactUpdate.sql` | ADD_PHONE + ADD_EMAIL lookup seeds; User_SendContactOtp + User_VerifyContactOtp SPs | 🟡 Local only |
@@ -250,6 +251,23 @@ When there is a conflict between files, this priority order applies:
 
 
 ## Current Pending Document Updates
+
+**Deployment — `appsettings.Staging.json`** (2026-07-17)
+- Added `https://stage.ripplehub.app` to `Cors:AllowedOrigins` — Website repo's `/admin` panel is being deployed there on Railway (built with `npm run build:staging`)
+- No document update needed (config, not a public API contract change) — noted here only so a future session knows why this origin is in the list
+- **Still pending:** add `https://ripplehub.app` to `appsettings.json`'s production CORS list once the production Railway service is actually set up (user said "later")
+
+**Deployment — `Website/package.json`** (2026-07-17)
+- Added `serve` dependency + `"start": "serve -s dist -l $PORT"` script so Railway can serve the Vite build output as a single-page app (client-side routes fall back to `index.html`)
+- No document update needed — deployment tooling, not an API/DB contract change
+
+**SQL — `NGOConnect_Complete_Setup_v4.8.sql`** (2026-07-15)
+- `SuperAdmin_User_GetList` (both the main SELECT and the TotalCount subquery): HAVING clause's zero-org-membership branch changed from `(COUNT(om.OrgMemberId) = 0 AND (p_OrgIds IS NULL OR p_OrgIds = ''))` to unconditional `COUNT(om.OrgMemberId) = 0`. Root cause: the admin Members page always sends a real, non-empty org ID list (its "all organisations" default resolves to an explicit list, never a true empty filter), so the old condition was never actually satisfied on any real page load — a brand-new registrant with zero org memberships was silently excluded from the Members list no matter what filter was active. Confirmed via user report: API returned the member when queried directly without an orgIds param, but the real Members page (which always sends one) never showed them.
+- Patch file: `NGOConnect_Patch_SuperAdminMembersList_ShowUnlinked.sql` — apply to Railway staging + production. Also needs running against whatever local/dev DB is in use.
+
+**Frontend — `Website/src/admin/pages/MembersPage.jsx`** (2026-07-15)
+- Org filter dropdown now built from `orgsApi.getAllOrgsBucketed()` (all 5 org statuses) instead of `getOrgsByStatus('APPROVED')` only — lets the admin explicitly filter by members of a still-pending/rejected/suspended org, and prevents the default "select all" from silently narrowing to approved-only orgs.
+- Table rendering: `m.orgNames` falls back to `'No organisation yet'` instead of blank; `m.membershipStatus` renders a plain `—` instead of an empty `StatusPill` when null (zero-org members have no membership status at all).
 
 **SQL — `NGOConnect_Complete_Setup_v4.8.sql`** (2026-07-14)
 - Added `REPORT_STATUS` to LookupTypes seed (`'Report Status'`, `'Review status of a post report'`)
@@ -671,3 +689,61 @@ Build needed:
 
 **Other bugs:**
 - `Post_Report` SP: looks up `ORG_STATUS` instead of `REPORT_STATUS` — copy-paste bug, fix in a future session
+
+---
+
+**Mobile — Notification History screen + unread badge (2026-07-17)**
+
+_No SQL or C# changes — all SPs and endpoints were already built. Mobile-only changes:_
+
+- `App/src/types/api.types.ts` — `Notification` interface field names corrected to match actual SP output: `notificationType` → `notifType`, `referenceId` → `refId`, `referenceType` → `refType`; added `readAt?: string`; `isRead` typed as `number` (MySQL returns 0/1, not boolean)
+- `App/src/api/notification.api.ts` — `getUnreadCount` response type corrected: `{count: number}` → `{unreadCount: number}` (matches SP column `UnreadCount`)
+- `App/src/screens/home/NotificationsScreen.tsx` — Full rewrite. Features: paginated list (30/page), pull-to-refresh, load-more on scroll, per-type emoji icon + colour, read/unread visual state (bold title + tinted row background + coloured dot), tap → navigate to relevant screen (mirrors `resolveScreen` in RootNavigator) + optimistic mark-as-read, "Mark all read" header button, empty state
+- `App/src/screens/home/HomeScreen.tsx` — Added `notificationApi` import, `useFocusEffect` import, `unreadCount` state. `useFocusEffect` calls `getUnreadCount` on every screen focus. Bell icon now shows a red badge overlay (`unreadCount > 0`) capped at 99+. Tapping bell sets count to 0 optimistically before navigating to `Notifications` screen.
+
+---
+
+**FCM Push Notifications — Full Implementation (2026-07-17)**
+
+**SQL — `NGOConnect_Complete_Setup_v4.8.sql`** + patch file `NGOConnect_Patch_FCM_Notifications.sql`:
+- Fixed `Notification_Create` SP: uses `NotifType`/`RefId`/`RefType` (was `NotificationTypeLkpId`/`EntityId`/`EntityType`)
+- Fixed `Notification_GetByUser` SP: removed `IsDeleted` (column doesn't exist), fixed column names
+- Fixed `Notification_GetUnreadCount` SP: removed `IsDeleted = 0` condition
+- Fixed `Donation_ConfirmPayment` SP: column names `Amount`→`DonationAmount`, `StatusLkpId`→`PayStatusLkpId`; now returns `DonorUserId`, `OrgId`, `CampaignId`
+- Modified `Application_Apply` SP: now returns `OrgId` in result row
+- Modified `Application_Review` SP: now returns `ApplicantUserId`, `ProjectId` in result row
+- Modified `Org_ReviewMembership` SP: now returns `ApplicantUserId`, `OrgId` in result row
+- Modified `Sos_ApproveResponder` SP: now returns `ResponderUserId` in result row
+- Added 6 new token-fetch SPs: `Notification_GetTokenByUserId`, `Notification_GetTokensByOrgId`, `Notification_GetAdminTokensByOrgId`, `Notification_GetTokensByProjectId`, `Notification_GetTokensBySosIncidentId`, `Notification_SaveDeviceToken`
+- **Patch file must be run on Railway staging + production**
+
+**API — C# changes:**
+- `NGOConnect.Infrastructure.csproj`: added `FirebaseAdmin v3.1.0` NuGet
+- New: `NGOConnect.Core/Interfaces/IFCMService.cs` — `SendAsync` + `SendMulticastAsync`
+- New: `NGOConnect.Infrastructure/Services/FCMService.cs` — singleton, reads `Firebase__CredentialsJson` env var
+- Extended `INotificationDal` + `NotificationDal`: added `CreateAsync`, 5 `GetTokensBy*Async` methods
+- `ServiceCollectionExtensions.cs`: registered `IFCMService` as singleton
+- `ApplicationDal`: wired `NEW_APPLICATION` (→ org admins), `APPLICATION_APPROVED`/`REJECTED` (→ user)
+- `OrgDal`: wired `MEMBERSHIP_REQUEST` (→ admins), `MEMBERSHIP_APPROVED`/`REJECTED`/`MEMBER_REMOVED` (→ user)
+- `SosDal`: wired `SOS_TRIGGERED` (→ org), `SOS_RESPONDER_APPROVED` (→ responder), `SOS_RESOLVED` (→ all responders)
+- `DonationDal`: wired `DONATION_CONFIRMED` (→ donor), `DONATION_RECEIVED_ADMIN` (→ org admins)
+- `CommunityDal`: wired `COMMUNITY_POST` (→ org members), `NEW_POLL` (→ org members)
+- `BadgeDal`: wired `BADGE_AWARDED` (→ user)
+- `SkillRatingDal`: wired `SKILL_RATING` (→ rated user)
+- `SuperAdminDal`: wired `ORG_APPROVED`/`ORG_REJECTED`/`ORG_SUSPENDED` (→ org admins), `PROFILE_VERIFIED`/`ACCOUNT_SUSPENDED` (→ user)
+- New: `NotificationController POST /api/v1/notifications/send-test` — fires FCM to a specific token (QA tool)
+- New model: `SendTestNotificationRequest`
+
+**New API endpoint:**
+- `POST /api/v1/notifications/send-test` — body: `{ token, title, body, notifType, refId?, refType? }`
+- `POST /api/v1/notifications/device-token` — body: `{ token, platform }` — registers FCM token
+
+**Mobile — React Native:**
+- `RootNavigator.tsx`: added FCM permission request, token registration, `onTokenRefresh` listener, `onMessage` (foreground), `onNotificationOpenedApp` (background tap), `getInitialNotification` (cold start tap) with `resolveScreen()` deep-link router
+- `notification.api.ts`: added `sendTest()` method
+- New: `FCMTestScreen.tsx` — QA screen with all 21 notif types, auto-fills device token, fires via API
+- `AppNavigator.tsx`: registered `FCMTest` screen
+- `NotificationsScreen.tsx`: added "FCM Test (Dev)" button linking to `FCMTestScreen`
+
+**Railway env var required:**
+- `Firebase__CredentialsJson` — paste full Firebase service account JSON (never committed to git)

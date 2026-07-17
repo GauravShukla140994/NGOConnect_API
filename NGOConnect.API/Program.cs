@@ -76,23 +76,38 @@ try
         };
     });
 
+    // ── Sentry Error Monitoring ──────────────────────────────
+    // DSN is read from config — set Sentry__Dsn as Railway env variable per environment.
+    // Plan upgrades on sentry.io do NOT change the DSN — only quota limits increase.
+    builder.WebHost.UseSentry(o =>
+    {
+        o.Dsn              = builder.Configuration["Sentry:Dsn"];
+        o.Environment      = builder.Environment.EnvironmentName; // Development / Staging / Production
+        o.TracesSampleRate = builder.Configuration.GetValue<double>("Sentry:TracesSampleRate", 0.2);
+        o.MinimumEventLevel = Microsoft.Extensions.Logging.LogLevel.Error;
+        o.Debug            = builder.Configuration.GetValue<bool>("Sentry:Debug", false);
+    });
+
     // ── Build App ─────────────────────────────────────────────
     var app = builder.Build();
 
     // ── Middleware Pipeline (ORDER MATTERS) ───────────────────
-    // 1. Correlation ID first — all subsequent middleware can use it
+    // 1. Sentry request tracing — must be before other middleware
+    app.UseSentryTracing();
+
+    // 2. Correlation ID first — all subsequent middleware can use it
     app.UseMiddleware<CorrelationIdMiddleware>();
 
-    // 2. Global exception handler — catches everything below it
+    // 3. Global exception handler — catches everything below it
     app.UseMiddleware<GlobalExceptionMiddleware>();
 
-    // 3. Request logging
+    // 4. Request logging
     app.UseMiddleware<RequestLoggingMiddleware>();
 
-    // 4. Rate limiting
+    // 5. Rate limiting
     app.UseRateLimiter();
 
-    // 5. Swagger (dev + staging only)
+    // 6. Swagger (dev + staging only)
     if (app.Environment.IsDevelopment() || app.Environment.IsStaging())
     {
         app.UseSwagger();

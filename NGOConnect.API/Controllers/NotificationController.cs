@@ -14,7 +14,13 @@ namespace NGOConnect.API.Controllers
     public class NotificationController : ControllerBase
     {
         private readonly INotificationDal _notification;
-        public NotificationController(INotificationDal notification) => _notification = notification;
+        private readonly IFCMService      _fcm;
+
+        public NotificationController(INotificationDal notification, IFCMService fcm)
+        {
+            _notification = notification;
+            _fcm          = fcm;
+        }
 
         [HttpGet]
         public async Task<ApiResponse<PagedResult<DynamicRow>>> GetList(
@@ -38,6 +44,20 @@ namespace NGOConnect.API.Controllers
         [HttpPost("device-token")]
         public async Task<ApiResponse> SaveDeviceToken([FromBody] SaveDeviceTokenRequest request)
             => await _notification.SaveDeviceTokenAsync(GetUserId(), request);
+
+        /// <summary>
+        /// DEV/QA only — send a test push to a specific FCM token.
+        /// Body: { "token": "...", "title": "...", "body": "...", "notifType": "TEST" }
+        /// </summary>
+        [HttpPost("send-test")]
+        public async Task<ApiResponse> SendTest([FromBody] SendTestNotificationRequest request)
+        {
+            var ok = await _fcm.SendAsync(request.Token, request.Title, request.Body,
+                request.NotifType ?? "TEST", request.RefId, request.RefType);
+            return ok
+                ? ApiResponse.Ok("Test notification sent.")
+                : ApiResponse.Fail("Failed to send test notification. Check token and FCM config.", "FCM_ERROR");
+        }
 
         private int GetUserId()
         {

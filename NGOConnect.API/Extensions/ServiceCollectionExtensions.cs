@@ -52,8 +52,9 @@ namespace NGOConnect.API.Extensions
             services.AddScoped<IDonationDal,      DonationDal>();
             // SOS
             services.AddScoped<ISosDal,           SosDal>();
-            // Notifications
+            // Notifications + FCM (singleton — FirebaseApp is process-wide)
             services.AddScoped<INotificationDal,  NotificationDal>();
+            services.AddSingleton<IFCMService,    FCMService>();
             // v4.0 NEW modules
             services.AddScoped<IWithdrawalDal,    WithdrawalDal>();
             services.AddScoped<ICertificateDal,   CertificateDal>();

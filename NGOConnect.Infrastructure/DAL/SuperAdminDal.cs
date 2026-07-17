@@ -26,11 +26,16 @@ namespace NGOConnect.Infrastructure.DAL
     /// </summary>
     public class SuperAdminDal : BaseDal, ISuperAdminDal
     {
-        private readonly IConfiguration _config;
+        private readonly IConfiguration   _config;
+        private readonly INotificationDal _notif;
+        private readonly IFCMService      _fcm;
 
-        public SuperAdminDal(IDbProvider db, IConfiguration config) : base(db)
+        public SuperAdminDal(IDbProvider db, IConfiguration config, INotificationDal notif, IFCMService fcm)
+            : base(db)
         {
             _config = config;
+            _notif  = notif;
+            _fcm    = fcm;
         }
 
         // ══════════════════════════════════════════════════════════════
@@ -226,6 +231,10 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_OrgId",            orgId);
                     _db.AddParameter(cmd, "p_SuperAdminUserId", superAdminUserId);
                 });
+                if (result.Succeeded)
+                    _ = FireOrgAdminNotifAsync(orgId, "🎉 NGO Approved!",
+                        "Your organisation has been approved. You can now start managing projects and volunteers.",
+                        "ORG_APPROVED", orgId, "ORG");
                 return result.ToApiResponse();
             }
             catch (Exception ex)
@@ -245,6 +254,10 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_SuperAdminUserId", superAdminUserId);
                     _db.AddParameter(cmd, "p_Reason",           request.Reason);
                 });
+                if (result.Succeeded)
+                    _ = FireOrgAdminNotifAsync(request.OrgId, "NGO Registration Update",
+                        "Your organisation registration requires attention. Please check the details.",
+                        "ORG_REJECTED", request.OrgId, "ORG");
                 return result.ToApiResponse();
             }
             catch (Exception ex)
@@ -264,6 +277,10 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_SuperAdminUserId", superAdminUserId);
                     _db.AddParameter(cmd, "p_Reason",           request.Reason);
                 });
+                if (result.Succeeded)
+                    _ = FireOrgAdminNotifAsync(request.OrgId, "⚠️ NGO Suspended",
+                        "Your organisation has been suspended. Please contact support for details.",
+                        "ORG_SUSPENDED", request.OrgId, "ORG");
                 return result.ToApiResponse();
             }
             catch (Exception ex)
@@ -430,6 +447,10 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_UserId",           userId);
                     _db.AddParameter(cmd, "p_SuperAdminUserId", superAdminUserId);
                 });
+                if (result.Succeeded)
+                    _ = FireUserNotifAsync(userId, "✅ Profile Verified",
+                        "Your profile has been verified! Your verified badge is now visible to NGOs.",
+                        "PROFILE_VERIFIED", userId, "USER");
                 return result.ToApiResponse();
             }
             catch (Exception ex)
@@ -468,6 +489,10 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_SuperAdminUserId", superAdminUserId);
                     _db.AddParameter(cmd, "p_Reason",           request.Reason);
                 });
+                if (result.Succeeded)
+                    _ = FireUserNotifAsync(userId, "⚠️ Account Suspended",
+                        "Your account has been suspended. Please contact support for assistance.",
+                        "ACCOUNT_SUSPENDED", userId, "USER");
                 return result.ToApiResponse();
             }
             catch (Exception ex)
@@ -670,6 +695,31 @@ namespace NGOConnect.Infrastructure.DAL
                 Log.Error(ex, "SetLookupValueActiveAsync failed LookupValueId={Id}", request.LookupValueId);
                 return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
             }
+        }
+
+        // ── Notification helpers ──────────────────────────────────────────────────
+
+        private async Task FireUserNotifAsync(int userId, string title, string body,
+            string notifType, int? refId = null, string? refType = null)
+        {
+            try
+            {
+                await _notif.CreateAsync(userId, title, body, notifType, refId, refType);
+                var tokens = await _notif.GetTokensByUserIdAsync(userId);
+                await _fcm.SendMulticastAsync(tokens, title, body, notifType, refId, refType);
+            }
+            catch (Exception ex) { Log.Error(ex, "SuperAdminDal.FireUserNotifAsync failed"); }
+        }
+
+        private async Task FireOrgAdminNotifAsync(int orgId, string title, string body,
+            string notifType, int? refId = null, string? refType = null)
+        {
+            try
+            {
+                var tokens = await _notif.GetAdminTokensByOrgIdAsync(orgId);
+                await _fcm.SendMulticastAsync(tokens, title, body, notifType, refId, refType);
+            }
+            catch (Exception ex) { Log.Error(ex, "SuperAdminDal.FireOrgAdminNotifAsync failed"); }
         }
     }
 }

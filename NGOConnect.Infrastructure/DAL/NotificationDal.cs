@@ -96,5 +96,122 @@ namespace NGOConnect.Infrastructure.DAL
                 return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
             }
         }
+
+        // ── Internal helpers — called by other DALs ───────────────────────────────
+
+        public async Task CreateAsync(
+            int userId, string title, string body, string notifType,
+            int? refId = null, string? refType = null)
+        {
+            try
+            {
+                await ExecuteWriteAsync("Notification_Create", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_UserId",    userId);
+                    _db.AddParameter(cmd, "p_Title",     title);
+                    _db.AddParameter(cmd, "p_Body",      body);
+                    _db.AddParameter(cmd, "p_NotifType", notifType);
+                    _db.AddParameter(cmd, "p_RefId",     (object?)refId ?? DBNull.Value);
+                    _db.AddParameter(cmd, "p_RefType",   (object?)refType ?? DBNull.Value);
+                });
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Notification.CreateAsync failed UserId={UserId} Type={Type}", userId, notifType);
+            }
+        }
+
+        public async Task<List<string>> GetTokensByUserIdAsync(int userId)
+        {
+            try
+            {
+                var rows = await ExecuteReaderListAsync<string>(
+                    "Notification_GetTokenByUserId",
+                    r => r["Token"]?.ToString() ?? "",
+                    cmd => _db.AddParameter(cmd, "p_UserId", userId));
+                return rows.Where(t => !string.IsNullOrWhiteSpace(t)).ToList();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetTokensByUserIdAsync failed UserId={UserId}", userId);
+                return [];
+            }
+        }
+
+        public async Task<List<string>> GetTokensByOrgIdAsync(int orgId, int excludeUserId = 0)
+        {
+            try
+            {
+                var rows = await ExecuteReaderListAsync<string>(
+                    "Notification_GetTokensByOrgId",
+                    r => r["Token"]?.ToString() ?? "",
+                    cmd =>
+                    {
+                        _db.AddParameter(cmd, "p_OrgId",         orgId);
+                        _db.AddParameter(cmd, "p_ExcludeUserId", excludeUserId);
+                    });
+                return rows.Where(t => !string.IsNullOrWhiteSpace(t)).ToList();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetTokensByOrgIdAsync failed OrgId={OrgId}", orgId);
+                return [];
+            }
+        }
+
+        public async Task<List<string>> GetAdminTokensByOrgIdAsync(int orgId)
+        {
+            try
+            {
+                var rows = await ExecuteReaderListAsync<string>(
+                    "Notification_GetAdminTokensByOrgId",
+                    r => r["Token"]?.ToString() ?? "",
+                    cmd => _db.AddParameter(cmd, "p_OrgId", orgId));
+                return rows.Where(t => !string.IsNullOrWhiteSpace(t)).ToList();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetAdminTokensByOrgIdAsync failed OrgId={OrgId}", orgId);
+                return [];
+            }
+        }
+
+        public async Task<List<string>> GetTokensByProjectIdAsync(int projectId, string? statusCode = null)
+        {
+            try
+            {
+                var rows = await ExecuteReaderListAsync<string>(
+                    "Notification_GetTokensByProjectId",
+                    r => r["Token"]?.ToString() ?? "",
+                    cmd =>
+                    {
+                        _db.AddParameter(cmd, "p_ProjectId",  projectId);
+                        _db.AddParameter(cmd, "p_StatusCode", (object?)statusCode ?? DBNull.Value);
+                    });
+                return rows.Where(t => !string.IsNullOrWhiteSpace(t)).ToList();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetTokensByProjectIdAsync failed ProjectId={ProjectId}", projectId);
+                return [];
+            }
+        }
+
+        public async Task<List<string>> GetTokensBySosIncidentIdAsync(int sosIncidentId)
+        {
+            try
+            {
+                var rows = await ExecuteReaderListAsync<string>(
+                    "Notification_GetTokensBySosIncidentId",
+                    r => r["Token"]?.ToString() ?? "",
+                    cmd => _db.AddParameter(cmd, "p_SosIncidentId", sosIncidentId));
+                return rows.Where(t => !string.IsNullOrWhiteSpace(t)).ToList();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetTokensBySosIncidentIdAsync failed SosIncidentId={Id}", sosIncidentId);
+                return [];
+            }
+        }
     }
 }
