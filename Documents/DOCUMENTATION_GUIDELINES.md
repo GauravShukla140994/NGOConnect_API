@@ -252,6 +252,18 @@ When there is a conflict between files, this priority order applies:
 
 ## Current Pending Document Updates
 
+**SQL — `NGOConnect_Complete_Setup_v4.8.sql`** (2026-07-17)
+- File was truncated — `SuperAdmin_User_GetList` TotalCount subquery was cut off mid-statement. Fixed: appended the missing `SELECT COUNT(*) AS TotalCount ...` subquery + `END //` + `DELIMITER ;`
+- Added missing Feed SPs that were in `NGOConnect_Patch_PersonalizedFeed.sql` but absent from setup SQL: `Feed_GetPersonalized`, `Post_Save`, `Post_Unsave`, `Feed_TrackInteraction`
+- Note: Tables (`PostSaves`, `FeedInteractions`) and Posts columns (`IsEmergency`, `IsEvergreen`, `ShareCount`, `SaveCount`) were already present in the setup SQL; only the SP bodies were missing
+
+**Railway — deploy `NGOConnect_Patch_PersonalizedFeed.sql` to staging** (2026-07-17) — 🟡 PENDING
+- Root cause of feed images/videos not showing: `Feed_GetPersonalized` SP on Railway staging is an older version WITHOUT `LEFT JOIN PostMedia` — so `mediaUrls` is NULL in every API response
+- All patch steps are idempotent (ALTER TABLE uses `_ngo_add_col` helper, `CREATE TABLE IF NOT EXISTS`, `INSERT IGNORE`, `DROP + CREATE` SPs) — safe to run regardless of Railway's current state
+- Run: `NGOConnect_Patch_PersonalizedFeed.sql` directly on Railway staging MySQL
+
+
+
 **Deployment — `appsettings.Staging.json`** (2026-07-17)
 - Added `https://stage.ripplehub.app` to `Cors:AllowedOrigins` — Website repo's `/admin` panel is being deployed there on Railway (built with `npm run build:staging`)
 - No document update needed (config, not a public API contract change) — noted here only so a future session knows why this origin is in the list
@@ -735,7 +747,7 @@ _No SQL or C# changes — all SPs and endpoints were already built. Mobile-only 
 - New model: `SendTestNotificationRequest`
 
 **New API endpoint:**
-- `POST /api/v1/notifications/send-test` �
+- `POST /api/v1/notifications/send-test` �
 **FCM Triggers — 15 missing v1.0 triggers wired** (2026-07-17)
 (Patch file: `NGOConnect_Patch_FCM_SPOutputs.sql` — apply to Railway staging + production before this build)
 

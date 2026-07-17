@@ -140,21 +140,30 @@ namespace NGOConnect.Infrastructure.DAL
 
         public async Task<List<string>> GetTokensByOrgIdAsync(int orgId, int excludeUserId = 0)
         {
+            var members = await GetMembersWithTokensAsync(orgId, excludeUserId);
+            return members.Select(m => m.Token).ToList();
+        }
+
+        public async Task<List<(int UserId, string Token)>> GetMembersWithTokensAsync(int orgId, int excludeUserId = 0)
+        {
             try
             {
-                var rows = await ExecuteReaderListAsync<string>(
+                var rows = await ExecuteReaderListAsync<(int UserId, string Token)>(
                     "Notification_GetTokensByOrgId",
-                    r => r["Token"]?.ToString() ?? "",
+                    r => (
+                        r["UserId"] == DBNull.Value ? 0 : Convert.ToInt32(r["UserId"]),
+                        r["Token"]?.ToString() ?? ""
+                    ),
                     cmd =>
                     {
                         _db.AddParameter(cmd, "p_OrgId",         orgId);
                         _db.AddParameter(cmd, "p_ExcludeUserId", excludeUserId);
                     });
-                return rows.Where(t => !string.IsNullOrWhiteSpace(t)).ToList();
+                return rows.Where(m => m.UserId > 0 && !string.IsNullOrWhiteSpace(m.Token)).ToList();
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "GetTokensByOrgIdAsync failed OrgId={OrgId}", orgId);
+                Log.Error(ex, "GetMembersWithTokensAsync failed OrgId={OrgId}", orgId);
                 return [];
             }
         }

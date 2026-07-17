@@ -36,16 +36,18 @@ namespace NGOConnect.Infrastructure.DAL
                 data["communityPostId"] = postId;
                 data["message"]         = result.Message;
 
-                // Fan-out to org members (exclude author)
+                // Fan-out to org members (exclude author) — DB record + FCM push
                 if (request.OrgId > 0)
                     _ = Task.Run(async () =>
                     {
                         try
                         {
-                            var tokens = await _notif.GetTokensByOrgIdAsync(request.OrgId, userId);
-                            await _fcm.SendMulticastAsync(tokens, "📢 New Community Post",
-                                "A new post has been shared in your community.",
-                                "COMMUNITY_POST", postId, "COMMUNITY_POST");
+                            var members = await _notif.GetMembersWithTokensAsync(request.OrgId, userId);
+                            const string title = "📢 New Community Post";
+                            const string body  = "A new post has been shared in your community.";
+                            foreach (var m in members)
+                                await _notif.CreateAsync(m.UserId, title, body, "COMMUNITY_POST", postId, "COMMUNITY_POST");
+                            await _fcm.SendMulticastAsync(members.Select(m => m.Token), title, body, "COMMUNITY_POST", postId, "COMMUNITY_POST");
                         }
                         catch (Exception ex) { Log.Error(ex, "CommunityDal.CreatePostAsync notify failed"); }
                     });
@@ -164,10 +166,12 @@ namespace NGOConnect.Infrastructure.DAL
                     {
                         try
                         {
-                            var tokens = await _notif.GetTokensByOrgIdAsync(request.OrgId, userId);
-                            await _fcm.SendMulticastAsync(tokens, "📊 New Poll",
-                                "A new poll has been posted in your community. Cast your vote!",
-                                "NEW_POLL", pollId, "POLL");
+                            var members = await _notif.GetMembersWithTokensAsync(request.OrgId, userId);
+                            const string title = "📊 New Poll";
+                            const string body  = "A new poll has been posted in your community. Cast your vote!";
+                            foreach (var m in members)
+                                await _notif.CreateAsync(m.UserId, title, body, "NEW_POLL", pollId, "POLL");
+                            await _fcm.SendMulticastAsync(members.Select(m => m.Token), title, body, "NEW_POLL", pollId, "POLL");
                         }
                         catch (Exception ex) { Log.Error(ex, "CommunityDal.CreatePollAsync notify failed"); }
                     });

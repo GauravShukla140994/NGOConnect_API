@@ -146,7 +146,18 @@ namespace NGOConnect.Infrastructure.Services
 
                     var result = await FirebaseMessaging.DefaultInstance.SendEachForMulticastAsync(multicast);
                     if (result.FailureCount > 0)
+                    {
                         Log.Warning("FCMService multicast: {Failed}/{Total} failed", result.FailureCount, batch.Count);
+                        for (int j = 0; j < result.Responses.Count; j++)
+                        {
+                            var resp = result.Responses[j];
+                            if (!resp.IsSuccess)
+                                Log.Warning("FCMService token[{Index}] error: {Code} — {Msg}",
+                                    j,
+                                    resp.Exception?.MessagingErrorCode,
+                                    resp.Exception?.Message);
+                        }
+                    }
                 }
 
                 return true;

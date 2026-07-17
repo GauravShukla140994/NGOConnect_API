@@ -22,6 +22,10 @@ namespace NGOConnect.Core.Interfaces
         /// <summary>Get FCM tokens for all APPROVED members of an org (excludes the sender).</summary>
         Task<List<string>> GetTokensByOrgIdAsync(int orgId, int excludeUserId = 0);
 
+        /// <summary>Get UserId + Token pairs for all APPROVED org members — use this when you need to write
+        /// a Notifications inbox row per member AND send FCM in the same fan-out.</summary>
+        Task<List<(int UserId, string Token)>> GetMembersWithTokensAsync(int orgId, int excludeUserId = 0);
+
         /// <summary>Get FCM tokens for FOUNDER + ADMIN members of an org only.</summary>
         Task<List<string>> GetAdminTokensByOrgIdAsync(int orgId);
 
