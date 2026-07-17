@@ -7,7 +7,11 @@ namespace NGOConnect.Infrastructure.DAL
 {
     public class ProjectDal : BaseDal, IProjectDal
     {
-        public ProjectDal(IDbProvider db) : base(db) { }
+        private readonly INotificationDal _notif;
+        private readonly IFCMService      _fcm;
+
+        public ProjectDal(IDbProvider db, INotificationDal notif, IFCMService fcm)
+            : base(db) { _notif = notif; _fcm = fcm; }
 
         public async Task<ApiResponse<DynamicRow>> CreateAsync(int userId, CreateProjectRequest request)
         {
@@ -58,6 +62,12 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_ProjectId", projectId);
                     _db.AddParameter(cmd, "p_UserId",    userId);
                 });
+
+                // #27 — notify all org members about the new project (exclude the creator)
+                _ = FireOrgNotifAsync(request.OrgId, userId,
+                    "New Project Posted",
+                    "A new volunteer project has been posted by your organisation.",
+                    "NEW_PROJECT", projectId, "PROJECT");
 
                 return ApiResponse<DynamicRow>.Success(row!, result.Message);
             }
@@ -137,7 +147,9 @@ namespace NGOConnect.Infrastructure.DAL
         }
 
         public async Task<ApiResponse<PagedResult<DynamicRow>>> ListAsync(
-            int pageNumber, int pageSize, int? orgId = null, string? category = null, string? city = null, string? statusCode = null, string? typeCode = null, decimal? userLat = null, decimal? userLon = null)
+            int pageNumber, int pageSize, int? orgId = null, string? category = null,
+            string? city = null, string? statusCode = null, string? typeCode = null,
+            decimal? userLat = null, decimal? userLon = null)
         {
             try
             {
@@ -240,9 +252,9 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var rows = await ExecuteDynamicListAsync("Project_GetSessions", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_ProjectId",   projectId);
-                    _db.AddParameter(cmd, "p_PageNumber",  1);
-                    _db.AddParameter(cmd, "p_PageSize",    100);
+                    _db.AddParameter(cmd, "p_ProjectId",  projectId);
+                    _db.AddParameter(cmd, "p_PageNumber", 1);
+                    _db.AddParameter(cmd, "p_PageSize",   100);
                 });
                 return ApiResponse<List<DynamicRow>>.Success(rows);
             }
@@ -282,6 +294,15 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_QrCode", request.QrToken);
                     _db.AddParameter(cmd, "p_UserId", userId);
                 });
+                // #21 — confirm attendance to the volunteer who just scanned
+                if (result.Succeeded)
+                {
+                    var projectId = Col<int?>(result.Row!, "ProjectId");
+                    _ = FireUserNotifAsync(userId,
+                        "Attendance Confirmed",
+                        "Your attendance has been recorded. Thank you for showing up!",
+                        "QR_CHECKIN", projectId, "PROJECT");
+                }
                 return result.ToApiResponse();
             }
             catch (Exception ex)
@@ -295,7 +316,6 @@ namespace NGOConnect.Infrastructure.DAL
         {
             try
             {
-                // Project_Apply SP does not exist — routes through Application_Apply (same SP, no motivation needed for quick-join)
                 var result = await ExecuteWriteAsync("Application_Apply", cmd =>
                 {
                     _db.AddParameter(cmd, "p_ProjectId",         projectId);
@@ -318,10 +338,10 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var result = await ExecuteWriteAsync("Application_Review", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_ApplicationId",    request.ApplicationId);
-                    _db.AddParameter(cmd, "p_ReviewedBy",       reviewedBy);
-                    _db.AddParameter(cmd, "p_StatusCode",       request.StatusCode);
-                    _db.AddParameter(cmd, "p_RejectionReason",  request.AdminNotes);
+                    _db.AddParameter(cmd, "p_ApplicationId",   request.ApplicationId);
+                    _db.AddParameter(cmd, "p_ReviewedBy",      reviewedBy);
+                    _db.AddParameter(cmd, "p_StatusCode",      request.StatusCode);
+                    _db.AddParameter(cmd, "p_RejectionReason", request.AdminNotes);
                 });
                 return result.ToApiResponse();
             }
@@ -359,11 +379,17 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var result = await ExecuteWriteAsync("Project_Complete", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_ProjectId",       projectId);
-                    _db.AddParameter(cmd, "p_CompletedBy",     userId);
-                    _db.AddParameter(cmd, "p_ImpactSummary",   request.CompletionNotes);
+                    _db.AddParameter(cmd, "p_ProjectId",        projectId);
+                    _db.AddParameter(cmd, "p_CompletedBy",      userId);
+                    _db.AddParameter(cmd, "p_ImpactSummary",    request.CompletionNotes);
                     _db.AddParameter(cmd, "p_BeneficiaryCount", request.BeneficiaryCount);
                 });
+                // #20 — notify all attendees that the project is complete
+                if (result.Succeeded)
+                    _ = FireProjectNotifAsync(projectId, "ATTENDED",
+                        "Project Completed!",
+                        "The project you attended has been marked as complete. Check your impact stats!",
+                        "PROJECT_COMPLETED", projectId, "PROJECT");
                 return result.ToApiResponse();
             }
             catch (Exception ex)
@@ -383,6 +409,12 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_UserId",       userId);
                     _db.AddParameter(cmd, "p_CancelReason", request.CancelReason);
                 });
+                // #19 — notify all APPROVED applicants that the project was cancelled
+                if (result.Succeeded)
+                    _ = FireProjectNotifAsync(projectId, "APPROVED",
+                        "Project Cancelled",
+                        "A project you were approved for has been cancelled.",
+                        "PROJECT_CANCELLED", projectId, "PROJECT");
                 return result.ToApiResponse();
             }
             catch (Exception ex)
@@ -401,6 +433,17 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_ApplicationId", request.ApplicationId);
                     _db.AddParameter(cmd, "p_MarkedBy",      markedBy);
                 });
+                // #22 — notify the specific volunteer that admin marked their attendance
+                if (result.Succeeded)
+                {
+                    var volunteerId = Col<int?>(result.Row!, "UserId");
+                    var projectId   = Col<int?>(result.Row!, "ProjectId");
+                    if (volunteerId.HasValue)
+                        _ = FireUserNotifAsync(volunteerId.Value,
+                            "Attendance Marked",
+                            "Your attendance has been manually marked by the admin.",
+                            "MANUAL_ATTENDANCE", projectId, "PROJECT");
+                }
                 return result.ToApiResponse();
             }
             catch (Exception ex)
@@ -408,6 +451,42 @@ namespace NGOConnect.Infrastructure.DAL
                 Log.Error(ex, "ManualAttendanceAsync failed ApplicationId={ApplicationId}", request.ApplicationId);
                 return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
             }
+        }
+
+        // ── Private notification helpers ──────────────────────────────────────────
+
+        private async Task FireUserNotifAsync(int userId, string title, string body,
+            string notifType, int? refId = null, string? refType = null)
+        {
+            try
+            {
+                await _notif.CreateAsync(userId, title, body, notifType, refId, refType);
+                var tokens = await _notif.GetTokensByUserIdAsync(userId);
+                await _fcm.SendMulticastAsync(tokens, title, body, notifType, refId, refType);
+            }
+            catch (Exception ex) { Log.Error(ex, "ProjectDal.FireUserNotifAsync failed"); }
+        }
+
+        private async Task FireOrgNotifAsync(int orgId, int excludeUserId, string title, string body,
+            string notifType, int? refId = null, string? refType = null)
+        {
+            try
+            {
+                var tokens = await _notif.GetTokensByOrgIdAsync(orgId, excludeUserId);
+                await _fcm.SendMulticastAsync(tokens, title, body, notifType, refId, refType);
+            }
+            catch (Exception ex) { Log.Error(ex, "ProjectDal.FireOrgNotifAsync failed"); }
+        }
+
+        private async Task FireProjectNotifAsync(int projectId, string statusCode, string title, string body,
+            string notifType, int? refId = null, string? refType = null)
+        {
+            try
+            {
+                var tokens = await _notif.GetTokensByProjectIdAsync(projectId, statusCode);
+                await _fcm.SendMulticastAsync(tokens, title, body, notifType, refId, refType);
+            }
+            catch (Exception ex) { Log.Error(ex, "ProjectDal.FireProjectNotifAsync failed"); }
         }
     }
 }

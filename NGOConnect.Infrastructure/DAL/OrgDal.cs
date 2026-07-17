@@ -475,6 +475,15 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_OrgId",        orgId);
                     _db.AddParameter(cmd, "p_ExcusedBy",    adminUserId);
                 });
+                if (result.Succeeded)
+                {
+                    var userId    = Col<int?>(result.Row!, "UserId");
+                    var projectId = Col<int?>(result.Row!, "ProjectId");
+                    if (userId.HasValue)
+                        _ = FireUserNotifAsync(userId.Value, "✅ No-Show Excused",
+                            "Your no-show has been excused by the admin. Your reliability score will not be affected.",
+                            "NO_SHOW_EXCUSED", projectId, "PROJECT");
+                }
                 return result.ToApiResponse();
             }
             catch (Exception ex)
@@ -495,6 +504,14 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_RoleCode",  request.RoleCode);
                     _db.AddParameter(cmd, "p_UpdatedBy", updatedBy);
                 });
+                if (result.Succeeded)
+                {
+                    var userId = Col<int?>(result.Row!, "UserId");
+                    if (userId.HasValue)
+                        _ = FireUserNotifAsync(userId.Value, "🔄 Role Updated",
+                            $"Your role in the organisation has been updated to {request.RoleCode.ToLower().Replace("_", " ")}.",
+                            "MEMBER_ROLE_CHANGED", orgId, "ORG");
+                }
                 return result.ToApiResponse();
             }
             catch (Exception ex)
@@ -789,7 +806,7 @@ namespace NGOConnect.Infrastructure.DAL
                 var result = await ExecuteWriteAsync("Org_UploadDocument", cmd =>
                 {
                     _db.AddParameter(cmd, "p_OrgId",             orgId);
-                    _db.AddParameter(cmd, "p_UserId",            userId);
+                    _db.AddParameter(cmd, "p_UploadedBy",        userId);
                     _db.AddParameter(cmd, "p_DocumentTypeLkpId", request.DocumentTypeLkpId);
                     _db.AddParameter(cmd, "p_FileUrl",           request.FileUrl);
                     _db.AddParameter(cmd, "p_FileName",          request.FileName);

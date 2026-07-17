@@ -228,8 +228,13 @@ namespace NGOConnect.Infrastructure.DAL
                 {
                     await _hub.Clients.Group($"sos-{sosIncidentId}")
                         .SendAsync("NewResponder", new { sosIncidentId });
-                    // Notify SOS creator that someone wants to help
-                    // (creator userId stored on SosIncidents — sent via SignalR group, FC notif is best-effort)
+                    // #36 — Notify the SOS victim that someone is coming to help
+                    var victimUserId = Col<int?>(result.Row!, "VictimUserId");
+                    if (victimUserId.HasValue)
+                        _ = FireUserNotifAsync(victimUserId.Value,
+                            "🙋 Someone Is Responding!",
+                            "A member has offered to help you. Hang on — they are on their way.",
+                            "SOS_RESPONDER_INCOMING", sosIncidentId, "SOS");
                 }
 
                 return result.ToApiResponse();

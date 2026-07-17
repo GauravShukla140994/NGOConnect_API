@@ -735,15 +735,44 @@ _No SQL or C# changes — all SPs and endpoints were already built. Mobile-only 
 - New model: `SendTestNotificationRequest`
 
 **New API endpoint:**
-- `POST /api/v1/notifications/send-test` — body: `{ token, title, body, notifType, refId?, refType? }`
-- `POST /api/v1/notifications/device-token` — body: `{ token, platform }` — registers FCM token
+- `POST /api/v1/notifications/send-test` �
+**FCM Triggers — 15 missing v1.0 triggers wired** (2026-07-17)
+(Patch file: `NGOConnect_Patch_FCM_SPOutputs.sql` — apply to Railway staging + production before this build)
 
-**Mobile — React Native:**
-- `RootNavigator.tsx`: added FCM permission request, token registration, `onTokenRefresh` listener, `onMessage` (foreground), `onNotificationOpenedApp` (background tap), `getInitialNotification` (cold start tap) with `resolveScreen()` deep-link router
-- `notification.api.ts`: added `sendTest()` method
-- New: `FCMTestScreen.tsx` — QA screen with all 21 notif types, auto-fills device token, fires via API
-- `AppNavigator.tsx`: registered `FCMTest` screen
-- `NotificationsScreen.tsx`: added "FCM Test (Dev)" button linking to `FCMTestScreen`
+**SQL — `NGOConnect_Complete_Setup_v4.8.sql`**
+- `Org_UpdateMemberRole` SP: success SELECT now returns `UserId` column (subquery from OrgMembers)
+- `Attendance_ExcuseNoShow` SP: pre-reads `UserId + ProjectId` from ProjectAttendance+ProjectSessions, returns both in success SELECT
+- `Project_CheckIn` SP: success SELECT now returns `ProjectId` (subquery from ProjectSessions)
+- `Project_ManualAttendance` SP: success SELECT now returns `v_UserId AS UserId, v_ProjectId AS ProjectId`
+- `Withdrawal_AdminReview` SP: added `DECLARE v_OrgId`; SELECT now reads `OrgId` from WithdrawalRequests; returns `v_OrgId AS OrgId` in success SELECT
+- `Sos_Respond` SP: added `DECLARE v_VictimUserId`; reads victim UserId from SosIncidents; returns `v_VictimUserId AS VictimUserId` in success SELECT
 
-**Railway env var required:**
-- `Firebase__CredentialsJson` — paste full Firebase service account JSON (never committed to git)
+**C# — `NGOConnect.Infrastructure/DAL/WithdrawalDal.cs`**
+- Constructor: now injects `INotificationDal` + `IFCMService`
+- `AdminReviewAsync`: reads `OrgId` from result row; fires `FireAdminNotifAsync` for APPROVED (#16) and REJECTED (#17)
+- Added `FireAdminNotifAsync` helper (calls `GetAdminTokensByOrgIdAsync` + `SendMulticastAsync`)
+
+**C# — `NGOConnect.Infrastructure/DAL/ProjectDal.cs`**
+- Constructor: now injects `INotificationDal` + `IFCMService`
+- `CreateAsync`: fires `FireOrgNotifAsync` → `NEW_PROJECT` to all org members (excludes creator) (#27)
+- `CheckInAsync`: reads `ProjectId` from result row; fires `FireUserNotifAsync` → `QR_CHECKIN` (#21)
+- `CompleteAsync`: fires `FireProjectNotifAsync(ATTENDED)` → `PROJECT_COMPLETED` (#20)
+- `CancelAsync`: fires `FireProjectNotifAsync(APPROVED)` → `PROJECT_CANCELLED` (#19)
+- `ManualAttendanceAsync`: reads `UserId + ProjectId` from result row; fires `FireUserNotifAsync` → `MANUAL_ATTENDANCE` (#22)
+- Added `FireUserNotifAsync`, `FireOrgNotifAsync`, `FireProjectNotifAsync` helpers
+
+**C# — `NGOConnect.Infrastructure/DAL/OrgDal.cs`**
+- `ExcuseNoShowAsync`: reads `UserId + ProjectId` from result row; fires `FireUserNotifAsync` → `NO_SHOW_EXCUSED` (#24)
+- `UpdateMemberRoleAsync`: reads `UserId` from result row; fires `FireUserNotifAsync` → `MEMBER_ROLE_CHANGED` (#26)
+
+**C# — `NGOConnect.Infrastructure/DAL/SuperAdminDal.cs`**
+- `VerifyOrgProfileAsync`: fires `FireOrgAdminNotifAsync` → `ORG_PROFILE_VERIFIED` (#10) or `ORG_PROFILE_REJECTED` (#11)
+- `ReactivateOrgAsync`: fires `FireOrgAdminNotifAsync` → `ORG_REACTIVATED` (#31)
+- `RequestMemberUpdateAsync`: fires `FireUserNotifAsync` → `PROFILE_UPDATE_REQUIRED` (#33)
+- `ReactivateMemberAsync`: fires `FireUserNotifAsync` → `ACCOUNT_REACTIVATED` (#35)
+
+**C# — `NGOConnect.Infrastructure/DAL/SosDal.cs`**
+- `RespondAsync`: reads `VictimUserId` from result row; fires `FireUserNotifAsync` → `SOS_RESPONDER_INCOMING` to SOS victim (#36)
+
+Also created: `NGOConnect_Patch_UserDeviceTokens.sql` — run this FIRST before FCM_SPOutputs patch
+- Creates `UserDeviceTokens` table (`IF NOT EXISTS`) + re-applies `Notification_SaveDeviceToken` SP

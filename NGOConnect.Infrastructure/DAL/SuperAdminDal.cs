@@ -213,6 +213,17 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_StatusCode",     statusCode);
                     _db.AddParameter(cmd, "p_SuperAdminId",   superAdminUserId);
                 });
+                if (result.Succeeded)
+                {
+                    if (statusCode == "VERIFIED")
+                        _ = FireOrgAdminNotifAsync(orgId, "✅ NGO Profile Verified",
+                            "Your NGO profile has been verified! Your verified badge is now visible on the platform.",
+                            "ORG_PROFILE_VERIFIED", orgId, "ORG");
+                    else if (statusCode == "REJECTED")
+                        _ = FireOrgAdminNotifAsync(orgId, "NGO Profile Verification Update",
+                            "Your NGO profile verification was not approved. Please review your details and resubmit.",
+                            "ORG_PROFILE_REJECTED", orgId, "ORG");
+                }
                 return result.ToApiResponse();
             }
             catch (Exception ex)
@@ -299,6 +310,10 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_OrgId",            orgId);
                     _db.AddParameter(cmd, "p_SuperAdminUserId", superAdminUserId);
                 });
+                if (result.Succeeded)
+                    _ = FireOrgAdminNotifAsync(orgId, "✅ NGO Reactivated",
+                        "Your NGO has been reactivated. You can now manage projects and members again.",
+                        "ORG_REACTIVATED", orgId, "ORG");
                 return result.ToApiResponse();
             }
             catch (Exception ex)
@@ -470,6 +485,10 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_SuperAdminUserId", superAdminUserId);
                     _db.AddParameter(cmd, "p_Reason",           request.Reason);
                 });
+                if (result.Succeeded)
+                    _ = FireUserNotifAsync(request.UserId, "⚠️ Action Required: Update Your Profile",
+                        "Please review and update your profile to continue using NGO Connect.",
+                        "PROFILE_UPDATE_REQUIRED", request.UserId, "USER");
                 return result.ToApiResponse();
             }
             catch (Exception ex)
@@ -511,6 +530,10 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_UserId",           userId);
                     _db.AddParameter(cmd, "p_SuperAdminUserId", superAdminUserId);
                 });
+                if (result.Succeeded)
+                    _ = FireUserNotifAsync(userId, "✅ Account Reactivated",
+                        "Your account has been reactivated. Welcome back to NGO Connect!",
+                        "ACCOUNT_REACTIVATED", userId, "USER");
                 return result.ToApiResponse();
             }
             catch (Exception ex)

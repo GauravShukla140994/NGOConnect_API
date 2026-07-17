@@ -1185,13 +1185,14 @@ SELECT LookupTypeId, 'SUSPENDED', 'Suspended', 4, 1, 1 FROM LookupTypes WHERE Ty
 
 -- DOCUMENT_TYPE_USER
 INSERT INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue, CreatedBy)
-SELECT LookupTypeId, 'AADHAAR', 'Aadhaar Card', 1, 1, 1 FROM LookupTypes WHERE TypeCode = 'DOCUMENT_TYPE_USER' UNION ALL
-SELECT LookupTypeId, 'PAN', 'PAN Card', 2, 1, 1 FROM LookupTypes WHERE TypeCode = 'DOCUMENT_TYPE_USER' UNION ALL
-SELECT LookupTypeId, 'PASSPORT', 'Passport', 3, 1, 1 FROM LookupTypes WHERE TypeCode = 'DOCUMENT_TYPE_USER' UNION ALL
-SELECT LookupTypeId, 'VOTER_ID', 'Voter ID', 4, 1, 1 FROM LookupTypes WHERE TypeCode = 'DOCUMENT_TYPE_USER' UNION ALL
-SELECT LookupTypeId, 'DRIVING_LIC', 'Driving Licence', 5, 1, 1 FROM LookupTypes WHERE TypeCode = 'DOCUMENT_TYPE_USER' UNION ALL
-SELECT LookupTypeId, 'ADDR_PROOF', 'Address Proof', 6, 1, 1 FROM LookupTypes WHERE TypeCode = 'DOCUMENT_TYPE_USER' UNION ALL
-SELECT LookupTypeId, 'OTHER', 'Other', 7, 1, 1 FROM LookupTypes WHERE TypeCode = 'DOCUMENT_TYPE_USER';
+SELECT LookupTypeId, 'PHOTO_ID',    'Government Photo ID', 0, 1, 1 FROM LookupTypes WHERE TypeCode = 'DOCUMENT_TYPE_USER' UNION ALL
+SELECT LookupTypeId, 'AADHAAR',     'Aadhaar Card',        1, 1, 1 FROM LookupTypes WHERE TypeCode = 'DOCUMENT_TYPE_USER' UNION ALL
+SELECT LookupTypeId, 'PAN',         'PAN Card',            2, 1, 1 FROM LookupTypes WHERE TypeCode = 'DOCUMENT_TYPE_USER' UNION ALL
+SELECT LookupTypeId, 'PASSPORT',    'Passport',            3, 1, 1 FROM LookupTypes WHERE TypeCode = 'DOCUMENT_TYPE_USER' UNION ALL
+SELECT LookupTypeId, 'VOTER_ID',    'Voter ID',            4, 1, 1 FROM LookupTypes WHERE TypeCode = 'DOCUMENT_TYPE_USER' UNION ALL
+SELECT LookupTypeId, 'DRIVING_LIC', 'Driving Licence',     5, 1, 1 FROM LookupTypes WHERE TypeCode = 'DOCUMENT_TYPE_USER' UNION ALL
+SELECT LookupTypeId, 'ADDR_PROOF',  'Address Proof',       6, 1, 1 FROM LookupTypes WHERE TypeCode = 'DOCUMENT_TYPE_USER' UNION ALL
+SELECT LookupTypeId, 'OTHER',       'Other',               7, 1, 1 FROM LookupTypes WHERE TypeCode = 'DOCUMENT_TYPE_USER';
 
 -- DOCUMENT_TYPE_ORG
 INSERT INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue, CreatedBy)
@@ -2725,7 +2726,8 @@ BEGIN
         INSERT INTO ProjectAttendance (SessionId, UserId, CheckInTime, AttendStatusLkpId, CreatedBy)
         VALUES (v_SessionId, p_UserId, NOW(), v_StatusLkpId, p_UserId)
         ON DUPLICATE KEY UPDATE CheckInTime = NOW(), AttendStatusLkpId = v_StatusLkpId;
-        SELECT 1 AS IsSuccess, 'Check-in successful.' AS Message, v_SessionId AS SessionId;
+        SELECT 1 AS IsSuccess, 'Check-in successful.' AS Message, v_SessionId AS SessionId,
+               (SELECT ProjectId FROM ProjectSessions WHERE SessionId = v_SessionId LIMIT 1) AS ProjectId;
     END IF;
 END //
 
@@ -3239,12 +3241,19 @@ END //
 
 CREATE PROCEDURE Sos_Respond(IN p_SosIncidentId INT UNSIGNED, IN p_UserId INT UNSIGNED)
 BEGIN
-    DECLARE v_StatusLkpId INT UNSIGNED;
+    DECLARE v_StatusLkpId  INT UNSIGNED;
+    DECLARE v_VictimUserId INT UNSIGNED;
+
     SELECT LookupValueId INTO v_StatusLkpId FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
     WHERE lt.TypeCode = 'RESPONDER_STATUS' AND lv.ValueCode = 'PENDING' LIMIT 1;
+
+    SELECT UserId INTO v_VictimUserId FROM SosIncidents WHERE SosIncidentId = p_SosIncidentId LIMIT 1;
+
     INSERT IGNORE INTO SosResponders (SosIncidentId, UserId, ApprovalStatusLkpId)
     VALUES (p_SosIncidentId, p_UserId, v_StatusLkpId);
-    SELECT 1 AS IsSuccess, 'Response registered, awaiting approval.' AS Message;
+
+    SELECT 1 AS IsSuccess, 'Response registered, awaiting approval.' AS Message,
+           v_VictimUserId AS VictimUserId;
 END //
 
 CREATE PROCEDURE Sos_UpdateLocation(IN p_SosIncidentId INT UNSIGNED, IN p_UserId INT UNSIGNED, IN p_Latitude DECIMAL(10,7), IN p_Longitude DECIMAL(10,7), IN p_Accuracy DECIMAL(8,2))
@@ -3612,13 +3621,15 @@ END //
 CREATE PROCEDURE Withdrawal_AdminReview(IN p_WithdrawalRequestId INT UNSIGNED, IN p_StatusCode VARCHAR(50), IN p_AdminNotes TEXT, IN p_ReviewedBy INT UNSIGNED)
 BEGIN
     DECLARE v_StatusLkpId INT UNSIGNED;
-    DECLARE v_Amount DECIMAL(15,2);
-    DECLARE v_CampaignId INT UNSIGNED;
+    DECLARE v_Amount       DECIMAL(15,2);
+    DECLARE v_CampaignId   INT UNSIGNED;
+    DECLARE v_OrgId        INT UNSIGNED;
 
     SELECT LookupValueId INTO v_StatusLkpId FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
     WHERE lt.TypeCode = 'WITHDRAWAL_STATUS' AND lv.ValueCode = p_StatusCode LIMIT 1;
 
-    SELECT Amount, CampaignId INTO v_Amount, v_CampaignId FROM WithdrawalRequests WHERE WithdrawalRequestId = p_WithdrawalRequestId;
+    SELECT Amount, CampaignId, OrgId INTO v_Amount, v_CampaignId, v_OrgId
+    FROM WithdrawalRequests WHERE WithdrawalRequestId = p_WithdrawalRequestId LIMIT 1;
 
     UPDATE WithdrawalRequests SET StatusLkpId = v_StatusLkpId, AdminNotes = p_AdminNotes,
         ReviewedBy = p_ReviewedBy, ProcessedAt = NOW()
@@ -3629,7 +3640,7 @@ BEGIN
         UPDATE DonationCampaigns SET RaisedAmount = RaisedAmount - v_Amount WHERE CampaignId = v_CampaignId;
     END IF;
 
-    SELECT 1 AS IsSuccess, CONCAT('Withdrawal ', p_StatusCode, '.') AS Message;
+    SELECT 1 AS IsSuccess, CONCAT('Withdrawal ', p_StatusCode, '.') AS Message, v_OrgId AS OrgId;
 END //
 
 -- ── CERTIFICATE SPs ─────────────────────────────────────────────
@@ -4272,9 +4283,10 @@ BEGIN
           AND IsDeleted   = 0;
 
         IF ROW_COUNT() = 0 THEN
-            SELECT 0 AS IsSuccess, 'Member not found or already deleted.' AS Message;
+            SELECT 0 AS IsSuccess, 'Member not found or already deleted.' AS Message, NULL AS UserId;
         ELSE
-            SELECT 1 AS IsSuccess, 'Member role updated.' AS Message;
+            SELECT 1 AS IsSuccess, 'Member role updated.' AS Message,
+                   (SELECT UserId FROM OrgMembers WHERE OrgMemberId = p_MemberId LIMIT 1) AS UserId;
         END IF;
     END IF;
 END //
@@ -4286,6 +4298,16 @@ CREATE PROCEDURE Attendance_ExcuseNoShow(
     IN p_ExcusedBy    INT
 )
 BEGIN
+    DECLARE v_UserId    INT UNSIGNED DEFAULT NULL;
+    DECLARE v_ProjectId INT UNSIGNED DEFAULT NULL;
+
+    SELECT pa.UserId, ps.ProjectId
+    INTO   v_UserId, v_ProjectId
+    FROM   ProjectAttendance pa
+    JOIN   ProjectSessions ps ON pa.SessionId = ps.SessionId
+    WHERE  pa.AttendanceId = p_AttendanceId
+    LIMIT  1;
+
     UPDATE ProjectAttendance pa
     JOIN ProjectSessions ps ON pa.SessionId = ps.SessionId
     JOIN Projects p         ON ps.ProjectId = p.ProjectId
@@ -4296,9 +4318,11 @@ BEGIN
       AND p.OrgId = p_OrgId;
 
     IF ROW_COUNT() = 0 THEN
-        SELECT 0 AS IsSuccess, 'Record not found or not a no-show in this org.' AS Message;
+        SELECT 0 AS IsSuccess, 'Record not found or not a no-show in this org.' AS Message,
+               NULL AS UserId, NULL AS ProjectId;
     ELSE
-        SELECT 1 AS IsSuccess, 'No-show excused. Reliability score will adjust.' AS Message;
+        SELECT 1 AS IsSuccess, 'No-show excused. Reliability score will adjust.' AS Message,
+               v_UserId AS UserId, v_ProjectId AS ProjectId;
     END IF;
 END //
 
@@ -5734,8 +5758,8 @@ BEGIN
     FROM   LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
     WHERE  lt.TypeCode = 'APPLICATION_STATUS' AND lv.ValueCode = 'PENDING' LIMIT 1;
 
-    INSERT INTO ProjectApplications (ProjectId, UserId, StatusLkpId, Motivation, RequestedSessions, AppliedAt)
-    VALUES (p_ProjectId, p_UserId, v_PendingLkpId, p_Motivation, p_RequestedSessions, NOW());
+    INSERT INTO ProjectApplications (ProjectId, UserId, StatusLkpId, Motivation, RequestedSessions, CreatedBy)
+    VALUES (p_ProjectId, p_UserId, v_PendingLkpId, p_Motivation, p_RequestedSessions, p_UserId);
 
     SELECT 1 AS IsSuccess, 'Application submitted.' AS Message,
            LAST_INSERT_ID() AS ApplicationId,
@@ -6861,7 +6885,8 @@ BEGIN
                 UpdatedBy         = p_MarkedBy,
                 UpdatedAt         = NOW();
 
-            SELECT 1 AS IsSuccess, 'Volunteer marked as attended.' AS Message;
+            SELECT 1 AS IsSuccess, 'Volunteer marked as attended.' AS Message,
+                   v_UserId AS UserId, v_ProjectId AS ProjectId;
         END IF;
     END IF;
 END //

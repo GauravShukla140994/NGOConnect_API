@@ -35,6 +35,26 @@ Key rules:
 
 **Why this matters:** Sessions end, context is lost, conversation summaries are incomplete. The ONLY reliable record of pending changes is the file on disk. If it is not written there, it is lost.
 
+## MANDATORY: SP ↔ DAL Parameter Validation Before Every Railway Deploy
+
+Run this before pushing any SP or DAL change to Railway staging or production:
+
+```bash
+python scripts/validate_sp_params.py
+```
+
+The script cross-references every `IN p_Xxx` declared in the setup SQL against every
+`AddWithValue("p_Xxx", ...)` call in the DAL files and reports mismatches.
+
+**This project has had repeated SP ↔ DAL parameter drift bugs** (wrong column name,
+missing param, renamed param not updated in both places). The script is the gate.
+Do not skip it. If it reports mismatches, fix them before creating the patch file.
+
+When writing a new SP or editing an existing one, immediately update the matching DAL
+`AddWithValue` calls in the same session — never in a follow-up.
+
+---
+
 ## MANDATORY: SQL Setup File is the Single Source of Truth
 
 **`Documents/NGOConnect_Complete_Setup_v4.6.sql` must ALWAYS reflect the current correct state of all tables and stored procedures.**
