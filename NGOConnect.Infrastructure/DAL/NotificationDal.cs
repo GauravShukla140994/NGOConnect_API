@@ -101,7 +101,7 @@ namespace NGOConnect.Infrastructure.DAL
 
         public async Task CreateAsync(
             int userId, string title, string body, string notifType,
-            int? refId = null, string? refType = null)
+            int? refId = null, string? refType = null, int? orgId = null)
         {
             try
             {
@@ -111,8 +111,9 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_Title",     title);
                     _db.AddParameter(cmd, "p_Body",      body);
                     _db.AddParameter(cmd, "p_NotifType", notifType);
-                    _db.AddParameter(cmd, "p_RefId",     (object?)refId ?? DBNull.Value);
+                    _db.AddParameter(cmd, "p_RefId",     (object?)refId  ?? DBNull.Value);
                     _db.AddParameter(cmd, "p_RefType",   (object?)refType ?? DBNull.Value);
+                    _db.AddParameter(cmd, "p_OrgId",     (object?)orgId  ?? DBNull.Value);
                 });
             }
             catch (Exception ex)
@@ -135,6 +136,19 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 Log.Error(ex, "GetTokensByUserIdAsync failed UserId={UserId}", userId);
                 return [];
+            }
+        }
+
+        public async Task DeleteStaleTokenAsync(string token)
+        {
+            try
+            {
+                await ExecuteWriteAsync("Notification_DeleteStaleToken",
+                    cmd => _db.AddParameter(cmd, "p_Token", token));
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "DeleteStaleTokenAsync failed Token={Token}", token.Length > 8 ? token[..8] + "..." : "***");
             }
         }
 

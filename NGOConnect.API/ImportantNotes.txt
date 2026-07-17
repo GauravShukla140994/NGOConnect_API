@@ -8,3 +8,5 @@ firebase appdistribution:distribute android/app/build/outputs/apk/release/app-re
   --groups "testers" `
   --release-notes "Post time issue Fixed"
 
+
+Using Firebase for Notification FCM

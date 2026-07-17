@@ -46,7 +46,7 @@ namespace NGOConnect.Infrastructure.DAL
                             const string title = "📢 New Community Post";
                             const string body  = "A new post has been shared in your community.";
                             foreach (var m in members)
-                                await _notif.CreateAsync(m.UserId, title, body, "COMMUNITY_POST", postId, "COMMUNITY_POST");
+                                await _notif.CreateAsync(m.UserId, title, body, "COMMUNITY_POST", postId, "COMMUNITY_POST", request.OrgId);
                             await _fcm.SendMulticastAsync(members.Select(m => m.Token), title, body, "COMMUNITY_POST", postId, "COMMUNITY_POST");
                         }
                         catch (Exception ex) { Log.Error(ex, "CommunityDal.CreatePostAsync notify failed"); }
@@ -170,7 +170,7 @@ namespace NGOConnect.Infrastructure.DAL
                             const string title = "📊 New Poll";
                             const string body  = "A new poll has been posted in your community. Cast your vote!";
                             foreach (var m in members)
-                                await _notif.CreateAsync(m.UserId, title, body, "NEW_POLL", pollId, "POLL");
+                                await _notif.CreateAsync(m.UserId, title, body, "NEW_POLL", pollId, "POLL", request.OrgId);
                             await _fcm.SendMulticastAsync(members.Select(m => m.Token), title, body, "NEW_POLL", pollId, "POLL");
                         }
                         catch (Exception ex) { Log.Error(ex, "CommunityDal.CreatePollAsync notify failed"); }

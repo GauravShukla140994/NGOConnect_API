@@ -510,7 +510,7 @@ namespace NGOConnect.Infrastructure.DAL
                     if (userId.HasValue)
                         _ = FireUserNotifAsync(userId.Value, "🔄 Role Updated",
                             $"Your role in the organisation has been updated to {request.RoleCode.ToLower().Replace("_", " ")}.",
-                            "MEMBER_ROLE_CHANGED", orgId, "ORG");
+                            "MEMBER_ROLE_CHANGED", orgId, "ORG", orgId);
                 }
                 return result.ToApiResponse();
             }
@@ -583,7 +583,7 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_RemovedBy", requestedBy);
                 });
                 if (result.Succeeded)
-                    _ = FireUserNotifAsync(userId, "Membership Update", "Your membership has been removed from an organisation.", "MEMBER_REMOVED", orgId, "ORG");
+                    _ = FireUserNotifAsync(userId, "Membership Update", "Your membership has been removed from an organisation.", "MEMBER_REMOVED", orgId, "ORG", orgId);
                 return result.ToApiResponse();
             }
             catch (Exception ex)
@@ -634,9 +634,9 @@ namespace NGOConnect.Infrastructure.DAL
                     var orgId           = Col<int>(result.Row, "OrgId");
                     var isApproved = request.StatusCode?.Equals("APPROVED", StringComparison.OrdinalIgnoreCase) == true;
                     if (isApproved)
-                        _ = FireUserNotifAsync(applicantUserId, "Membership Approved 🎉", "Welcome! You are now a member of the organisation.", "MEMBERSHIP_APPROVED", orgId, "ORG");
+                        _ = FireUserNotifAsync(applicantUserId, "Membership Approved 🎉", "Welcome! You are now a member of the organisation.", "MEMBERSHIP_APPROVED", orgId, "ORG", orgId);
                     else
-                        _ = FireUserNotifAsync(applicantUserId, "Membership Update", "Your membership request was not approved at this time.", "MEMBERSHIP_REJECTED", orgId, "ORG");
+                        _ = FireUserNotifAsync(applicantUserId, "Membership Update", "Your membership request was not approved at this time.", "MEMBERSHIP_REJECTED", orgId, "ORG", orgId);
                 }
                 return result.ToApiResponse();
             }
@@ -823,11 +823,11 @@ namespace NGOConnect.Infrastructure.DAL
         // ── Notification helpers ──────────────────────────────────────────────────
 
         private async Task FireUserNotifAsync(int userId, string title, string body,
-            string notifType, int? refId = null, string? refType = null)
+            string notifType, int? refId = null, string? refType = null, int? orgId = null)
         {
             try
             {
-                await _notif.CreateAsync(userId, title, body, notifType, refId, refType);
+                await _notif.CreateAsync(userId, title, body, notifType, refId, refType, orgId);
                 var tokens = await _notif.GetTokensByUserIdAsync(userId);
                 await _fcm.SendMulticastAsync(tokens, title, body, notifType, refId, refType);
             }

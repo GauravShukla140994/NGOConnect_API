@@ -2,22 +2,26 @@ using FirebaseAdmin;
 using FirebaseAdmin.Messaging;
 using Google.Apis.Auth.OAuth2;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using NGOConnect.Core.Interfaces;
 using Serilog;
 
 namespace NGOConnect.Infrastructure.Services
 {
     /// <summary>
-    /// Firebase Cloud Messaging service.
-    /// Reads credentials from Railway env var FIREBASE_CREDENTIALS_JSON
+    /// Firebase Cloud Messaging service — registered as Singleton.
+    /// Reads credentials from Railway env var Firebase__CredentialsJson
     /// (the service-account JSON string — never committed to source control).
+    /// Uses IServiceScopeFactory to resolve scoped INotificationDal for stale-token cleanup.
     /// </summary>
     public class FCMService : IFCMService
     {
-        private readonly bool _ready;
+        private readonly bool                 _ready;
+        private readonly IServiceScopeFactory _scopeFactory;
 
-        public FCMService(IConfiguration config)
+        public FCMService(IConfiguration config, IServiceScopeFactory scopeFactory)
         {
+            _scopeFactory = scopeFactory;
             try
             {
                 // Already initialised (singleton — only runs once across DI lifetime)
@@ -119,7 +123,8 @@ namespace NGOConnect.Infrastructure.Services
             {
                 // Firebase limits multicast to 500 tokens per call
                 const int batchSize = 500;
-                var data = BuildData(notifType, refId, refType);
+                var data        = BuildData(notifType, refId, refType);
+                var staleTokens = new List<string>();
 
                 for (int i = 0; i < tokenList.Count; i += batchSize)
                 {
@@ -152,13 +157,37 @@ namespace NGOConnect.Infrastructure.Services
                         {
                             var resp = result.Responses[j];
                             if (!resp.IsSuccess)
+                            {
                                 Log.Warning("FCMService token[{Index}] error: {Code} — {Msg}",
                                     j,
                                     resp.Exception?.MessagingErrorCode,
                                     resp.Exception?.Message);
+
+                                // Collect stale tokens for cleanup
+                                if (resp.Exception?.MessagingErrorCode == MessagingErrorCode.Unregistered)
+                                    staleTokens.Add(batch[j]);
+                            }
                         }
                     }
                 }
+
+                // Fire-and-forget stale token cleanup (scope needed — FCMService is Singleton)
+                if (staleTokens.Count > 0)
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            using var scope = _scopeFactory.CreateScope();
+                            var notif = scope.ServiceProvider.GetRequiredService<INotificationDal>();
+                            foreach (var t in staleTokens)
+                                await notif.DeleteStaleTokenAsync(t);
+                            Log.Information("FCMService cleaned up {Count} stale token(s)", staleTokens.Count);
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Error(ex, "FCMService stale token cleanup failed");
+                        }
+                    });
 
                 return true;
             }

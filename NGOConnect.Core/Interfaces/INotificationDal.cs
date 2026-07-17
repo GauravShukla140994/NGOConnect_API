@@ -13,14 +13,19 @@ namespace NGOConnect.Core.Interfaces
         Task<ApiResponse>                          SaveDeviceTokenAsync(int userId, SaveDeviceTokenRequest request);
 
         // ── Internal helpers — called by other DALs to fire notifications ──
-        /// <summary>Save a notification record to the Notifications inbox table.</summary>
-        Task CreateAsync(int userId, string title, string body, string notifType, int? refId = null, string? refType = null);
+        /// <summary>Save a notification record to the Notifications inbox table.
+        /// Pass orgId when the notification originates from a specific organisation — shown on the history list.</summary>
+        Task CreateAsync(int userId, string title, string body, string notifType, int? refId = null, string? refType = null, int? orgId = null);
 
         /// <summary>Get all FCM tokens for a user (may have android + ios).</summary>
         Task<List<string>> GetTokensByUserIdAsync(int userId);
 
         /// <summary>Get FCM tokens for all APPROVED members of an org (excludes the sender).</summary>
         Task<List<string>> GetTokensByOrgIdAsync(int orgId, int excludeUserId = 0);
+
+        /// <summary>Delete a stale/unregistered FCM token from UserDeviceTokens.
+        /// Call when Firebase returns MessagingErrorCode.Unregistered.</summary>
+        Task DeleteStaleTokenAsync(string token);
 
         /// <summary>Get UserId + Token pairs for all APPROVED org members — use this when you need to write
         /// a Notifications inbox row per member AND send FCM in the same fan-out.</summary>

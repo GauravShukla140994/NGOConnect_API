@@ -747,6 +747,7 @@ CREATE TABLE PollVotes (
 CREATE TABLE Notifications (
     NotificationId BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     UserId         INT UNSIGNED    NOT NULL,
+    OrgId          INT UNSIGNED    NULL,
     NotifType      VARCHAR(50)     NOT NULL,
     Title          VARCHAR(200)    NOT NULL,
     Body           TEXT            NOT NULL,
@@ -3689,8 +3690,10 @@ BEGIN
     DECLARE v_Offset INT DEFAULT (p_PageNumber - 1) * p_PageSize;
 
     SELECT n.NotificationId, n.Title, n.Body, n.NotifType,
-           n.RefId, n.RefType, n.IsRead, n.ReadAt, n.CreatedAt
+           n.RefId, n.RefType, n.IsRead, n.ReadAt, n.CreatedAt,
+           o.OrgId, o.OrgName, o.LogoUrl AS OrgLogoUrl
     FROM   Notifications n
+    LEFT JOIN Organisations o ON o.OrgId = n.OrgId AND o.IsDeleted = 0
     WHERE  n.UserId = p_UserId
       AND  (p_OnlyUnread = 0 OR n.IsRead = 0)
     ORDER  BY n.CreatedAt DESC
@@ -3729,11 +3732,12 @@ CREATE PROCEDURE Notification_Create(
     IN p_Body      TEXT,
     IN p_NotifType VARCHAR(50),
     IN p_RefId     INT UNSIGNED,
-    IN p_RefType   VARCHAR(50)
+    IN p_RefType   VARCHAR(50),
+    IN p_OrgId     INT UNSIGNED
 )
 BEGIN
-    INSERT INTO Notifications (UserId, Title, Body, NotifType, RefId, RefType, IsSent)
-    VALUES (p_UserId, p_Title, p_Body, p_NotifType, p_RefId, p_RefType, 0);
+    INSERT INTO Notifications (UserId, OrgId, Title, Body, NotifType, RefId, RefType, IsSent)
+    VALUES (p_UserId, p_OrgId, p_Title, p_Body, p_NotifType, p_RefId, p_RefType, 0);
 
     SELECT 1 AS IsSuccess, 'Notification created.' AS Message,
            LAST_INSERT_ID() AS NotificationId;
@@ -3821,6 +3825,13 @@ BEGIN
     INNER JOIN LookupTypes   lt ON lt.LookupTypeId  = lv.LookupTypeId
     WHERE  lt.TypeCode = 'RESPONDER_STATUS' AND lv.ValueCode = 'APPROVED'
       AND  dt.Token IS NOT NULL AND dt.Token != '';
+END //
+
+CREATE PROCEDURE Notification_DeleteStaleToken(IN p_Token VARCHAR(512))
+BEGIN
+    -- Called automatically by FCMService when Firebase returns Unregistered/NotRegistered.
+    -- Removes the stale token so future fan-outs don't waste FCM quota on dead registrations.
+    DELETE FROM UserDeviceTokens WHERE Token = p_Token;
 END //
 
 

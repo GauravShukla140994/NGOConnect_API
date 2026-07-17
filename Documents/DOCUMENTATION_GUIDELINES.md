@@ -170,6 +170,8 @@ When it is included in a Railway patch, update to `✅ Railway applied`.
 | `NGOConnect_Patch_NearbyFeed.sql` | Project_GetNearbyFeed SP + ProjectSkills covering index (ProjectId, SkillName) | 🟡 Local only |
 | `NGOConnect_Patch_PersonalizedFeed.sql` | ALTER TABLE Posts (4 cols + index); PostSaves + FeedInteractions tables; 22 FEED_* Settings seeds; Feed_GetPersonalized, Post_Save, Post_Unsave, Feed_TrackInteraction SPs | 🟡 Local only |
 | `NGOConnect_Patch_ApplicationApply_Fix.sql` | Add RequestedSessions column to ProjectApplications if missing; fix Application_Apply SP — p_Note → p_Motivation + add p_RequestedSessions (DAL/SP param mismatch causing "An error occurred" on apply) | 🟡 Local only |
+| `NGOConnect_Patch_StaleTokenCleanup.sql` | Add `Notification_DeleteStaleToken` SP — deletes stale FCM tokens when Firebase returns `Unregistered`; auto-called by FCMService | 🟡 Local only |
+| `NGOConnect_Patch_NotificationOrgName.sql` | ALTER TABLE Notifications ADD OrgId; recreate Notification_Create (adds p_OrgId); recreate Notification_GetByUser (LEFT JOIN Organisations → OrgName + OrgLogoUrl) | 🟡 Local only |
 
 ### Other Individual Patches (absorbed into versioned patches or superseded)
 
@@ -251,6 +253,31 @@ When there is a conflict between files, this priority order applies:
 
 
 ## Current Pending Document Updates
+
+**SQL — `NGOConnect_Complete_Setup_v4.8.sql`** (2026-07-17) — notification org name
+- Added `OrgId INT UNSIGNED NULL` column to `Notifications` table (with index `idx_notif_org`)
+- Updated `Notification_Create` SP: new `p_OrgId INT UNSIGNED` parameter; inserts into `OrgId` column
+- Updated `Notification_GetByUser` SP: `LEFT JOIN Organisations` on `n.OrgId`; returns `OrgId`, `OrgName`, `OrgLogoUrl`
+- Patch file: `NGOConnect_Patch_NotificationOrgName.sql` — 🟡 PENDING Railway deployment
+
+**API — `INotificationDal.cs` / `NotificationDal.cs` / `OrgDal.cs` / `CommunityDal.cs`** (2026-07-17) — notification org name
+- `INotificationDal.CreateAsync`: added `int? orgId = null` parameter
+- `NotificationDal.CreateAsync`: passes `p_OrgId` to `Notification_Create` SP
+- `OrgDal.FireUserNotifAsync`: added `int? orgId = null`; passed to `CreateAsync` — wired for MEMBERSHIP_APPROVED, MEMBERSHIP_REJECTED, MEMBER_REMOVED, MEMBER_ROLE_CHANGED
+- `CommunityDal.CreatePostAsync` / `CreatePollAsync`: pass `request.OrgId` to `CreateAsync`
+
+**Mobile — `api.types.ts` / `NotificationsScreen.tsx`** (2026-07-17) — notification org name
+- `Notification` interface: added `orgId?`, `orgName?`, `orgLogoUrl?` fields
+- `NotificationsScreen.NotifRow`: shows `🏢 <OrgName>` tag below notification body when `orgName` is present
+
+**SQL — `NGOConnect_Complete_Setup_v4.8.sql`** (2026-07-17) — stale token cleanup
+- Added `Notification_DeleteStaleToken(p_Token VARCHAR(512))` SP — deletes stale/unregistered FCM tokens from `UserDeviceTokens`; called automatically by `FCMService` when Firebase returns `Unregistered`
+- Patch file: `NGOConnect_Patch_StaleTokenCleanup.sql` — 🟡 PENDING Railway deployment
+
+**API — `INotificationDal.cs` / `NotificationDal.cs` / `FCMService.cs`** (2026-07-17) — stale token cleanup
+- `INotificationDal`: added `DeleteStaleTokenAsync(string token)`
+- `NotificationDal`: implemented via `Notification_DeleteStaleToken` SP
+- `FCMService`: injected `IServiceScopeFactory`; `SendMulticastAsync` now collects tokens with `MessagingErrorCode.Unregistered` and fire-and-forgets their deletion via a new DI scope (singleton-safe pattern)
 
 **SQL — `NGOConnect_Complete_Setup_v4.8.sql`** (2026-07-17)
 - File was truncated — `SuperAdmin_User_GetList` TotalCount subquery was cut off mid-statement. Fixed: appended the missing `SELECT COUNT(*) AS TotalCount ...` subquery + `END //` + `DELIMITER ;`
