@@ -67,15 +67,31 @@ namespace NGOConnect.API.Extensions
 
         // ── Email Service ────────────────────────────────────────
         /// <summary>
-        /// Register SMTP email service (MailKit).
-        /// Config: appsettings.json → "Email" section.
-        /// Secrets (SmtpUsername, SmtpPassword) must be set in appsettings.Development.json
-        /// or as Railway environment variables (Email__SmtpUsername / Email__SmtpPassword).
+        /// Register email service based on "EmailProvider" config key.
+        ///
+        ///   "smtp"   → SmtpEmailService (MailKit) — local dev / any SMTP provider
+        ///   "awsses" → AwsSesEmailService (AWS SDK) — staging + production via AWS SES
+        ///
+        /// Railway env var: EmailProvider = awsses
+        /// Reuses AWS:AccessKeyId / AWS:SecretAccessKey / AWS:Region already set for S3.
+        /// IAM user must have ses:SendEmail permission on the verified sending domain.
         /// </summary>
         public static IServiceCollection AddEmailService(
-            this IServiceCollection services)
+            this IServiceCollection services, IConfiguration config)
         {
-            services.AddSingleton<IEmailService, SmtpEmailService>();
+            var provider = (config["EmailProvider"] ?? "smtp").Trim().ToLowerInvariant();
+
+            if (provider == "awsses")
+            {
+                services.AddSingleton<IEmailService, AwsSesEmailService>();
+                Log.Information("EmailService: AwsSesEmailService (AWS SES SDK)");
+            }
+            else
+            {
+                services.AddSingleton<IEmailService, SmtpEmailService>();
+                Log.Information("EmailService: SmtpEmailService (SMTP / MailKit)");
+            }
+
             return services;
         }
 

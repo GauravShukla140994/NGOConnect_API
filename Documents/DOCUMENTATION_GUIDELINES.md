@@ -1013,3 +1013,42 @@ _No SQL or C# changes — all SPs and endpoints were already built. Mobile-only 
 
 Also created: `NGOConnect_Patch_UserDeviceTokens.sql` — run this FIRST before FCM_SPOutputs patch
 - Creates `UserDeviceTokens` table (`IF NOT EXISTS`) + re-applies `Notification_SaveDeviceToken` SP
+
+---
+
+### Session: AWS SES Email Integration (2026-07-19)
+
+**C# — `NGOConnect.Infrastructure/Services/AwsSesEmailService.cs`** (2026-07-19) — NEW FILE
+- Implements `IEmailService` using `AWSSDK.SimpleEmailV2` SDK
+- Reuses existing `AWS:Region`, `AWS:AccessKeyId`, `AWS:SecretAccessKey` config (same as S3 — no separate SMTP credentials needed)
+- IAM user (`ripplehub-s3-service`) must have `ses:SendEmail` permission added
+- Sending domain `ripplehub.app` must be verified in AWS SES console
+- HTML email template identical to `SmtpEmailService`
+- Logs `[INF] OTP email sent via AWS SES` on success
+
+**C# — `NGOConnect.Infrastructure/NGOConnect.Infrastructure.csproj`** (2026-07-19)
+- Added `AWSSDK.SimpleEmailV2 v3.7.400.76`
+
+**C# — `NGOConnect.API/Extensions/ServiceCollectionExtensions.cs`** (2026-07-19)
+- `AddEmailService()` now accepts `IConfiguration config` parameter
+- Reads `EmailProvider` config key: `"awsses"` → registers `AwsSesEmailService`; anything else → `SmtpEmailService`
+- Logs which provider is active at startup
+
+**C# — `NGOConnect.API/Program.cs`** (2026-07-19)
+- `AddEmailService()` call updated to pass `builder.Configuration`
+
+**C# — `NGOConnect.API/appsettings.json`** (2026-07-19)
+- Added `"EmailProvider": "smtp"` (default — local dev stays on SMTP)
+
+**C# — `NGOConnect.Infrastructure/Services/SmtpEmailService.cs`** (2026-07-19)
+- Added `client.Timeout = 8_000` — caps SMTP socket hang at 8 seconds (Hostinger blocks Railway IPs at TCP level; without this the default 2-minute hang was causing slow OTP responses on staging)
+
+**Railway staging — env vars to add:**
+- `EmailProvider = awsses`
+- `AWS__AccessKeyId` = (already set for S3)
+- `AWS__SecretAccessKey` = (already set for S3)
+
+**AWS Console — one-time setup required before deploy:**
+1. SES → Verified Identities → verify domain `ripplehub.app` (add DKIM DNS records in Hostinger DNS)
+2. IAM → user `ripplehub-s3-service` → attach inline policy adding `ses:SendEmail` on `*`
+3. SES → Account Dashboard → Request Production Access (to send to any recipient, not just verified addresses)

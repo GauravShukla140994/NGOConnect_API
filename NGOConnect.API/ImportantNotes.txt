@@ -29,7 +29,7 @@ Hostinger Server
 
 
 ------------------------------------------
-AWS S3 Bucket
+AWS S3 Bucket // SES(For Email OTP Service)
 gauravshukla1409@gmail.com tX5:pJ;dN2+en@j
 
 user: ripplehub-s3-service

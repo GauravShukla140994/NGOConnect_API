@@ -47,7 +47,7 @@ try
     builder.Services.AddDatabaseProvider();              // IDbProvider → MySqlDbProvider
     builder.Services.AddDataAccessLayer();               // All DAL registrations
     builder.Services.AddBlobService(builder.Configuration); // IBlobService → driven by StorageProvider in appsettings
-    builder.Services.AddEmailService();                    // IEmailService → SmtpEmailService (MailKit)
+    builder.Services.AddEmailService(builder.Configuration); // IEmailService → driven by EmailProvider in appsettings
     builder.Services.AddJwtAuthentication(builder.Configuration);
     builder.Services.AddSwaggerWithJwt();
     builder.Services.AddNgoConnectCors(builder.Configuration);
