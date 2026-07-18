@@ -53,6 +53,7 @@ namespace NGOConnect.Infrastructure.Services
                 message.Body = bodyBuilder.ToMessageBody();
 
                 using var client = new SmtpClient();
+                client.Timeout = 8_000; // 8 s — prevents Railway from hanging when SMTP host is unreachable
 
                 var socketOptions = useSsl
                     ? SecureSocketOptions.SslOnConnect    // port 465

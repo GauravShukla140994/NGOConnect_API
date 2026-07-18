@@ -6462,6 +6462,7 @@ BEGIN
         o.LogoUrl, o.About, o.Mission, o.Vision,
         o.ContactEmail, o.ContactPhone, o.Website,
         o.AddressLine1, o.AddressLine2, o.City, o.State, o.Pincode, o.Country,
+        o.Is80GEligible, o.Is12AEligible,
         o.OrgTypeLkpId,
         tv.ValueName AS OrgType,
         o.StatusLkpId,

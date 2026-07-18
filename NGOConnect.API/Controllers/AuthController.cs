@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using NGOConnect.Core.Interfaces;
 using NGOConnect.Core.Models.Auth;
 using NGOConnect.Core.Models.Common;
@@ -54,6 +54,26 @@ namespace NGOConnect.API.Controllers
             [FromBody] RevokeTokenRequest request)
         {
             return await _authDal.RevokeTokenAsync(request);
+        }
+
+        // AuthController.cs — TEMP, delete after test
+        [HttpGet("test-smtp")]
+        public async Task<string> TestSmtp()
+        {
+            try
+            {
+                using var client = new MailKit.Net.Smtp.SmtpClient();
+                client.Timeout = 8_000;
+                await client.ConnectAsync("smtp.hostinger.com", 587,
+                    MailKit.Security.SecureSocketOptions.StartTls);
+                var auth = client.IsConnected ? "Connected ✓" : "Not connected";
+                await client.DisconnectAsync(true);
+                return auth;
+            }
+            catch (Exception ex)
+            {
+                return $"Failed: {ex.Message}";
+            }
         }
     }
 }

@@ -516,6 +516,16 @@ When there is a conflict between files, this priority order applies:
 - Added `Org_GetDocuments(p_OrgId)` SP — returns OrgDocumentId, DocumentTypeLkpId, DocumentType (ValueName), FileUrl, FileName, IsVerified, VerifiedAt, CreatedAt from `OrgDocuments` joined to `LookupValues` for the org admin's own document list
 - Patch file: `NGOConnect_Patch_OrgGetDocuments.sql` — 🟡 PENDING local DB + Railway deployment
 
+**SQL — `NGOConnect_Complete_Setup_v4.8.sql`** (2026-07-18) — Org_GetProfile 80G/12A fix
+- `Org_GetProfile` SP: added `o.Is80GEligible, o.Is12AEligible` to SELECT — these columns were missing so admin screen always showed "No" regardless of DB value
+- Patch file: `NGOConnect_Patch_OrgGetProfile_80G12A.sql` — 🟡 PENDING local DB + Railway deployment
+
+**Mobile — `App/src/screens/admin/AdminOrgScreen.tsx`** (2026-07-18) — field name fixes
+- `setIs80G`: changed `o.is80G` → `(o as any).is80GEligible ?? (o as any).is80G` (SP column is `Is80GEligible`)
+- `setIs12A`: changed `o.is12A` → `(o as any).is12AEligible ?? (o as any).is12A`
+- `setRegNumber`: changed `(o as any).registrationNumber` → `(o as any).regNumber ?? (o as any).registrationNumber` (SP column is `RegNumber`)
+- `setOrgStatus`: changed `(o as any).orgStatusCode ?? (o as any).status` → `(o as any).statusCode ?? (o as any).orgStatusCode ?? (o as any).status` (SP returns `OrgStatusCode`)
+
 **C# — `NGOConnect.Core/Interfaces/IOrgDal.cs`** (2026-07-18) — Org_GetDocuments
 - Added `GetDocumentsAsync(int orgId)` → `Task<ApiResponse<List<DynamicRow>>>`
 
