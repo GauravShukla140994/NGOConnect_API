@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using NGOConnect.Core.Interfaces;
 using NGOConnect.Core.Models.Common;
 using NGOConnect.Core.Models.SuperAdmin;
+using Serilog;
 using System.Security.Claims;
 
 namespace NGOConnect.API.Controllers
@@ -23,7 +24,12 @@ namespace NGOConnect.API.Controllers
     public class SuperAdminController : ControllerBase
     {
         private readonly ISuperAdminDal _superAdmin;
-        public SuperAdminController(ISuperAdminDal superAdmin) => _superAdmin = superAdmin;
+        private readonly IPrivateBlobService _privateBlob;
+        public SuperAdminController(ISuperAdminDal superAdmin, IPrivateBlobService privateBlob)
+        {
+            _superAdmin = superAdmin;
+            _privateBlob = privateBlob;
+        }
 
         // ── Auth ──────────────────────────────────────────────────────────────
 
@@ -126,6 +132,35 @@ namespace NGOConnect.API.Controllers
         [HttpGet("dashboard")]
         public async Task<ApiResponse<DynamicRow>> GetDashboard()
             => await _superAdmin.GetDashboardAsync();
+
+        // ── Documents (signed URLs for private S3 files) ─────────────────────
+
+        // fileKey: the raw value stored in OrgDocuments.FileUrl / UserDocuments.FileUrl.
+        // Since the switch to AWS S3 private storage (2026-07-18), that column holds a
+        // bare S3 object key (e.g. "org-documents/17/xxx_cert.pdf"), not a browsable URL —
+        // the private bucket has no public access, so a link only works for a short signed
+        // window. IPrivateBlobService.GetSignedUrlAsync transparently handles older
+        // documents too (local/cloudinary fallback just returns the stored URL as-is), so
+        // the admin panel should always call this instead of using fileUrl directly.
+        [HttpGet("documents/signed-url")]
+        public async Task<ApiResponse<string>> GetDocumentSignedUrl(
+            [FromQuery] string fileKey,
+            [FromQuery] int    expiryMinutes = 15)
+        {
+            if (string.IsNullOrWhiteSpace(fileKey))
+                return ApiResponse<string>.Failure("fileKey is required.", "VALIDATION_ERROR");
+
+            try
+            {
+                var url = await _privateBlob.GetSignedUrlAsync(fileKey, expiryMinutes);
+                return ApiResponse<string>.Success(url);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetDocumentSignedUrl failed FileKey={Key}", fileKey);
+                return ApiResponse<string>.Failure("Could not generate a document link.", "INTERNAL_ERROR");
+            }
+        }
 
         // ── Lookup management ────────────────────────────────────────────────
 

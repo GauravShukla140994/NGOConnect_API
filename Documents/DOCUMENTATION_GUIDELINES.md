@@ -442,6 +442,60 @@ When there is a conflict between files, this priority order applies:
 
 ---
 
+---
+
+### Session: Mobile Fixes (2026-07-18)
+
+**Mobile — `App/src/api/upload.api.ts`** (2026-07-18) — private module upload fix
+- `UploadResult` interface: `fileUrl` made `string | null`; added `fileKey: string | null`, `fileSizeKb?: number`, `isPrivate?: boolean`
+- `uploadFile`: return logic changed from `res.data.data?.fileUrl` to `res.data.data?.fileUrl ?? res.data.data?.fileKey` — private modules (`user-documents`, `org-documents`) return `fileKey` not `fileUrl`; old code was throwing the server success message as an error dialog
+
+**Mobile — `App/src/api/org.api.ts`** (2026-07-18) — org document upload after registration
+- Added `uploadDocument(orgId, { documentTypeLkpId, fileUrl, fileName })` → `POST /org/{orgId}/documents`
+
+**Mobile — `App/src/screens/ngo/CreateOrgScreen.tsx`** (2026-07-18) — org documents actually saved to DB
+- Root cause fix: `registrationCertUrl` / `otherDocumentUrl` / `is80G` / `is12A` were being sent on `orgApi.register()` payload but ASP.NET silently drops unknown JSON fields — nothing was ever written to `OrgDocuments` table
+- `FormData`: added `regCertFileName: string` and `otherDocFileName: string`
+- `INITIAL`: default values `''` for both new fields
+- `pickDoc`: now saves `picked.name` to `regCertFileName` / `otherDocFileName` alongside the URI
+- `useEffect`: added `lookupApi.getValuesByTypeCode('DOCUMENT_TYPE_ORG')` → stored in `orgDocTypes` state; provides `REG_CERT` and `OTHER` LookupValueIds at runtime (never hardcoded)
+- `handleSubmit`: removed `registrationCertUrl`, `otherDocumentUrl`, `is80G`, `is12A` from `orgApi.register()` payload; after successful register returns `orgId`, calls `orgApi.uploadDocument()` once per uploaded file using lookup IDs resolved from `orgDocTypes`. Failures are non-fatal (caught silently — user can re-upload later)
+- ⚠️ `is80G` / `is12A` still not persisted — `Org_Register` SP has no params for them. Needs separate SP change: add `p_Is80GEligible TINYINT(1)` + `p_Is12AEligible TINYINT(1)` to `Org_Register` SP and corresponding DAL params
+
+**Mobile — `App/src/components/community/CommunityPostCard.tsx`** (2026-07-18) — RESOURCE card download
+- Added `react-native-blob-util` import for native file download
+- Added `DownloadIcon` component (drawn with `View` — no icon library required): vertical shaft + arrowhead + base line
+- Added `getMimeType(fileName)` helper
+- `ResourceCard`: file rows changed from `TouchableOpacity` (full row tappable → Linking.openURL) to `View` with a separate circular download button on the right
+- Download button states: `idle` (shows `DownloadIcon`), `downloading` (shows `ActivityIndicator`), `done` (shows ✓ green), `error` (shows ✕ red — resets after 2 s)
+- Uses `ReactNativeBlobUtil.config({ addAndroidDownloads: { useDownloadManager: true, notification: true } })` — Android DownloadManager handles background download + notification tray progress. File URL never shown to user
+- Removed `Share` and `Linking` imports (no longer needed in this component)
+
+**Mobile — `App/android/app/src/main/AndroidManifest.xml`** (2026-07-18)
+- Added `<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />` — required for Downloads folder on Android 9 and below; Android 10+ (API 29+) uses scoped storage and does not require this permission
+
+**Mobile — `App/NGOConnectApp/package.json`** (2026-07-18)
+- Added `react-native-blob-util@0.24.10` (supports new architecture via codegenConfig)
+
+**SQL — `NGOConnect_Complete_Setup_v4.8.sql`** (2026-07-18) — Org_Register 80G/12A
+- `Org_Register` SP: added `IN p_Is80GEligible TINYINT(1)` and `IN p_Is12AEligible TINYINT(1)` params; INSERT now includes `Is80GEligible, Is12AEligible` columns using `IFNULL(p_Is80GEligible, 0)` / `IFNULL(p_Is12AEligible, 0)`
+- Patch file: `NGOConnect_Patch_OrgRegister_Is80G_Is12A.sql` — 🟡 PENDING local DB + Railway
+
+**C# — `NGOConnect.Core/Models/Org/OrgModels.cs`** (2026-07-18) — Org_Register 80G/12A
+- `RegisterOrgRequest`: added `Is80GEligible bool` (default false) and `Is12AEligible bool` (default false)
+
+**C# — `NGOConnect.Infrastructure/DAL/OrgDal.cs`** (2026-07-18) — Org_Register 80G/12A
+- `RegisterAsync`: added `p_Is80GEligible` and `p_Is12AEligible` params (bool → 0/1 conversion)
+
+**Mobile — `App/src/screens/ngo/CreateOrgScreen.tsx`** (2026-07-18) — Org_Register 80G/12A
+- `handleSubmit`: added `is80GEligible: form.is80G` and `is12AEligible: form.is12A` to `orgApi.register()` payload (previously omitted — values were captured in UI but never sent; now wired through)
+
+**Railway env vars — staging** (2026-07-18) — discussed but not yet verified applied:
+- AWS S3 buckets: `AWS__PublicBucket=ripplehub-public`, `AWS__PrivateBucket=ripplehub-private`, `AWS__PublicBaseUrl=https://ripplehub-public.s3.ap-south-1.amazonaws.com`
+- Email SMTP: `Email__SmtpHost=smtp.hostinger.com`, `Email__SmtpPort=587`, `Email__FromAddress=no-reply@ripplehub.app`, `Email__FromName=NGO Connect`, `Email__UseSsl=false`, `Email__SmtpUsername=<hostinger-username>`, `Email__SmtpPassword=<password>`
+
+---
+
 **AWS S3 Storage — C# infrastructure** (2026-07-18)
 - `NGOConnect.Infrastructure.csproj`: added `AWSSDK.S3 v3.7.413.4`
 - `BlobModels.cs`: `BlobUploadResult` — added `FileKey?` + `IsPrivate` fields; `FileUrl` made nullable. Added new `PrivateBlobUploadResult` class (FileKey, FileName, FileSizeKb, Module)
@@ -455,6 +509,15 @@ When there is a conflict between files, this priority order applies:
 - `appsettings.Development.json`: StorageProvider changed from "cloudinary" → "awss3". Added AWS credentials block (AccessKeyId + SecretAccessKey placeholder)
 - AWS setup: account `RippleHub (862012315782)`, IAM user `ripplehub-s3-service` (AKIA4RM7QDCDAPIRCGF4), policy `NGOConnect-S3-Policy`, buckets `ripplehub-public` + `ripplehub-private` in ap-south-1 (Mumbai)
 - Railway env vars to add: `AWS__AccessKeyId`, `AWS__SecretAccessKey`, `StorageProvider=awss3`
+
+**Super Admin — Document View fix for AWS S3 private storage** (2026-07-18)
+- Root cause: after the S3 private-storage switch, `OrgDocuments.FileUrl` / `UserDocuments.FileUrl` store a bare S3 object key, not a browsable URL. The Members/Organisations drawer "View" buttons were still doing `<a href={d.fileUrl}>`, which is broken for any document uploaded under `StorageProvider=awss3`.
+- **C# — `NGOConnect.API/Controllers/SuperAdminController.cs`**: injected `IPrivateBlobService`; added `GET /api/v1/superadmin/documents/signed-url?fileKey={key}&expiryMinutes=15` endpoint calling `_privateBlob.GetSignedUrlAsync(fileKey, expiryMinutes)`. No DB/SP change needed — this is a pure blob-service passthrough.
+- **Frontend — NEW `Website/src/admin/api/media.js`**: `getDocumentSignedUrl(fileKey, expiryMinutes=15)` calling the new endpoint.
+- **Frontend — `Website/src/admin/pages/OrgDrawer.jsx` / `MemberDrawer.jsx`**: "View" `<a href={d.fileUrl}>` replaced with a button that fetches a fresh signed URL on click and opens it in a new tab (shows "Loading…" while fetching). Works transparently for pre-S3 documents too, since `FallbackPrivateBlobService` just returns the stored URL as-is.
+- **Status: uncompiled/untested** — no .NET SDK available to build in this session. Will not work on Railway staging/production until `StorageProvider=awss3` + `AWS__AccessKeyId` + `AWS__SecretAccessKey` env vars are actually set there (still pending — see AWS S3 Storage entry above).
+- **API Documentation** — New endpoint: `GET /api/v1/superadmin/documents/signed-url`
+- **Postman Collection** — Add request for new signed-url endpoint
 
 ---
 

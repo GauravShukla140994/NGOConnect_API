@@ -38,6 +38,8 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_State",          request.State);
                     _db.AddParameter(cmd, "p_Pincode",        request.Pincode);
                     _db.AddParameter(cmd, "p_Country",        request.Country);
+                    _db.AddParameter(cmd, "p_Is80GEligible",  request.Is80GEligible ? 1 : 0);
+                    _db.AddParameter(cmd, "p_Is12AEligible",  request.Is12AEligible ? 1 : 0);
                 });
 
                 if (!result.Succeeded)
