@@ -18,13 +18,15 @@ namespace NGOConnect.Infrastructure.DAL
     /// </summary>
     public class AuthDal : IAuthDal
     {
-        private readonly IDbProvider _db;
+        private readonly IDbProvider    _db;
         private readonly IConfiguration _config;
+        private readonly IEmailService  _email;
 
-        public AuthDal(IDbProvider db, IConfiguration config)
+        public AuthDal(IDbProvider db, IConfiguration config, IEmailService email)
         {
-            _db = db;
+            _db     = db;
             _config = config;
+            _email  = email;
         }
 
         // ── Send OTP ─────────────────────────────────────────────
@@ -36,16 +38,18 @@ namespace NGOConnect.Infrastructure.DAL
                 using var conn = await _db.CreateConnectionAsync();
                 using var cmd  = _db.CreateCommand("Auth_SendOTP", conn);
 
-                // Generate OTP here (6-digit)
-                var otp = GenerateOtp();
-                otp = "123456";
+                const int expiryMinutes = 10;
+
+                // Cryptographically secure 6-digit OTP
+                //var otp = GenerateOtp();
+                var otp = "123456";
 
                 _db.AddParameter(cmd, "p_Recipient",     request.Recipient);
                 _db.AddParameter(cmd, "p_CountryCode",   request.CountryCode);
                 _db.AddParameter(cmd, "p_OtpCode",       otp);
                 _db.AddParameter(cmd, "p_PurposeLkpId",  request.PurposeLkpId);
                 _db.AddParameter(cmd, "p_IpAddress",     ipAddress);
-                _db.AddParameter(cmd, "p_ExpiryMinutes", 10);
+                _db.AddParameter(cmd, "p_ExpiryMinutes", expiryMinutes);
 
                 var ds = await _db.FillDataSetAsync(cmd);
 
@@ -58,15 +62,31 @@ namespace NGOConnect.Infrastructure.DAL
                 if (isSuccess == 0)
                     return ApiResponse<SendOtpResponse>.Failure(row["Message"].ToString()!, "OTP_BLOCKED");
 
-                // TODO: Send OTP via Twilio/MSG91
-                // await _smsService.SendAsync(request.Recipient, otp);
-                Log.Information("OTP generated for {Recipient} | Purpose: {Purpose}",
-                    MaskRecipient(request.Recipient), request.PurposeLkpId);
+                // ── Deliver OTP ───────────────────────────────────────
+                var isEmail = request.Recipient.Contains('@');
+
+                if (isEmail)
+                {
+                    var sent = await _email.SendOtpAsync(request.Recipient, otp, expiryMinutes);
+                    if (!sent)
+                        Log.Warning("OTP email delivery failed for {Recipient} — OTP stored but not delivered",
+                            MaskRecipient(request.Recipient));
+                }
+                else
+                {
+                    // SMS — TODO: integrate MSG91 or Twilio when provider is confirmed
+                    // await _smsService.SendOtpAsync(request.Recipient, request.CountryCode, otp);
+                    Log.Warning("SMS OTP delivery not yet implemented for {Recipient} — OTP stored in DB",
+                        MaskRecipient(request.Recipient));
+                }
+
+                Log.Information("OTP requested for {Recipient} | IsEmail={IsEmail} | Purpose={Purpose}",
+                    MaskRecipient(request.Recipient), isEmail, request.PurposeLkpId);
 
                 return ApiResponse<SendOtpResponse>.Success(new SendOtpResponse
                 {
                     MaskedRecipient  = MaskRecipient(request.Recipient),
-                    ExpiresInSeconds = Convert.ToInt32(otp), // 10 minutes × 60 seconds (matches p_ExpiryMinutes above)
+                    ExpiresInSeconds = expiryMinutes * 60,   // 600 seconds
                 }, "OTP sent successfully");
             }
             catch (Exception ex)

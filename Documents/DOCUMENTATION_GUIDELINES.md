@@ -291,6 +291,26 @@ When there is a conflict between files, this priority order applies:
 
 
 
+**Mobile — `AdminOrgScreen.tsx`** (2026-07-17) — read-only org profile
+- Complete rewrite: removed all edit/save plumbing (`save` callback, `saving` state, `Alert`, `KeyboardAvoidingView`, `Switch`).
+- All `FieldRow` components now hardcoded `editable={false}`.
+- `Switch` replaced with `BadgeRow` component showing ✓ Yes / ✗ No badge for 80G and 12A fields.
+- Added blue info banner "Profile editing is coming soon."
+- Added `orgStatus` and `regNumber` state; status badge (APPROVED=green, other=yellow) shown in logo row.
+- No API or DB change.
+
+**Mobile — `CreateOrgScreen.tsx`** (2026-07-18) — documents step + country code + certifications
+- Bumped to 5-step wizard (was 4). New step 4 = "Documents & Certifications".
+- Step 2 Contact Phone: replaced plain TextInput with country code picker + number input (same pattern as LoginScreen). Uses `COUNTRIES`/`DEFAULT_COUNTRY` from `src/constants/countries.ts`. `contactPhoneCountry` stored in FormData; submitted as `{dial}{phone}`.
+- New Step 4: registration certificate upload (launchImageLibrary → uploadFile with `AppConfig.UPLOAD_MODULES.ORG_DOCUMENTS`), other document upload, 80G Switch, 12A Switch.
+- Review step (step 5) shows `is80G`, `is12A`, cert upload status.
+- `orgApi.register` now receives `is80G`, `is12A`, `registrationCertUrl`, `otherDocumentUrl` fields.
+- No API or DB change — fields already accepted by backend.
+
+**Mobile — `ExploreScreen.tsx` / `CommunityScreen.tsx`** (2026-07-17) — consistent header
+- `ExploreScreen`: added org-switcher header (left = org logo/initials + name + ▾, taps to open org switcher modal); right = 🔔 bell with unread badge + user avatar → Profile. Full org state + useFocusEffect unread poll added. No API or DB change.
+- `CommunityScreen`: right side of header — replaced ☰ menu with 🔔 bell (unread badge) + user avatar → Profile. `notificationApi.getUnreadCount()` polled on focus. No API or DB change.
+
 **Deployment — `appsettings.Staging.json`** (2026-07-17)
 - Added `https://stage.ripplehub.app` to `Cors:AllowedOrigins` — Website repo's `/admin` panel is being deployed there on Railway (built with `npm run build:staging`)
 - No document update needed (config, not a public API contract change) — noted here only so a future session knows why this origin is in the list
@@ -368,6 +388,40 @@ When there is a conflict between files, this priority order applies:
 **`NGOConnect_Complete_Setup_v4.8.sql`**
 - `Application_Apply` SP: remove the duplicate DROP+CREATE block at the bottom of the file (line ~5506) that incorrectly uses `AppliedAt` column (not in v4.8 table schema) and lacks the duplicate-application check. The correct version already exists earlier in the file with `p_Motivation`, `p_RequestedSessions`, `CreatedBy`, and duplicate guard.
 
+**SQL — `NGOConnect_Complete_Setup_v4.8.sql`** (2026-07-18) — Community all post types (save + view)
+- `Community_CreatePost` SP: supersedes previous ResourceUpload patch. Now adds:
+  - `IN p_ResourceFileUrl VARCHAR(500)` — RESOURCE type file URL
+  - `IN p_IsPinned TINYINT(1)` — ANNOUNCEMENT: pin to top of feed (stored in `IsPinned` column)
+  - `IN p_VolunteersNeeded INT UNSIGNED` — VOL_REQUEST: slots count (stored in `VolunteersNeeded` column)
+  - `IN p_EventRef VARCHAR(200)` — multipurpose extra text (stored in `EventRef` column):
+      EVENT_UPDATE → whatChanged text; VOL_REQUEST → date/time display text; TASK → free-text assignee name
+  - `INSERT INTO CommunityPosts` now includes `IsPinned, VolunteersNeeded, EventRef, ResourceFileUrl` columns
+- Patch file: `NGOConnect_Patch_Community_AllTypes.sql` — 🟡 PENDING local DB + Railway deployment
+  (supersedes `NGOConnect_Patch_Community_ResourceUpload.sql` — apply AllTypes patch only)
+
+**C# — `CommunityModels.cs`** (2026-07-18) — Community all post types
+- `CreateCommunityPostRequest`: added `ResourceFileUrl?`, `IsPinned?` (bool), `VolunteersNeeded?` (int), `EventRef?` (string)
+
+**C# — `CommunityDal.cs`** (2026-07-18) — Community all post types
+- `CreatePostAsync`: added `p_ResourceFileUrl`, `p_IsPinned`, `p_VolunteersNeeded`, `p_EventRef` params
+
+**Mobile — `community.api.ts`** (2026-07-18) — Community all post types
+- `CreatePostPayload`: added `resourceFileUrl?`, `eventRef?` fields (isPinned + volunteersNeeded already present)
+
+**Mobile — `api.types.ts`** (2026-07-18) — Community all post types
+- `CommunityPost` interface: added `eventRef?` (SP EventRef column), `volunteersNeeded?` (SP VolunteersNeeded), `dueDate?` (SP DueDate), `assignedToUserId?`; renamed `totalNeeded` → legacy alias for `volunteersNeeded`; removed dead fields `changeType`, `changeDetail`, `mapsUrl`, `startTime`, `requiredSkills[]`
+
+**Mobile — `NewPostModal.tsx`** (2026-07-18) — Community all post types
+- Submit now passes `isPinned` (ANNOUNCEMENT), `volunteersNeeded` (VOL_REQUEST), `eventRef` computed per type (whatChanged for EVENT_UPDATE, eventDateTime text for VOL_REQUEST, assignedTo for TASK)
+- Upload box for RESOURCE type: `TouchableOpacity` calling `handlePickResourceFile`; file preview row with remove (✕)
+
+**Mobile — `CommunityPostCard.tsx`** (2026-07-18) — Community all post types
+- AnnouncementCard: shows "📌 Pinned" orange badge in header when `item.isPinned`
+- QuestionCard: removed misleading inline reply input (discarded typed text). Replaced with tappable "💬 Write an answer..." prompt that opens comment sheet
+- EventUpdateCard: change badge now reads from `item.eventRef` (whatChanged) + `item.title` (event name); removed dead `mapsUrl` link
+- VolRequestCard: `total` now reads `item.volunteersNeeded` (was `totalNeeded`); date/time shows from `item.eventRef` (was dead `startTime`); removed dead `requiredSkills` chip array
+- TaskCard: assignee shows `item.assignedToName || item.eventRef` (eventRef = free-text name stored by form); dueBy shows `item.dueBy || item.dueDate`
+
 **Fix: Member Role Update — all 3 layers** (2026-07-14)
 (Patch file: `NGOConnect_Patch_UpdateMemberRole_RoleCode.sql` — apply to Railway staging + production)
 
@@ -385,6 +439,22 @@ When there is a conflict between files, this priority order applies:
 
 **Mobile — `App/src/screens/admin/AdminVolunteersScreen.tsx`**
 - `MemberDetailsSheet`: added `saveRole` callback + "Save Role" button below role picker dropdown (was previously missing — role change was never sent to API)
+
+---
+
+**AWS S3 Storage — C# infrastructure** (2026-07-18)
+- `NGOConnect.Infrastructure.csproj`: added `AWSSDK.S3 v3.7.413.4`
+- `BlobModels.cs`: `BlobUploadResult` — added `FileKey?` + `IsPrivate` fields; `FileUrl` made nullable. Added new `PrivateBlobUploadResult` class (FileKey, FileName, FileSizeKb, Module)
+- NEW `IPrivateBlobService.cs`: interface with `UploadAsync` → `PrivateBlobUploadResult`, `GetSignedUrlAsync(key, expiryMinutes=15)` → string URL, `DeleteAsync(key)` → bool
+- NEW `AwsS3BlobService.cs`: implements `IBlobService` for public S3 bucket (`ripplehub-public`). Modules: user-photos, org-logos, project-images, post-media
+- NEW `AwsS3PrivateBlobService.cs`: implements `IPrivateBlobService` for private S3 bucket (`ripplehub-private`). Modules: user-documents, org-documents, certificates, donation-receipts. All objects SSE-AES256 encrypted. Uses `GetPreSignedURLAsync` for 15-min expiring access links
+- NEW `FallbackPrivateBlobService.cs`: implements `IPrivateBlobService` by wrapping `IBlobService` — used in local/cloudinary modes (returns public URL as opaque FileKey, no real expiry)
+- `ServiceCollectionExtensions.AddBlobService`: updated to switch on `"awss3"` → registers `AwsS3BlobService` + `AwsS3PrivateBlobService`. Other modes register `FallbackPrivateBlobService` for `IPrivateBlobService`
+- `MediaController.cs`: injected both `IBlobService` + `IPrivateBlobService`. `POST /api/v1/media/upload` now auto-routes to private storage for private modules. Added `GET /api/v1/media/signed-url?key={key}&expiryMinutes=15` endpoint
+- `appsettings.json`: added `AWS` section (Region, PublicBucket, PrivateBucket, PublicBaseUrl — no secrets). StorageProvider comment updated to include "awss3"
+- `appsettings.Development.json`: StorageProvider changed from "cloudinary" → "awss3". Added AWS credentials block (AccessKeyId + SecretAccessKey placeholder)
+- AWS setup: account `RippleHub (862012315782)`, IAM user `ripplehub-s3-service` (AKIA4RM7QDCDAPIRCGF4), policy `NGOConnect-S3-Policy`, buckets `ripplehub-public` + `ripplehub-private` in ap-south-1 (Mumbai)
+- Railway env vars to add: `AWS__AccessKeyId`, `AWS__SecretAccessKey`, `StorageProvider=awss3`
 
 ---
 
@@ -687,6 +757,25 @@ All changes below are reflected in all 4 v4.6 documents.
 - 11 new SPs: `SuperAdmin_Org_GetStatusHistory`, `SuperAdmin_User_GetList`, `SuperAdmin_User_GetFullProfile`, `SuperAdmin_User_GetDocuments`, `SuperAdmin_UserDocument_Verify`, `SuperAdmin_User_VerifyProfile`, `SuperAdmin_User_RequestUpdate`, `SuperAdmin_User_Suspend`, `SuperAdmin_User_Reactivate`, `SuperAdmin_Dashboard_GetKpis`, `SuperAdmin_Org_GetRecent`
 - 10 new API endpoints in API_Documentation_v4.6.docx and Postman v4.6
 - C# fixes: `SuperAdminDal.cs` `Get<bool?>()` / `Get<int?>()` (CS0019 fix); BCrypt.Net-Next 4.0.3 → 4.2.0 (NU1605 fix)
+
+---
+
+### Pending — Email OTP (code-only, no DB change, docs not yet updated)
+
+- `IEmailService` (new interface): `NGOConnect.Core/Interfaces/IEmailService.cs` — `SendOtpAsync(email, otpCode, expiryMinutes)`
+- `SmtpEmailService` (new class): `NGOConnect.Infrastructure/Services/SmtpEmailService.cs` — MailKit SMTP, reads `Email:*` from IConfiguration, HTML email template
+- `Infrastructure.csproj`: added `MailKit 4.7.1.1`
+- `appsettings.json`: added `Email` section — `SmtpHost: smtp.hostinger.com`, port 587 STARTTLS, `FromAddress: no-reply@ripplehub.app`, `FromName: NGO Connect`
+- `appsettings.Development.json`: added `Email:SmtpUsername: contact@ripplehub.app` + `Email:SmtpPassword` placeholder (gitignored)
+- Hostinger alias rule: authenticate with `contact@ripplehub.app` (main mailbox), send FROM `no-reply@ripplehub.app` (alias) — MailKit supports this natively
+- `AuthDal.cs`: injected `IEmailService`; removed hardcoded `otp = "123456"`; fixed `ExpiresInSeconds` bug (`Convert.ToInt32(otp)` → `expiryMinutes * 60`); email/mobile detection + `_email.SendOtpAsync()` for email; SMS logs warning (not yet implemented)
+- `ServiceCollectionExtensions.cs`: `AddEmailService()` → `SmtpEmailService` as singleton
+- `Program.cs`: wired `builder.Services.AddEmailService()`
+- HTML template: blue header (`#1a56db`), monospace OTP box, expiry + security notes, RippleHub footer
+- **Railway env vars to set**: `Email__SmtpUsername = contact@ripplehub.app` · `Email__SmtpPassword = <password>`
+- **Docs to update on next version**: internal change only — no endpoint or DB change
+- `UserDal.cs`: injected `IEmailService`; `SendContactOtpAsync` now calls `_email.SendOtpAsync()` when `request.Type == "EMAIL"` (Edit Profile email OTP delivery); SMS still logs warning only
+- **Frontend note**: "Email Login will be available soon" is a frontend-only guard — backend already fully supports email login via `Auth_SendOTP` + `Auth_VerifyOTP`. Mobile team should remove the client-side restriction.
 
 ---
 

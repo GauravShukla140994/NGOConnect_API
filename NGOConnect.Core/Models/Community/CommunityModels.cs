@@ -32,6 +32,23 @@ namespace NGOConnect.Core.Models.Community
 
         /// <summary>LookupValueId from TypeCode='AUDIENCE_TYPE' (ALL_MEMBERS / ADMINS_ONLY / VOLUNTEERS). Defaults to ALL_MEMBERS.</summary>
         public int? AudienceLkpId { get; set; }
+
+        /// <summary>Azure Blob URL of the uploaded file. Only used for RESOURCE post type.</summary>
+        public string? ResourceFileUrl { get; set; }
+
+        /// <summary>Whether this post is pinned. Only honoured for ANNOUNCEMENT type.</summary>
+        public bool? IsPinned { get; set; }
+
+        /// <summary>Number of volunteers needed. Only used for VOL_REQUEST type.</summary>
+        public int? VolunteersNeeded { get; set; }
+
+        /// <summary>
+        /// Multipurpose extra text stored in the EventRef column — interpretation varies by type:
+        ///   EVENT_UPDATE  → what changed (e.g. "Venue changed")
+        ///   VOL_REQUEST   → event date/time display text (e.g. "Jun 14, 6:30 AM")
+        ///   TASK          → free-text assignee name (no DB user lookup at this stage)
+        /// </summary>
+        public string? EventRef { get; set; }
     }
 
     public class CreatePollRequest

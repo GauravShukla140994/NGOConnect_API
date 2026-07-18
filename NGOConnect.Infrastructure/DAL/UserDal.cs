@@ -9,7 +9,12 @@ namespace NGOConnect.Infrastructure.DAL
 {
     public class UserDal : BaseDal, IUserDal
     {
-        public UserDal(IDbProvider db) : base(db) { }
+        private readonly IEmailService _email;
+
+        public UserDal(IDbProvider db, IEmailService email) : base(db)
+        {
+            _email = email;
+        }
 
         public async Task<ApiResponse<UserProfileModel>> GetProfileAsync(int userId)
         {
@@ -387,8 +392,24 @@ namespace NGOConnect.Infrastructure.DAL
                 if (!result.Succeeded)
                     return result.ToApiResponse();
 
-                // Log OTP in DEBUG so it's visible in Output window during dev testing
-                Log.Debug("DEV — Contact OTP for {Value}: {Otp}", request.Value, otp);
+                // Deliver OTP based on type
+                var isEmail = request.Type.Equals("EMAIL", StringComparison.OrdinalIgnoreCase);
+                if (isEmail)
+                {
+                    var sent = await _email.SendOtpAsync(request.Value.Trim(), otp, 10);
+                    if (!sent)
+                        Log.Warning("Contact OTP email delivery failed for {Value} — OTP stored but not delivered",
+                            request.Value);
+                }
+                else
+                {
+                    // SMS — TODO: integrate MSG91/Twilio when confirmed
+                    Log.Warning("SMS contact OTP not yet implemented for {Value} — OTP stored in DB only",
+                        request.Value);
+                }
+
+                // Always log to debug for dev convenience
+                Log.Debug("DEV — Contact OTP ({Type}) for {Value}: {Otp}", request.Type, request.Value, otp);
 
                 return result.ToApiResponse();
             }

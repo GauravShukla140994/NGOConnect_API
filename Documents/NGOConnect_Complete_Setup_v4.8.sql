@@ -4473,14 +4473,22 @@ END //
 -- ── REPLACED SP: Community_CreatePost ───────────────────────────
 -- v4.3: Fixed audience TypeCode POST_VISIBILITY → AUDIENCE_TYPE; added CreatedBy.
 -- Updated: enforces CanCommunityPost from OrgMembers (Permission Enforcement patch)
+-- v4.8: Added p_ResourceFileUrl for RESOURCE post type file uploads
+-- v4.8: Added p_IsPinned (ANNOUNCEMENT), p_VolunteersNeeded (VOL_REQUEST),
+--        p_EventRef (multipurpose: whatChanged for EVENT_UPDATE, dateTime text for
+--        VOL_REQUEST, assignee name for TASK) → stored in EventRef column
 DROP PROCEDURE IF EXISTS Community_CreatePost //
 CREATE PROCEDURE Community_CreatePost(
-    IN p_UserId         INT UNSIGNED,
-    IN p_OrgId          INT UNSIGNED,
-    IN p_Title          VARCHAR(300),
-    IN p_Content        TEXT,
-    IN p_PostTypeLkpId  INT UNSIGNED,
-    IN p_AudienceLkpId  INT UNSIGNED
+    IN p_UserId           INT UNSIGNED,
+    IN p_OrgId            INT UNSIGNED,
+    IN p_Title            VARCHAR(300),
+    IN p_Content          TEXT,
+    IN p_PostTypeLkpId    INT UNSIGNED,
+    IN p_AudienceLkpId    INT UNSIGNED,
+    IN p_ResourceFileUrl  VARCHAR(500),
+    IN p_IsPinned         TINYINT(1),
+    IN p_VolunteersNeeded INT UNSIGNED,
+    IN p_EventRef         VARCHAR(200)
 )
 BEGIN
     DECLARE v_ApprovedLkpId        INT UNSIGNED DEFAULT 0;
@@ -4512,9 +4520,11 @@ BEGIN
         END IF;
 
         INSERT INTO CommunityPosts
-            (OrgId, UserId, PostTypeLkpId, Title, Content, AudienceLkpId, CreatedBy)
+            (OrgId, UserId, PostTypeLkpId, Title, Content, AudienceLkpId,
+             IsPinned, VolunteersNeeded, EventRef, ResourceFileUrl, CreatedBy)
         VALUES
-            (p_OrgId, p_UserId, p_PostTypeLkpId, p_Title, p_Content, p_AudienceLkpId, p_UserId);
+            (p_OrgId, p_UserId, p_PostTypeLkpId, p_Title, p_Content, p_AudienceLkpId,
+             COALESCE(p_IsPinned, 0), p_VolunteersNeeded, p_EventRef, p_ResourceFileUrl, p_UserId);
 
         SELECT 1                    AS IsSuccess,
                'Post created.'      AS Message,

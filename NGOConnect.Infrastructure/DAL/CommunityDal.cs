@@ -20,12 +20,16 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var result = await ExecuteWriteAsync("Community_CreatePost", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_UserId",        userId);
-                    _db.AddParameter(cmd, "p_OrgId",         request.OrgId);
-                    _db.AddParameter(cmd, "p_Title",         request.Title);
-                    _db.AddParameter(cmd, "p_Content",       request.Content);
-                    _db.AddParameter(cmd, "p_PostTypeLkpId", request.PostTypeLkpId);
-                    _db.AddParameter(cmd, "p_AudienceLkpId", request.AudienceLkpId);
+                    _db.AddParameter(cmd, "p_UserId",           userId);
+                    _db.AddParameter(cmd, "p_OrgId",            request.OrgId);
+                    _db.AddParameter(cmd, "p_Title",            request.Title);
+                    _db.AddParameter(cmd, "p_Content",          request.Content);
+                    _db.AddParameter(cmd, "p_PostTypeLkpId",    request.PostTypeLkpId);
+                    _db.AddParameter(cmd, "p_AudienceLkpId",    request.AudienceLkpId);
+                    _db.AddParameter(cmd, "p_ResourceFileUrl",  request.ResourceFileUrl);
+                    _db.AddParameter(cmd, "p_IsPinned",         request.IsPinned.HasValue ? (object)(request.IsPinned.Value ? 1 : 0) : DBNull.Value);
+                    _db.AddParameter(cmd, "p_VolunteersNeeded", request.VolunteersNeeded);
+                    _db.AddParameter(cmd, "p_EventRef",         request.EventRef);
                 });
 
                 if (!result.Succeeded)

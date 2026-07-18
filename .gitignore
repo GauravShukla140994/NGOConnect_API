@@ -27,3 +27,5 @@ appsettings.*.Local.json
 # ── Upload files — never commit user-uploaded content ─────────────────────────
 /NGOConnect.API/UploadFiles/
 UploadFiles/
+NGOConnect.API/appsettings.json
+NGOConnect.API/appsettings.Development.json

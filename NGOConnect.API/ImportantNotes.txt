@@ -10,3 +10,28 @@ firebase appdistribution:distribute android/app/build/outputs/apk/release/app-re
 
 
 Using Firebase for Notification FCM
+
+
+------------------------------------------
+Railway for Stage API & DB Hosting
+https://railway.com/project/1c58d779-c61d-4006-adfb-f1c8d0e1449e?
+
+
+------------------------------------------
+Mobile OTP
+
+
+
+
+------------------------------------------
+Hostinger Server
+
+
+
+------------------------------------------
+AWS S3 Bucket
+gauravshukla1409@gmail.com tX5:pJ;dN2+en@j
+
+user: ripplehub-s3-service
+key: AKIA4RM7QDCDAPIRCGF4
+secret: 

@@ -65,16 +65,38 @@ namespace NGOConnect.API.Extensions
             return services;
         }
 
+        // ── Email Service ────────────────────────────────────────
+        /// <summary>
+        /// Register SMTP email service (MailKit).
+        /// Config: appsettings.json → "Email" section.
+        /// Secrets (SmtpUsername, SmtpPassword) must be set in appsettings.Development.json
+        /// or as Railway environment variables (Email__SmtpUsername / Email__SmtpPassword).
+        /// </summary>
+        public static IServiceCollection AddEmailService(
+            this IServiceCollection services)
+        {
+            services.AddSingleton<IEmailService, SmtpEmailService>();
+            return services;
+        }
+
         // ── Blob / File Storage ──────────────────────────────────
         /// <summary>
-        /// Register the file storage provider based on appsettings.json "StorageProvider" key.
+        /// Register the file storage providers based on appsettings.json "StorageProvider" key.
         ///
-        ///   "local"      → LocalFileService       (server disk, good for dev + VPS)
-        ///   "cloudinary" → CloudinaryBlobService  (Cloudinary CDN, good for staging + prod)
+        ///   "local"      → IBlobService: LocalFileService        (disk)          dev / VPS
+        ///                  IPrivateBlobService: FallbackPrivateBlobService
         ///
-        /// TO SWITCH: change StorageProvider value in appsettings.json. Zero code changes needed.
-        /// IHttpContextAccessor is always registered — required by LocalFileService to build
-        /// dynamic file URLs that reflect the actual IP/port (LAN, dev, staging, prod).
+        ///   "cloudinary" → IBlobService: CloudinaryBlobService   (CDN)           staging
+        ///                  IPrivateBlobService: FallbackPrivateBlobService
+        ///
+        ///   "awss3"      → IBlobService: AwsS3BlobService        (public bucket) production
+        ///                  IPrivateBlobService: AwsS3PrivateBlobService (private bucket)
+        ///
+        /// TO SWITCH: change StorageProvider in appsettings.json. Zero code changes needed.
+        ///
+        /// Module routing:
+        ///   PUBLIC  (IBlobService)         → user-photos, org-logos, project-images, post-media
+        ///   PRIVATE (IPrivateBlobService)  → user-documents, org-documents, certificates, donation-receipts
         /// </summary>
         public static IServiceCollection AddBlobService(
             this IServiceCollection services, IConfiguration config)
@@ -83,15 +105,26 @@ namespace NGOConnect.API.Extensions
 
             var provider = (config["StorageProvider"] ?? "local").Trim().ToLowerInvariant();
 
-            if (provider == "cloudinary")
+            switch (provider)
             {
-                services.AddScoped<IBlobService, CloudinaryBlobService>();
-                Log.Information("BlobService: CloudinaryBlobService (CDN)");
-            }
-            else
-            {
-                services.AddScoped<IBlobService, LocalFileService>();
-                Log.Information("BlobService: LocalFileService (disk)");
+                case "awss3":
+                    services.AddScoped<IBlobService,        AwsS3BlobService>();
+                    services.AddScoped<IPrivateBlobService, AwsS3PrivateBlobService>();
+                    Log.Information("BlobService: AwsS3BlobService (public) + AwsS3PrivateBlobService (private)");
+                    break;
+
+                case "cloudinary":
+                    services.AddScoped<IBlobService, CloudinaryBlobService>();
+                    // Fallback: private docs stored via Cloudinary (acceptable for staging)
+                    services.AddScoped<IPrivateBlobService, FallbackPrivateBlobService>();
+                    Log.Information("BlobService: CloudinaryBlobService (CDN) + FallbackPrivateBlobService");
+                    break;
+
+                default:   // "local"
+                    services.AddScoped<IBlobService, LocalFileService>();
+                    services.AddScoped<IPrivateBlobService, FallbackPrivateBlobService>();
+                    Log.Information("BlobService: LocalFileService (disk) + FallbackPrivateBlobService");
+                    break;
             }
 
             return services;
