@@ -801,6 +801,23 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
+        public async Task<ApiResponse<List<DynamicRow>>> GetDocumentsAsync(int orgId)
+        {
+            try
+            {
+                var list = await ExecuteDynamicListAsync("Org_GetDocuments", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_OrgId", orgId);
+                });
+                return ApiResponse<List<DynamicRow>>.Success(list);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetDocumentsAsync failed OrgId={OrgId}", orgId);
+                return ApiResponse<List<DynamicRow>>.Failure("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
         public async Task<ApiResponse> UploadDocumentAsync(int orgId, int userId, UploadOrgDocumentRequest request)
         {
             try

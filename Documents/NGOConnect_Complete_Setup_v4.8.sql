@@ -2474,6 +2474,17 @@ BEGIN
     SELECT 1 AS IsSuccess, 'Document uploaded.' AS Message, LAST_INSERT_ID() AS OrgDocumentId;
 END //
 
+-- v4.8 NEW: List org documents — for org admin (founder/admin role)
+CREATE PROCEDURE Org_GetDocuments(IN p_OrgId INT UNSIGNED)
+BEGIN
+    SELECT od.OrgDocumentId, od.DocumentTypeLkpId, dt.ValueName AS DocumentType,
+           od.FileUrl, od.FileName, od.IsVerified, od.VerifiedAt, od.CreatedAt
+    FROM OrgDocuments od
+    LEFT JOIN LookupValues dt ON od.DocumentTypeLkpId = dt.LookupValueId
+    WHERE od.OrgId = p_OrgId AND od.IsDeleted = 0
+    ORDER BY od.CreatedAt ASC;
+END //
+
 -- ── PROJECT SPs ──────────────────────────────────────────────────
 
 -- v4.0 MODIFIED: inserts all 17 schedule/location params

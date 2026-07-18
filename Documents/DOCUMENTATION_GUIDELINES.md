@@ -510,6 +510,42 @@ When there is a conflict between files, this priority order applies:
 - AWS setup: account `RippleHub (862012315782)`, IAM user `ripplehub-s3-service` (AKIA4RM7QDCDAPIRCGF4), policy `NGOConnect-S3-Policy`, buckets `ripplehub-public` + `ripplehub-private` in ap-south-1 (Mumbai)
 - Railway env vars to add: `AWS__AccessKeyId`, `AWS__SecretAccessKey`, `StorageProvider=awss3`
 
+### Session: Org Documents — View + Download (2026-07-18)
+
+**SQL — `NGOConnect_Complete_Setup_v4.8.sql`** (2026-07-18) — Org_GetDocuments SP
+- Added `Org_GetDocuments(p_OrgId)` SP — returns OrgDocumentId, DocumentTypeLkpId, DocumentType (ValueName), FileUrl, FileName, IsVerified, VerifiedAt, CreatedAt from `OrgDocuments` joined to `LookupValues` for the org admin's own document list
+- Patch file: `NGOConnect_Patch_OrgGetDocuments.sql` — 🟡 PENDING local DB + Railway deployment
+
+**C# — `NGOConnect.Core/Interfaces/IOrgDal.cs`** (2026-07-18) — Org_GetDocuments
+- Added `GetDocumentsAsync(int orgId)` → `Task<ApiResponse<List<DynamicRow>>>`
+
+**C# — `NGOConnect.Infrastructure/DAL/OrgDal.cs`** (2026-07-18) — Org_GetDocuments
+- Implemented `GetDocumentsAsync`: calls `Org_GetDocuments` via `ExecuteDynamicListAsync`
+
+**C# — `NGOConnect.API/Controllers/OrgController.cs`** (2026-07-18) — Org_GetDocuments
+- Added `GET /api/v1/org/{orgId}/documents` → calls `_org.GetDocumentsAsync(orgId)`. Returns `ApiResponse<List<DynamicRow>>`. Auth: `[Authorize]`
+
+**Mobile — `App/src/api/upload.api.ts`** (2026-07-18) — signed URL helper
+- Added `getSignedUrl(fileKey: string)` → `GET /media/signed-url?key={key}` — returns temporary HTTPS URL for private documents; used before every download
+
+**Mobile — `App/src/api/org.api.ts`** (2026-07-18) — fetch org documents
+- Added `getDocuments(orgId)` → `GET /org/{orgId}/documents`
+
+**Mobile — `App/src/components/common/DocumentUploadSection.tsx`** (2026-07-18) — download button for user docs
+- Added `DownloadIcon` component (pure Views), `getMimeType` helper, `DlState` type
+- Added `dlState` state (keyed by `userDocumentId`): idle → downloading → done/error
+- Added `downloadDoc(doc)`: calls `getSignedUrl(doc.fileUrl)` then `ReactNativeBlobUtil.config({ addAndroidDownloads: { useDownloadManager: true } }).fetch('GET', signedUrl)` — file saves to Downloads folder via Android DownloadManager, no URL ever shown
+- Download button (30×30 circle) added in `uploadedActions` row before Replace button
+
+**Mobile — `App/src/screens/admin/AdminOrgScreen.tsx`** (2026-07-18) — org documents section
+- Added `DownloadIcon`, `getMimeType`, `DlState` (same patterns as DocumentUploadSection)
+- Added `orgDocs: any[]` and `dlState` state
+- `load()` now also calls `orgApi.getDocuments(oid)` after profile fetch — non-blocking
+- Added `downloadOrgDoc(doc)` function: same signed-URL + ReactNativeBlobUtil pattern
+- Added "Organisation Documents" section in JSX after Certifications: shows each doc (icon + fileName + documentType + verified badge) with circular download button; shows "No documents uploaded yet." when empty
+
+---
+
 **Super Admin — Document View fix for AWS S3 private storage** (2026-07-18)
 - Root cause: after the S3 private-storage switch, `OrgDocuments.FileUrl` / `UserDocuments.FileUrl` store a bare S3 object key, not a browsable URL. The Members/Organisations drawer "View" buttons were still doing `<a href={d.fileUrl}>`, which is broken for any document uploaded under `StorageProvider=awss3`.
 - **C# — `NGOConnect.API/Controllers/SuperAdminController.cs`**: injected `IPrivateBlobService`; added `GET /api/v1/superadmin/documents/signed-url?fileKey={key}&expiryMinutes=15` endpoint calling `_privateBlob.GetSignedUrlAsync(fileKey, expiryMinutes)`. No DB/SP change needed — this is a pure blob-service passthrough.

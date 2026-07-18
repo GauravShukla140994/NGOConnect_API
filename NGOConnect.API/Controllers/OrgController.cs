@@ -152,6 +152,10 @@ namespace NGOConnect.API.Controllers
         public async Task<ApiResponse> UnfollowOrg(int orgId)
             => await _org.UnfollowOrgAsync(orgId, GetUserId());
 
+        [HttpGet("{orgId:int}/documents")] [Authorize]
+        public async Task<ApiResponse<List<DynamicRow>>> GetDocuments(int orgId)
+            => await _org.GetDocumentsAsync(orgId);
+
         [HttpPost("{orgId:int}/documents")] [Authorize]
         public async Task<ApiResponse> UploadDocument(int orgId, [FromBody] UploadOrgDocumentRequest request)
             => await _org.UploadDocumentAsync(orgId, GetUserId(), request);
