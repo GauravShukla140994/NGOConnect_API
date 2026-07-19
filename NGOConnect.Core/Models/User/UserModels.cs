@@ -163,9 +163,10 @@ namespace NGOConnect.Core.Models.User
         public string   Role              { get; set; } = string.Empty;   // ValueName e.g. "Admin"
         public string   RoleCode          { get; set; } = string.Empty;   // ValueCode e.g. "ADMIN", "FOUNDER", "MEMBER"
         public string   MemberStatusCode  { get; set; } = string.Empty;   // APPROVED | PENDING
-        public string   OrgStatusCode     { get; set; } = string.Empty;   // ACTIVE | PENDING | SUSPENDED
+        public string   OrgStatusCode     { get; set; } = string.Empty;   // ACTIVE | PENDING | REJECTED | SUSPENDED
         public int      MemberCount       { get; set; }
         public DateTime JoinedAt          { get; set; }
+        public string?  RejectionReason   { get; set; }   // populated when OrgStatusCode = REJECTED
     }
 
     // ── Badges — GET response ───────────────────────────────────────────────────

@@ -383,6 +383,26 @@ When there is a conflict between files, this priority order applies:
 **Mobile — `CreateProjectScreen.tsx`**
 - GPS options: `enableHighAccuracy: true → false`, `maximumAge: 60000 → 300000` — fixes location not detected on tester devices (GPS satellite lock required indoors; network/WiFi location used instead, matching HomeScreen behaviour)
 
+**SQL — `NGOConnect_Complete_Setup_v4.8.sql`** (2026-07-18) — Fix & Resubmit: documents + is80G/is12A
+- `Org_GetDocuments` SP: added `dt.ValueCode AS DocumentTypeCode` to SELECT — mobile was matching documents by type code (`REG_CERT`, `OTHER`) but SP only returned `ValueName`; documents never loaded in Edit & Resubmit step 4
+- `Org_GetProfile` SP: changed `COALESCE(ods.Is80GEligible, 0)` to `COALESCE(ods.Is80GEligible, o.Is80GEligible, 0)` (same for Is12AEligible) — org registers save flags to `Organisations` table, not `OrgDonationSettings`; SP was always returning 0 when no `OrgDonationSettings` row existed
+- Patch file: `NGOConnect_Patch_v4.8_Documents_80G12A.sql` — 🟡 PENDING Railway deployment
+
+**C# — `NGOConnect.Core/Models/Org/OrgModels.cs`** (2026-07-18) — ContactEmail/ContactPhone rename
+- `RegisterOrgRequest`: `Email` → `ContactEmail`, `Phone` → `ContactPhone` (JSON binding fix)
+- `UpdateOrgRequest`: same rename
+- `ResubmitOrgRequest`: same rename
+- Root cause: ASP.NET Core couldn't bind `contactEmail`/`contactPhone` JSON keys from mobile to `Email`/`Phone` C# properties → always null in DB
+
+**C# — `NGOConnect.Infrastructure/DAL/OrgDal.cs`** (2026-07-18) — ContactEmail/ContactPhone rename
+- `RegisterAsync`, `UpdateAsync`, `ResubmitAsync`: `request.Email` → `request.ContactEmail`, `request.Phone` → `request.ContactPhone`
+- API needs redeploy to Railway for changes to take effect — 🟡 PENDING
+
+**Mobile — `CreateOrgScreen.tsx`** (2026-07-18) — resubmit mode documents + error handling
+- `useEffect` for resubmit mode: changed from single `getProfile` call to `Promise.all([getProfile, getDocuments])` — loads both org fields and existing documents in parallel
+- Added `else` branch on `getProfile` result showing Alert with server error message (was silently failing when SP returned isSuccess:0)
+- Document fields (`regCertUrl`, `regCertFileName`, `otherDocUrl`, `otherDocFileName`) now populated from `getDocuments` response; matches by `d.documentTypeCode === 'REG_CERT' / 'OTHER'`
+
 **Mobile — `LiveLocationScreen.tsx`**
 - GPS options: `enableHighAccuracy: true → false`, `maximumAge: 15000 → 60000` — fixes "You" marker missing on SOS map for users indoors
 - Marker injection trigger: `mapReady` (WebView `onLoad`) → `tilesLoaded` (TILES_LOADED message) — fixes markers not appearing because `window.setMarker` (Leaflet) was not yet defined when `onLoad` fired (Leaflet loads from CDN after the HTML DOM is ready)

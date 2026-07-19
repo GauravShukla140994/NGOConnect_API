@@ -2481,7 +2481,9 @@ END //
 -- v4.8 NEW: List org documents — for org admin (founder/admin role)
 CREATE PROCEDURE Org_GetDocuments(IN p_OrgId INT UNSIGNED)
 BEGIN
-    SELECT od.OrgDocumentId, od.DocumentTypeLkpId, dt.ValueName AS DocumentType,
+    SELECT od.OrgDocumentId, od.DocumentTypeLkpId,
+           dt.ValueCode AS DocumentTypeCode,
+           dt.ValueName AS DocumentType,
            od.FileUrl, od.FileName, od.IsVerified, od.VerifiedAt, od.CreatedAt
     FROM OrgDocuments od
     LEFT JOIN LookupValues dt ON od.DocumentTypeLkpId = dt.LookupValueId
@@ -6466,9 +6468,9 @@ BEGIN
         o.LogoUrl, o.About, o.Mission, o.Vision,
         o.ContactEmail, o.ContactPhone, o.Website,
         o.AddressLine1, o.AddressLine2, o.City, o.State, o.Pincode, o.Country,
-        -- Is80GEligible / Is12AEligible live on OrgDonationSettings, not Organisations
-        COALESCE(ods.Is80GEligible, 0) AS Is80GEligible,
-        COALESCE(ods.Is12AEligible, 0) AS Is12AEligible,
+        -- Is80GEligible / Is12AEligible: prefer OrgDonationSettings, fall back to Organisations columns
+        COALESCE(ods.Is80GEligible, o.Is80GEligible, 0) AS Is80GEligible,
+        COALESCE(ods.Is12AEligible, o.Is12AEligible, 0) AS Is12AEligible,
         o.OrgTypeLkpId,
         tv.ValueName AS OrgType,
         o.StatusLkpId,

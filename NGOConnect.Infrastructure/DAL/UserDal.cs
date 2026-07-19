@@ -314,6 +314,7 @@ namespace NGOConnect.Infrastructure.DAL
                         OrgStatusCode    = Col<string>(r,   "OrgStatusCode")    ?? string.Empty,
                         MemberCount      = Col<int>(r,      "MemberCount"),
                         JoinedAt         = Col<DateTime>(r, "JoinedAt"),
+                        RejectionReason  = Col<string>(r,   "RejectionReason"),
                     },
                     cmd => _db.AddParameter(cmd, "p_UserId", userId));
                 return ApiResponse<List<UserOrgModel>>.Success(rows);
