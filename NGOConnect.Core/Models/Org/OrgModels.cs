@@ -50,6 +50,11 @@ namespace NGOConnect.Core.Models.Org
         [MaxLength(100)] public string? City          { get; set; }
         [MaxLength(100)] public string? State         { get; set; }
         [MaxLength(100)] public string? Country       { get; set; }
+        // Tax exemption flags — stored in Organisations.Is80GEligible / Is12AEligible.
+        // Nullable so an update that doesn't touch these leaves the existing value alone
+        // (Org_Update uses COALESCE against p_Is80GEligible/p_Is12AEligible).
+        public bool? Is80GEligible { get; set; }
+        public bool? Is12AEligible { get; set; }
     }
 
     // ── Resubmit Org after rejection (v4.5) — founder-side, new SP Org_Resubmit ──
@@ -71,6 +76,10 @@ namespace NGOConnect.Core.Models.Org
         [MaxLength(100)]            public string? City          { get; set; }
         [MaxLength(100)]            public string? State         { get; set; }
         [MaxLength(100)]            public string? Country       { get; set; }
+        // Tax exemption flags — resubmission is a full re-declaration, so these are
+        // included so the founder can correct them alongside a rejection.
+        public bool Is80GEligible { get; set; } = false;
+        public bool Is12AEligible { get; set; } = false;
     }
 
     // ── Admin Dashboard KPIs (s-admin screen) ──────────────────────────────────

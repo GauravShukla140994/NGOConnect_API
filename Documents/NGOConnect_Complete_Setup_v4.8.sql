@@ -2190,7 +2190,9 @@ CREATE PROCEDURE Org_Update(
     IN p_City          VARCHAR(100),
     IN p_State         VARCHAR(100),
     IN p_Pincode       VARCHAR(20),
-    IN p_Country       VARCHAR(100)
+    IN p_Country       VARCHAR(100),
+    IN p_Is80GEligible TINYINT(1),
+    IN p_Is12AEligible TINYINT(1)
 )
 BEGIN
     UPDATE Organisations SET
@@ -2210,6 +2212,8 @@ BEGIN
         State         = COALESCE(p_State,         State),
         Pincode       = COALESCE(p_Pincode,       Pincode),
         Country       = COALESCE(p_Country,       Country),
+        Is80GEligible = COALESCE(p_Is80GEligible, Is80GEligible),
+        Is12AEligible = COALESCE(p_Is12AEligible, Is12AEligible),
         UpdatedBy     = p_UserId,
         UpdatedAt     = NOW()
     WHERE OrgId = p_OrgId AND IsDeleted = 0;
@@ -7621,7 +7625,9 @@ CREATE PROCEDURE Org_Resubmit(
     IN p_City          VARCHAR(100),
     IN p_State         VARCHAR(100),
     IN p_Pincode       VARCHAR(20),
-    IN p_Country       VARCHAR(100)
+    IN p_Country       VARCHAR(100),
+    IN p_Is80GEligible TINYINT(1),
+    IN p_Is12AEligible TINYINT(1)
 )
 BEGIN
     DECLARE v_CurrentStatusId INT UNSIGNED;
@@ -7654,6 +7660,7 @@ BEGIN
             ContactEmail = p_ContactEmail, ContactPhone = p_ContactPhone, Website = p_Website,
             AddressLine1 = p_AddressLine1, AddressLine2 = p_AddressLine2, City = p_City,
             State = p_State, Pincode = p_Pincode, Country = p_Country,
+            Is80GEligible = p_Is80GEligible, Is12AEligible = p_Is12AEligible,
             StatusLkpId = v_PendingId, StatusUpdatedAt = NOW(), StatusUpdatedBy = p_UserId
         WHERE OrgId = p_OrgId;
 

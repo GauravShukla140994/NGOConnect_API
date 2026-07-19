@@ -1,16 +1,53 @@
 -- ============================================================================
--- Patch: SuperAdmin_Org_GetDetail — add Is80GEligible / Is12AEligible
+-- Patch: Organisations.Is80GEligible/Is12AEligible columns + SuperAdmin_Org_GetDetail
 -- Date: 2026-07-19
 --
--- Root cause: Organisations.Is80GEligible / Is12AEligible are correctly written
--- by Org_Register (already accepts p_Is80GEligible / p_Is12AEligible and inserts
--- them), but SuperAdmin_Org_GetDetail never selected these two columns — so the
--- Super Admin Organisations drawer had no data to show for 80G/12A status,
--- regardless of what the founder submitted at registration.
+-- Root cause (2-part):
+-- 1. Organisations.Is80GEligible / Is12AEligible have been in the setup SQL's
+--    CREATE TABLE definition since v4.0, so any DB built fresh from setup SQL
+--    has them. But no ALTER TABLE patch was ever written to retrofit them onto
+--    an already-running DB — so on a DB created before that column was added,
+--    the columns simply don't exist, even though Org_Register (INSERT) and
+--    now SuperAdmin_Org_GetDetail (SELECT) both reference them. Confirmed via
+--    `CALL SuperAdmin_Org_GetDetail(55)` -> Error 1054: Unknown column
+--    'o.Is80GEligible' in 'field list'.
+--    This means Org_Register's INSERT has likely also been silently failing
+--    with the same "Unknown column" error on this DB for any org registration
+--    since that SP was updated to include these columns.
+-- 2. SuperAdmin_Org_GetDetail never selected these two columns even where they
+--    DO exist — so the Super Admin Organisations drawer had no data to show
+--    for 80G/12A status regardless of what the founder submitted.
 --
--- Fix: SELECT the two columns from Organisations in SuperAdmin_Org_GetDetail.
--- No parameter change, no table change — safe, additive, idempotent (DROP+CREATE).
+-- Fix: idempotent ALTER TABLE (checks INFORMATION_SCHEMA first, safe to re-run
+-- and safe on DBs that already have the columns) + SELECT the two columns in
+-- SuperAdmin_Org_GetDetail.
 -- ============================================================================
+
+-- ── 1. Add missing columns if not already present (idempotent) ──────────────
+DROP PROCEDURE IF EXISTS _ngo_add_col;
+DELIMITER //
+CREATE PROCEDURE _ngo_add_col(IN p_tbl VARCHAR(64), IN p_col VARCHAR(64), IN p_def TEXT)
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = p_tbl
+          AND COLUMN_NAME  = p_col
+    ) THEN
+        SET @_sql = CONCAT('ALTER TABLE `', p_tbl, '` ADD COLUMN `', p_col, '` ', p_def);
+        PREPARE _st FROM @_sql;
+        EXECUTE _st;
+        DEALLOCATE PREPARE _st;
+    END IF;
+END //
+DELIMITER ;
+
+CALL _ngo_add_col('Organisations', 'Is80GEligible', 'TINYINT(1) NOT NULL DEFAULT 0');
+CALL _ngo_add_col('Organisations', 'Is12AEligible', 'TINYINT(1) NOT NULL DEFAULT 0');
+
+DROP PROCEDURE IF EXISTS _ngo_add_col;
+
+-- ── 2. SuperAdmin_Org_GetDetail — add Is80GEligible / Is12AEligible to SELECT ─
 
 DELIMITER //
 
