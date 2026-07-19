@@ -29,8 +29,8 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_Mission",        request.Mission);
                     _db.AddParameter(cmd, "p_Vision",         request.Vision);
                     _db.AddParameter(cmd, "p_LogoUrl",        request.LogoUrl);
-                    _db.AddParameter(cmd, "p_ContactEmail",   request.Email);
-                    _db.AddParameter(cmd, "p_ContactPhone",   request.Phone);
+                    _db.AddParameter(cmd, "p_ContactEmail",   request.ContactEmail);
+                    _db.AddParameter(cmd, "p_ContactPhone",   request.ContactPhone);
                     _db.AddParameter(cmd, "p_Website",        request.Website);
                     _db.AddParameter(cmd, "p_AddressLine1",   request.AddressLine1);
                     _db.AddParameter(cmd, "p_AddressLine2",   request.AddressLine2);
@@ -96,8 +96,8 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_Mission",       request.Mission);
                     _db.AddParameter(cmd, "p_Vision",        request.Vision);
                     _db.AddParameter(cmd, "p_LogoUrl",       request.LogoUrl);
-                    _db.AddParameter(cmd, "p_ContactEmail",  request.Email);
-                    _db.AddParameter(cmd, "p_ContactPhone",  request.Phone);
+                    _db.AddParameter(cmd, "p_ContactEmail",  request.ContactEmail);
+                    _db.AddParameter(cmd, "p_ContactPhone",  request.ContactPhone);
                     _db.AddParameter(cmd, "p_Website",       request.Website);
                     _db.AddParameter(cmd, "p_AddressLine1",  request.AddressLine1);
                     _db.AddParameter(cmd, "p_AddressLine2",  request.AddressLine2);
@@ -132,8 +132,8 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_Mission",       request.Mission);
                     _db.AddParameter(cmd, "p_Vision",        request.Vision);
                     _db.AddParameter(cmd, "p_LogoUrl",       request.LogoUrl);
-                    _db.AddParameter(cmd, "p_ContactEmail",  request.Email);
-                    _db.AddParameter(cmd, "p_ContactPhone",  request.Phone);
+                    _db.AddParameter(cmd, "p_ContactEmail",  request.ContactEmail);
+                    _db.AddParameter(cmd, "p_ContactPhone",  request.ContactPhone);
                     _db.AddParameter(cmd, "p_Website",       request.Website);
                     _db.AddParameter(cmd, "p_AddressLine1",  request.AddressLine1);
                     _db.AddParameter(cmd, "p_AddressLine2",  request.AddressLine2);

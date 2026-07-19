@@ -4,8 +4,8 @@
 -- Apply to: local DB → Railway staging → Railway production
 -- Safe    : DROP + CREATE is idempotent
 -- Purpose : Admin Org Screen needs to display 80G / 12A status.
---           These columns were missing from the SELECT — always
---           returned NULL → displayed as "No" regardless of DB value.
+--           Is80GEligible / Is12AEligible live on OrgDonationSettings,
+--           NOT on Organisations. Fixed via LEFT JOIN + COALESCE.
 -- ============================================================
 
 DROP PROCEDURE IF EXISTS Org_GetProfile;
@@ -22,7 +22,8 @@ BEGIN
         o.LogoUrl, o.About, o.Mission, o.Vision,
         o.ContactEmail, o.ContactPhone, o.Website,
         o.AddressLine1, o.AddressLine2, o.City, o.State, o.Pincode, o.Country,
-        o.Is80GEligible, o.Is12AEligible,
+        COALESCE(ods.Is80GEligible, 0) AS Is80GEligible,
+        COALESCE(ods.Is12AEligible, 0) AS Is12AEligible,
         o.OrgTypeLkpId,
         tv.ValueName AS OrgType,
         o.StatusLkpId,
@@ -52,6 +53,7 @@ BEGIN
                AND lv4.ValueCode = 'PENDING' LIMIT 1)
         ) AS MemberStatusCode
     FROM Organisations o
+    LEFT JOIN OrgDonationSettings ods ON ods.OrgId = o.OrgId
     LEFT JOIN LookupValues tv ON o.OrgTypeLkpId            = tv.LookupValueId
     LEFT JOIN LookupValues sv ON o.StatusLkpId             = sv.LookupValueId
     LEFT JOIN LookupValues vv ON o.VerificationStatusLkpId = vv.LookupValueId

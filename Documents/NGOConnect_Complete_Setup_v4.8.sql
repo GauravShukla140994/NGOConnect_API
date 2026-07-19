@@ -6462,7 +6462,9 @@ BEGIN
         o.LogoUrl, o.About, o.Mission, o.Vision,
         o.ContactEmail, o.ContactPhone, o.Website,
         o.AddressLine1, o.AddressLine2, o.City, o.State, o.Pincode, o.Country,
-        o.Is80GEligible, o.Is12AEligible,
+        -- Is80GEligible / Is12AEligible live on OrgDonationSettings, not Organisations
+        COALESCE(ods.Is80GEligible, 0) AS Is80GEligible,
+        COALESCE(ods.Is12AEligible, 0) AS Is12AEligible,
         o.OrgTypeLkpId,
         tv.ValueName AS OrgType,
         o.StatusLkpId,
@@ -6492,8 +6494,9 @@ BEGIN
                AND lv4.ValueCode = 'PENDING' LIMIT 1)
         ) AS MemberStatusCode
     FROM Organisations o
-    LEFT JOIN LookupValues tv ON o.OrgTypeLkpId         = tv.LookupValueId
-    LEFT JOIN LookupValues sv ON o.StatusLkpId          = sv.LookupValueId
+    LEFT JOIN OrgDonationSettings ods ON ods.OrgId = o.OrgId
+    LEFT JOIN LookupValues tv ON o.OrgTypeLkpId            = tv.LookupValueId
+    LEFT JOIN LookupValues sv ON o.StatusLkpId             = sv.LookupValueId
     LEFT JOIN LookupValues vv ON o.VerificationStatusLkpId = vv.LookupValueId
     WHERE o.OrgId = p_OrgId AND o.IsDeleted = 0;
 END //
@@ -7218,7 +7221,7 @@ DELIMITER ;
 DROP PROCEDURE IF EXISTS User_GetMyOrgs //
 CREATE PROCEDURE User_GetMyOrgs(IN p_UserId INT UNSIGNED)
 BEGIN
-    -- Approved memberships
+    -- Approved memberships (includes REJECTED orgs where founder must resubmit)
     SELECT
         o.OrgId, o.OrgName, o.LogoUrl,
         ot.ValueName AS OrgType, o.City, o.State,
@@ -7232,7 +7235,13 @@ BEGIN
         ) AS MemberCount,
         om.CreatedAt AS JoinedAt,
         sv.ValueCode AS MemberStatusCode,
-        COALESCE(os.ValueCode, 'ACTIVE') AS OrgStatusCode
+        COALESCE(os.ValueCode, 'ACTIVE') AS OrgStatusCode,
+        (SELECT h.Reason FROM OrgStatusHistory h
+         JOIN LookupValues hv ON h.NewStatusLkpId = hv.LookupValueId
+         JOIN LookupTypes  ht ON hv.LookupTypeId  = ht.LookupTypeId
+         WHERE h.OrgId = o.OrgId AND ht.TypeCode = 'ORG_STATUS' AND hv.ValueCode = 'REJECTED'
+         ORDER BY h.CreatedAt DESC LIMIT 1
+        ) AS RejectionReason
     FROM OrgMembers om
     JOIN  Organisations o  ON om.OrgId       = o.OrgId  AND o.IsDeleted = 0
     JOIN  LookupValues  sv ON om.StatusLkpId = sv.LookupValueId
@@ -7256,7 +7265,8 @@ BEGIN
         ) AS MemberCount,
         mr.CreatedAt AS JoinedAt,
         'PENDING' AS MemberStatusCode,
-        COALESCE(os.ValueCode, 'ACTIVE') AS OrgStatusCode
+        COALESCE(os.ValueCode, 'ACTIVE') AS OrgStatusCode,
+        NULL AS RejectionReason
     FROM OrgMembershipRequests mr
     JOIN  Organisations o  ON mr.OrgId       = o.OrgId  AND o.IsDeleted = 0
     JOIN  LookupValues  ms ON mr.StatusLkpId = ms.LookupValueId
@@ -7372,6 +7382,7 @@ BEGIN
         o.LogoUrl, o.About, o.Mission, o.Vision,
         o.ContactEmail, o.ContactPhone, o.Website,
         o.AddressLine1, o.AddressLine2, o.City, o.State, o.Pincode, o.Country,
+        o.Is80GEligible, o.Is12AEligible,
         tv.ValueName AS OrgType,
         sv.ValueCode AS StatusCode, sv.ValueName AS StatusName,
         o.CreatedAt AS SubmittedAt, o.StatusUpdatedAt,

@@ -17,8 +17,8 @@ namespace NGOConnect.Core.Models.Org
         [MaxLength(500)]           public string? Mission            { get; set; }
         [MaxLength(500)]           public string? Vision             { get; set; }
         [MaxLength(255)]           public string? LogoUrl            { get; set; }
-        [MaxLength(20)]            public string? Phone              { get; set; }
-        [MaxLength(150)]           public string? Email              { get; set; }
+        [MaxLength(20)]            public string? ContactPhone       { get; set; }
+        [MaxLength(150)]           public string? ContactEmail       { get; set; }
         [MaxLength(255)]           public string? Website            { get; set; }
         [MaxLength(255)]           public string? AddressLine1       { get; set; }
         [MaxLength(255)]           public string? AddressLine2       { get; set; }
@@ -41,8 +41,8 @@ namespace NGOConnect.Core.Models.Org
         [MaxLength(500)] public string? Mission       { get; set; }
         [MaxLength(500)] public string? Vision        { get; set; }
         [MaxLength(255)] public string? LogoUrl       { get; set; }
-        [MaxLength(20)]  public string? Phone         { get; set; }
-        [MaxLength(150)] public string? Email         { get; set; }
+        [MaxLength(20)]  public string? ContactPhone   { get; set; }
+        [MaxLength(150)] public string? ContactEmail   { get; set; }
         [MaxLength(255)] public string? Website       { get; set; }
         [MaxLength(255)] public string? AddressLine1  { get; set; }
         [MaxLength(255)] public string? AddressLine2  { get; set; }
@@ -62,8 +62,8 @@ namespace NGOConnect.Core.Models.Org
         [MaxLength(500)]            public string? Mission       { get; set; }
         [MaxLength(500)]            public string? Vision        { get; set; }
         [MaxLength(255)]            public string? LogoUrl       { get; set; }
-        [MaxLength(20)]             public string? Phone         { get; set; }
-        [MaxLength(150)]            public string? Email         { get; set; }
+        [MaxLength(20)]             public string? ContactPhone   { get; set; }
+        [MaxLength(150)]            public string? ContactEmail   { get; set; }
         [MaxLength(255)]            public string? Website       { get; set; }
         [MaxLength(255)]            public string? AddressLine1  { get; set; }
         [MaxLength(255)]            public string? AddressLine2  { get; set; }

@@ -172,6 +172,7 @@ When it is included in a Railway patch, update to `✅ Railway applied`.
 | `NGOConnect_Patch_ApplicationApply_Fix.sql` | Add RequestedSessions column to ProjectApplications if missing; fix Application_Apply SP — p_Note → p_Motivation + add p_RequestedSessions (DAL/SP param mismatch causing "An error occurred" on apply) | 🟡 Local only |
 | `NGOConnect_Patch_StaleTokenCleanup.sql` | Add `Notification_DeleteStaleToken` SP — deletes stale FCM tokens when Firebase returns `Unregistered`; auto-called by FCMService | 🟡 Local only |
 | `NGOConnect_Patch_NotificationOrgName.sql` | ALTER TABLE Notifications ADD OrgId; recreate Notification_Create (adds p_OrgId); recreate Notification_GetByUser (LEFT JOIN Organisations → OrgName + OrgLogoUrl) | 🟡 Local only |
+| `NGOConnect_Patch_SuperAdminOrgDetail_TaxEligibility.sql` | SuperAdmin_Org_GetDetail: adds Is80GEligible, Is12AEligible to SELECT | 🟡 Local only |
 
 ### Other Individual Patches (absorbed into versioned patches or superseded)
 
@@ -555,6 +556,13 @@ When there is a conflict between files, this priority order applies:
 - Added "Organisation Documents" section in JSX after Certifications: shows each doc (icon + fileName + documentType + verified badge) with circular download button; shows "No documents uploaded yet." when empty
 
 ---
+
+**Super Admin — Org detail missing 80G/12A tax eligibility** (2026-07-19)
+- Root cause: `Org_Register` already correctly accepts `p_Is80GEligible`/`p_Is12AEligible` and inserts them into `Organisations.Is80GEligible`/`Is12AEligible` — that part was already working. But `SuperAdmin_Org_GetDetail` never selected those two columns, so the Organisations drawer had nothing to render regardless of what was actually stored.
+- **SQL — `NGOConnect_Complete_Setup_v4.8.sql`**: `SuperAdmin_Org_GetDetail` SELECT — added `o.Is80GEligible, o.Is12AEligible`. No param/table change.
+- **Patch file**: `NGOConnect_Patch_SuperAdminOrgDetail_TaxEligibility.sql` — 🟡 PENDING Railway deployment (also needs running against local/dev DB)
+- **Frontend — `Website/src/admin/pages/OrgDrawer.jsx`**: added a "Tax eligibility" section showing 80G/12A as ✓ Yes / ✗ No pills, reading `org.is80GEligible`/`org.is12AEligible` (DynamicRow auto-camelCases the new SP columns — no C# change needed for `GetOrgDetailAsync`, per CORE_MANDATE DynamicRow pattern).
+- Ran `scripts/validate_sp_params.py` — confirmed clean (163 SPs, 264 DAL call sites, no mismatches) before making this change.
 
 **Super Admin — Document View fix for AWS S3 private storage** (2026-07-18)
 - Root cause: after the S3 private-storage switch, `OrgDocuments.FileUrl` / `UserDocuments.FileUrl` store a bare S3 object key, not a browsable URL. The Members/Organisations drawer "View" buttons were still doing `<a href={d.fileUrl}>`, which is broken for any document uploaded under `StorageProvider=awss3`.
@@ -1052,3 +1060,38 @@ Also created: `NGOConnect_Patch_UserDeviceTokens.sql` — run this FIRST before 
 1. SES → Verified Identities → verify domain `ripplehub.app` (add DKIM DNS records in Hostinger DNS)
 2. IAM → user `ripplehub-s3-service` → attach inline policy adding `ses:SendEmail` on `*`
 3. SES → Account Dashboard → Request Production Access (to send to any recipient, not just verified addresses)
+
+---
+
+### Session: Rejected Org Resubmit Flow (2026-07-19)
+
+**DB — `User_GetMyOrgs` SP** (patch file: `NGOConnect_Patch_UserGetMyOrgs_RejectionReason.sql`)
+- Added `o.RejectionReason` to first SELECT (approved-member branch)
+- Added `NULL AS RejectionReason` to second SELECT (pending join-request branch) — UNION column count must match
+- 🟡 PENDING: apply patch to local DB + Railway staging
+
+**C# — `NGOConnect.Infrastructure/DAL/OrgDal.cs`**
+- `ResubmitAsync` — already implemented (no change needed)
+
+**C# — `NGOConnect.API/Controllers/OrgController.cs`**
+- `PUT /org/{orgId}/resubmit` endpoint — already exists (no change needed)
+
+**Mobile — `App/NGOConnectApp/src/api/org.api.ts`**
+- `orgApi.resubmit()` type signature expanded from 6 fields to all 16 fields (`category`, `contactPerson`, `vision`, `logoUrl`, `addressLine1`, `addressLine2`, `pincode`, `city`, `state`, `country` added)
+
+**Mobile — `App/NGOConnectApp/src/screens/ngo/MyOrgsScreen.tsx`**
+- `RejectedOrgCard` — 3 fixes:
+  1. Logo: now shows `org.logoUrl` as `<Image>` if present, falls back to colour-initial avatar (was always showing initials)
+  2. Rejection reason: changed `org.lastRejectionReason` → `(org as any).rejectionReason` (DynamicRow camelCases the SP column `RejectionReason`)
+  3. Fix & Resubmit button: now navigates to `CreateOrg` with `{ mode: 'resubmit', orgId, prefill: org }` instead of calling `orgApi.resubmit()` directly (org must be reviewed + edited before resubmitting)
+- Removed unused `Alert`, `orgApi` imports and `submitting` state from `RejectedOrgCard`
+
+**Mobile — `App/NGOConnectApp/src/screens/ngo/CreateOrgScreen.tsx`**
+- Added resubmit mode triggered by route params `{ mode: 'resubmit', orgId }`
+- On mount (resubmit mode): calls `orgApi.getProfile(orgId)` and pre-fills all form fields
+- `categoryLkpId` resolved by matching `org.category` (ValueCode) against loaded `categories` array
+- Header title changes to "Edit & Resubmit" in resubmit mode
+- Submit button text changes to "Resubmit for Review" in resubmit mode
+- Loading spinner shown while org profile is fetching
+- `handleResubmit()` function added: uploads any new logo/docs, calls `orgApi.resubmit()` with all 16 fields, navigates to `MyOrgs` on success
+- In resubmit mode, submit button calls `handleResubmit` instead of `handleSubmit`
