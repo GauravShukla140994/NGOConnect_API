@@ -5621,6 +5621,19 @@ VALUES
 ('PROJECT', 'QR_BUFFER_MINUTES', '15', 'NUMBER',
     'Minutes BEFORE session start that the admin can generate a QR. Allows early arrivals to scan.', 0);
 
+-- v4.9 — AES-256 key for URL share token encryption (hides raw numeric IDs in public URLs)
+-- IMPORTANT: Replace the placeholder hex below with a securely generated 32-byte key:
+--   dotnet: Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)).ToLower()
+--   bash:   openssl rand -hex 32
+-- Never reuse this key across environments. Store the Railway env value separately.
+INSERT IGNORE INTO Settings (SettingGroup, SettingKey, SettingValue, DataType, Description, IsPublic)
+VALUES
+('SECURITY', 'URL_SHARE_SECRET_KEY',
+ 'REPLACE_WITH_OPENSSL_RAND_HEX_32_OUTPUT',
+ 'STRING',
+ 'AES-256-GCM key (64-char hex) used to encrypt/decrypt share URL tokens. Never expose publicly.',
+ 0);
+
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- SECTION 2: LookupValues Updates
@@ -8544,25 +8557,39 @@ CREATE PROCEDURE Org_Invite_Accept(
     IN p_UserId       INT UNSIGNED
 )
 main_block: BEGIN
-    DECLARE v_OrgId          INT UNSIGNED DEFAULT NULL;
-    DECLARE v_StatusCode     VARCHAR(20)  DEFAULT NULL;
-    DECLARE v_InviteValue    VARCHAR(255) DEFAULT NULL;
-    DECLARE v_IsMember       TINYINT(1)   DEFAULT 0;
-    DECLARE v_HasRequest     TINYINT(1)   DEFAULT 0;
-    DECLARE v_AcceptedLkpId  INT UNSIGNED DEFAULT NULL;
-    DECLARE v_PendingReqLkpId INT UNSIGNED DEFAULT NULL;
-    DECLARE v_OrgName        VARCHAR(200) DEFAULT NULL;
+    DECLARE v_OrgId             INT UNSIGNED DEFAULT NULL;
+    DECLARE v_StatusCode        VARCHAR(20)  DEFAULT NULL;
+    DECLARE v_IsMember          TINYINT(1)   DEFAULT 0;
+    DECLARE v_AcceptedLkpId     INT UNSIGNED DEFAULT NULL;
+    DECLARE v_MemberRoleLkpId   INT UNSIGNED DEFAULT NULL;
+    DECLARE v_ApprovedMemLkpId  INT UNSIGNED DEFAULT NULL;
+    DECLARE v_OrgName           VARCHAR(200) DEFAULT NULL;
+    DECLARE v_InviteeName       VARCHAR(200) DEFAULT NULL;
+    DECLARE v_AdminUserId       INT UNSIGNED DEFAULT NULL;
+    DECLARE v_AdminDone         TINYINT(1)   DEFAULT 0;
+
+    DECLARE admin_cur CURSOR FOR
+        SELECT DISTINCT om.UserId
+        FROM   OrgMembers   om
+        JOIN   LookupValues lv ON lv.LookupValueId = om.RoleLkpId
+        JOIN   LookupTypes  lt ON lt.LookupTypeId  = lv.LookupTypeId
+        WHERE  om.OrgId = v_OrgId
+          AND  lt.TypeCode = 'MEMBER_ROLE'
+          AND  lv.ValueCode IN ('FOUNDER','ADMIN')
+          AND  om.IsDeleted = 0;
+
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_AdminDone = 1;
 
     -- Validate invitation
-    SELECT oi.OrgId, lv.ValueCode, oi.InviteValue
-    INTO v_OrgId, v_StatusCode, v_InviteValue
-    FROM OrgInvitations oi
-    JOIN LookupValues lv ON lv.LookupValueId = oi.StatusLkpId
-    WHERE oi.OrgInvitationId = p_InvitationId AND oi.IsDeleted = 0
-    LIMIT 1;
+    SELECT oi.OrgId, lv.ValueCode
+    INTO   v_OrgId, v_StatusCode
+    FROM   OrgInvitations oi
+    JOIN   LookupValues lv ON lv.LookupValueId = oi.StatusLkpId
+    WHERE  oi.OrgInvitationId = p_InvitationId AND oi.IsDeleted = 0
+    LIMIT  1;
 
     IF v_OrgId IS NULL THEN
-        SELECT 0 AS IsSuccess, 'Invitation not found.' AS Message, NULL AS JoinType;
+        SELECT 0 AS IsSuccess, 'Invitation not found.' AS Message, NULL AS JoinType, NULL AS OrgId, NULL AS OrgName;
         LEAVE main_block;
     END IF;
 
@@ -8574,12 +8601,12 @@ main_block: BEGIN
                    WHEN 'EXPIRED'   THEN 'This invitation has expired.'
                    ELSE 'Invitation is no longer valid.'
                END AS Message,
-               NULL AS JoinType;
+               NULL AS JoinType, NULL AS OrgId, NULL AS OrgName;
         LEAVE main_block;
     END IF;
 
     IF NOW() > (SELECT TokenExpiry FROM OrgInvitations WHERE OrgInvitationId = p_InvitationId) THEN
-        SELECT 0 AS IsSuccess, 'This invitation has expired.' AS Message, NULL AS JoinType;
+        SELECT 0 AS IsSuccess, 'This invitation has expired.' AS Message, NULL AS JoinType, NULL AS OrgId, NULL AS OrgName;
         LEAVE main_block;
     END IF;
 
@@ -8588,41 +8615,72 @@ main_block: BEGIN
     WHERE OrgId = v_OrgId AND UserId = p_UserId AND IsDeleted = 0;
 
     IF v_IsMember > 0 THEN
-        SELECT 0 AS IsSuccess, 'You are already a member of this organisation.' AS Message, NULL AS JoinType;
+        SELECT OrgName INTO v_OrgName FROM Organisations WHERE OrgId = v_OrgId LIMIT 1;
+        SELECT 1 AS IsSuccess, CONCAT('You are already a member of ', v_OrgName, '.') AS Message,
+               'ALREADY_MEMBER' AS JoinType, v_OrgId AS OrgId, v_OrgName AS OrgName;
         LEAVE main_block;
     END IF;
 
-    -- Already has a pending request?
-    SELECT COUNT(*) INTO v_HasRequest FROM OrgMembershipRequests
-    WHERE OrgId = v_OrgId AND UserId = p_UserId AND IsDeleted = 0;
-
+    -- Lookup IDs
     SELECT LookupValueId INTO v_AcceptedLkpId FROM LookupValues lv
     JOIN LookupTypes lt ON lt.LookupTypeId = lv.LookupTypeId
     WHERE lt.TypeCode = 'INVITE_STATUS' AND lv.ValueCode = 'ACCEPTED' LIMIT 1;
 
-    SELECT LookupValueId INTO v_PendingReqLkpId FROM LookupValues lv
+    SELECT LookupValueId INTO v_MemberRoleLkpId FROM LookupValues lv
     JOIN LookupTypes lt ON lt.LookupTypeId = lv.LookupTypeId
-    WHERE lt.TypeCode = 'APPLICATION_STATUS' AND lv.ValueCode = 'PENDING' LIMIT 1;
+    WHERE lt.TypeCode = 'MEMBER_ROLE' AND lv.ValueCode = 'MEMBER' LIMIT 1;
+
+    SELECT LookupValueId INTO v_ApprovedMemLkpId FROM LookupValues lv
+    JOIN LookupTypes lt ON lt.LookupTypeId = lv.LookupTypeId
+    WHERE lt.TypeCode = 'MEMBER_STATUS' AND lv.ValueCode = 'APPROVED' LIMIT 1;
 
     -- Mark invitation as ACCEPTED
     UPDATE OrgInvitations
-    SET StatusLkpId = v_AcceptedLkpId,
-        AcceptedAt  = NOW(),
-        InvitedUserId = p_UserId     -- map invited user if not set (new registrant)
-    WHERE OrgInvitationId = p_InvitationId;
+    SET    StatusLkpId  = v_AcceptedLkpId,
+           AcceptedAt   = NOW(),
+           InvitedUserId = p_UserId
+    WHERE  OrgInvitationId = p_InvitationId;
 
-    -- Create membership request if not already submitted
-    IF v_HasRequest = 0 THEN
-        INSERT INTO OrgMembershipRequests (OrgId, UserId, WhyJoin, StatusLkpId)
-        VALUES (v_OrgId, p_UserId, 'Accepted via invitation link.', v_PendingReqLkpId);
-    END IF;
+    -- Direct join: invitation = admin approval, no separate review needed
+    INSERT INTO OrgMembers
+        (OrgId, UserId, RoleLkpId, StatusLkpId, JoinedAt, CreatedBy)
+    VALUES
+        (v_OrgId, p_UserId, v_MemberRoleLkpId, v_ApprovedMemLkpId, NOW(), p_UserId)
+    ON DUPLICATE KEY UPDATE
+        StatusLkpId     = v_ApprovedMemLkpId,
+        JoinedAt        = NOW(),
+        IsDeleted       = 0,
+        DeletedAt       = NULL,
+        DeletedBy       = NULL;
 
-    SELECT OrgName INTO v_OrgName FROM Organisations WHERE OrgId = v_OrgId;
+    SELECT OrgName INTO v_OrgName FROM Organisations WHERE OrgId = v_OrgId LIMIT 1;
+
+    -- Get invitee display name
+    SELECT CONCAT(up.FirstName, ' ', up.LastName) INTO v_InviteeName
+    FROM   UserProfiles up WHERE up.UserId = p_UserId LIMIT 1;
+
+    -- Notify each FOUNDER/ADMIN (they can see the new member immediately)
+    SET v_AdminDone = 0;
+    OPEN admin_cur;
+    admin_loop: LOOP
+        FETCH admin_cur INTO v_AdminUserId;
+        IF v_AdminDone = 1 THEN LEAVE admin_loop; END IF;
+        INSERT INTO Notifications (UserId, OrgId, NotifType, Title, Body, RefId, RefType)
+        VALUES (
+            v_AdminUserId, v_OrgId,
+            'INVITE_ACCEPTED',
+            CONCAT(IFNULL(v_InviteeName, 'A user'), ' joined ', v_OrgName),
+            CONCAT(IFNULL(v_InviteeName, 'A user'), ' accepted your invitation and has joined ',
+                   v_OrgName, ' as a member.'),
+            v_OrgId, 'ORG'
+        );
+    END LOOP;
+    CLOSE admin_cur;
 
     SELECT 1 AS IsSuccess,
-           CONCAT('Your request to join ', v_OrgName, ' has been submitted. You will be notified when approved.') AS Message,
-           'REQUEST_SUBMITTED' AS JoinType,
-           v_OrgId AS OrgId,
+           CONCAT('Welcome to ', v_OrgName, '! You are now a member.') AS Message,
+           'DIRECT_JOINED' AS JoinType,
+           v_OrgId   AS OrgId,
            v_OrgName AS OrgName;
 END //
 
@@ -8677,6 +8735,111 @@ main_block: BEGIN
     WHERE OrgInvitationId = p_InvitationId;
 
     SELECT 1 AS IsSuccess, 'Invitation cancelled.' AS Message;
+END //
+
+-- ─────────────────────────────────────────────────────────────
+-- Org_Invite_Decline
+-- Called by the INVITEE to decline a pending invitation.
+-- Permission: verified by matching InviteValue to the user's phone/email.
+-- ─────────────────────────────────────────────────────────────
+DROP PROCEDURE IF EXISTS Org_Invite_Decline //
+CREATE PROCEDURE Org_Invite_Decline(
+    IN p_InvitationId INT UNSIGNED,
+    IN p_UserId       INT UNSIGNED
+)
+main_block: BEGIN
+    DECLARE v_OrgId        INT UNSIGNED DEFAULT NULL;
+    DECLARE v_InviteValue  VARCHAR(150) DEFAULT NULL;
+    DECLARE v_StatusCode   VARCHAR(20)  DEFAULT NULL;
+    DECLARE v_Mobile       VARCHAR(20)  DEFAULT NULL;
+    DECLARE v_Email        VARCHAR(150) DEFAULT NULL;
+    DECLARE v_CancelledId  INT UNSIGNED DEFAULT NULL;
+    DECLARE v_OrgName      VARCHAR(200) DEFAULT NULL;
+    DECLARE v_InviteeName  VARCHAR(200) DEFAULT NULL;
+    DECLARE v_AdminUserId  INT UNSIGNED DEFAULT NULL;
+    DECLARE v_AdminDone    TINYINT(1)   DEFAULT 0;
+
+    DECLARE admin_cur CURSOR FOR
+        SELECT DISTINCT om.UserId
+        FROM   OrgMembers   om
+        JOIN   LookupValues lv ON lv.LookupValueId = om.RoleLkpId
+        JOIN   LookupTypes  lt ON lt.LookupTypeId  = lv.LookupTypeId
+        WHERE  om.OrgId = v_OrgId
+          AND  lt.TypeCode = 'MEMBER_ROLE'
+          AND  lv.ValueCode IN ('FOUNDER','ADMIN')
+          AND  om.IsDeleted = 0;
+
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_AdminDone = 1;
+
+    -- Fetch invitation + current status + org
+    SELECT oi.OrgId, oi.InviteValue, lv.ValueCode
+    INTO   v_OrgId, v_InviteValue, v_StatusCode
+    FROM   OrgInvitations oi
+    JOIN   LookupValues lv ON lv.LookupValueId = oi.StatusLkpId
+    WHERE  oi.OrgInvitationId = p_InvitationId AND oi.IsDeleted = 0
+    LIMIT  1;
+
+    IF v_StatusCode IS NULL THEN
+        SELECT 0 AS IsSuccess, 'Invitation not found.' AS Message;
+        LEAVE main_block;
+    END IF;
+
+    IF v_StatusCode NOT IN ('PENDING','OPENED') THEN
+        SELECT 0 AS IsSuccess,
+               CONCAT('This invitation is already ', LOWER(v_StatusCode), '.') AS Message;
+        LEAVE main_block;
+    END IF;
+
+    -- Verify caller is the invitee by matching phone / email
+    SELECT u.Mobile, u.Email
+    INTO   v_Mobile, v_Email
+    FROM   Users u
+    WHERE  u.UserId = p_UserId AND u.IsDeleted = 0
+    LIMIT  1;
+
+    IF v_InviteValue != v_Mobile AND v_InviteValue != LOWER(IFNULL(v_Email,'')) THEN
+        SELECT 0 AS IsSuccess, 'You are not the recipient of this invitation.' AS Message;
+        LEAVE main_block;
+    END IF;
+
+    -- Get CANCELLED lookup value
+    SELECT lv.LookupValueId INTO v_CancelledId
+    FROM   LookupValues lv
+    JOIN   LookupTypes  lt ON lt.LookupTypeId = lv.LookupTypeId
+    WHERE  lt.TypeCode = 'INVITE_STATUS' AND lv.ValueCode = 'CANCELLED'
+    LIMIT  1;
+
+    UPDATE OrgInvitations
+    SET    StatusLkpId = v_CancelledId,
+           CancelledAt = NOW(),
+           UpdatedAt   = NOW()
+    WHERE  OrgInvitationId = p_InvitationId;
+
+    -- Get org name and invitee name for notification
+    SELECT OrgName INTO v_OrgName FROM Organisations WHERE OrgId = v_OrgId LIMIT 1;
+
+    SELECT CONCAT(up.FirstName, ' ', up.LastName) INTO v_InviteeName
+    FROM UserProfiles up WHERE up.UserId = p_UserId LIMIT 1;
+
+    -- Notify each FOUNDER/ADMIN of the org
+    SET v_AdminDone = 0;
+    OPEN admin_cur;
+    admin_loop: LOOP
+        FETCH admin_cur INTO v_AdminUserId;
+        IF v_AdminDone = 1 THEN LEAVE admin_loop; END IF;
+        INSERT INTO Notifications (UserId, OrgId, NotifType, Title, Body, RefId, RefType)
+        VALUES (
+            v_AdminUserId, v_OrgId,
+            'INVITE_DECLINED',
+            CONCAT(IFNULL(v_InviteeName, 'A user'), ' declined your invitation'),
+            CONCAT(IFNULL(v_InviteeName, 'A user'), ' has declined the invitation to join ',
+                   v_OrgName, '.'),
+            v_OrgId, 'ORG'
+        );
+    END LOOP;
+    CLOSE admin_cur;
+
+    SELECT 1 AS IsSuccess, 'Invitation declined.' AS Message, v_OrgId AS OrgId;
 END //
 
 -- ─────────────────────────────────────────────────────────────
@@ -8761,7 +8924,10 @@ main_block: BEGIN
     LIMIT 1;
 
     IF v_RoleCode IS NULL OR v_RoleCode NOT IN ('FOUNDER','ADMIN') THEN
-        SELECT 0 AS IsSuccess, 'Permission denied.' AS Message;
+        -- Return two empty result sets so ExecuteDynamicPagedListAsync
+        -- does not throw (it expects data rows + TotalCount)
+        SELECT NULL AS OrgInvitationId WHERE FALSE;
+        SELECT 0 AS TotalCount;
         LEAVE main_block;
     END IF;
 
@@ -8841,7 +9007,11 @@ main_block: BEGIN
                           JOIN LookupTypes lt ON lt.LookupTypeId = lv.LookupTypeId
                           WHERE lt.TypeCode = 'INVITE_STATUS' AND lv.ValueCode = 'EXPIRED')
     WHERE oi.TokenExpiry < NOW() AND oi.IsDeleted = 0
-      AND (oi.InviteValue = v_Mobile OR oi.InviteValue = LOWER(IFNULL(v_Email,'')))
+      AND (
+          oi.InvitedUserId = p_UserId
+          OR oi.InviteValue = v_Mobile
+          OR oi.InviteValue = LOWER(IFNULL(v_Email,''))
+      )
       AND oi.StatusLkpId IN (
           SELECT LookupValueId FROM LookupValues lv2
           JOIN LookupTypes lt2 ON lt2.LookupTypeId = lv2.LookupTypeId
@@ -8866,7 +9036,11 @@ main_block: BEGIN
     WHERE oi.IsDeleted = 0
       AND lv_status.ValueCode IN ('PENDING','OPENED')
       AND oi.TokenExpiry > NOW()
-      AND (oi.InviteValue = v_Mobile OR oi.InviteValue = LOWER(IFNULL(v_Email,'')))
+      AND (
+          oi.InvitedUserId = p_UserId                          -- direct match for existing users
+          OR oi.InviteValue = v_Mobile                         -- phone match
+          OR oi.InviteValue = LOWER(IFNULL(v_Email,''))        -- email match
+      )
     ORDER BY oi.CreatedAt DESC
     LIMIT 5;
 END //

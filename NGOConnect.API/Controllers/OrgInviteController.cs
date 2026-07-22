@@ -108,6 +108,12 @@ namespace NGOConnect.API.Controllers
         public async Task<ApiResponse> Cancel(int invitationId)
             => await _invite.CancelAsync(invitationId, GetUserId());
 
+        // ── Authenticated: Decline Invitation (invitee rejects their own invite) ──
+        [HttpPost("invite/{invitationId:int}/decline")]
+        [Authorize]
+        public async Task<ApiResponse> Decline(int invitationId)
+            => await _invite.DeclineAsync(invitationId, GetUserId());
+
         // ── Admin: Resend Invitation ─────────────────────────────────────────────
         /// <summary>
         /// Generates a fresh token + expiry and re-sends the link via the original channel.

@@ -75,7 +75,7 @@ namespace NGOConnect.Infrastructure.Services
                         Notification     = new AndroidNotification
                         {
                             Sound        = "default",
-                            ChannelId    = "ngoconnect_default"
+                            ChannelId    = "ripplehub_default"
                         }
                     },
                     Apns = new ApnsConfig
@@ -140,7 +140,7 @@ namespace NGOConnect.Infrastructure.Services
                             Notification = new AndroidNotification
                             {
                                 Sound     = "default",
-                                ChannelId = "ngoconnect_default"
+                                ChannelId = "ripplehub_default"
                             }
                         },
                         Apns = new ApnsConfig

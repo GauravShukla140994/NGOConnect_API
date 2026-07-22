@@ -16,6 +16,9 @@ namespace NGOConnect.Core.Interfaces
         // ── Admin: cancel invitation ─────────────────────────────────────────────
         Task<ApiResponse> CancelAsync(int invitationId, int cancelledByUserId);
 
+        // ── Authenticated: invitee declines their own invitation ─────────────────
+        Task<ApiResponse> DeclineAsync(int invitationId, int userId);
+
         // ── Admin: resend invitation (new token + expiry) ────────────────────────
         /// <summary>
         /// Refreshes the token and expiry, re-sends the link via the original channel.

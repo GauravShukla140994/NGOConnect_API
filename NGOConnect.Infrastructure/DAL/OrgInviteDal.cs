@@ -18,20 +18,26 @@ namespace NGOConnect.Infrastructure.DAL
     /// </summary>
     public class OrgInviteDal : BaseDal, IOrgInviteDal
     {
-        private readonly ISettingsCache _settings;
-        private readonly ISmsService    _sms;
-        private readonly IEmailService  _email;
+        private readonly ISettingsCache   _settings;
+        private readonly ISmsService      _sms;
+        private readonly IEmailService    _email;
+        private readonly IFCMService      _fcm;
+        private readonly INotificationDal _notif;
 
         public OrgInviteDal(
-            IDbProvider    db,
-            ISettingsCache settings,
-            ISmsService    sms,
-            IEmailService  email)
+            IDbProvider       db,
+            ISettingsCache    settings,
+            ISmsService       sms,
+            IEmailService     email,
+            IFCMService       fcm,
+            INotificationDal  notif)
             : base(db)
         {
             _settings = settings;
             _sms      = sms;
             _email    = email;
+            _fcm      = fcm;
+            _notif    = notif;
         }
 
         // ── Private helpers ──────────────────────────────────────────────────────
@@ -167,6 +173,38 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
+        public async Task<ApiResponse> DeclineAsync(int invitationId, int userId)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("Org_Invite_Decline", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_InvitationId", invitationId);
+                    _db.AddParameter(cmd, "p_UserId",       userId);
+                });
+
+                if (result.Succeeded && result.Row != null)
+                {
+                    var orgId = ColNullable<int>(result.Row, "OrgId");
+                    if (orgId.HasValue)
+                    {
+                        _ = FireAdminFcmAsync(
+                            orgId.Value,
+                            "Invitation declined",
+                            "A user declined your invitation to join the organisation.",
+                            "INVITE_DECLINED", orgId.Value, "ORG");
+                    }
+                }
+
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "OrgInviteDal.DeclineAsync failed InvitationId={Id}", invitationId);
+                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
         public async Task<ApiResponse> ResendAsync(int invitationId, int requestedByUserId, string inviterName)
         {
             try
@@ -282,11 +320,23 @@ namespace NGOConnect.Infrastructure.DAL
 
                 // Surface OrgId, OrgName, JoinType from SP result row
                 var data = new DynamicRow();
+                int? orgId = null;
                 if (result.Row != null)
                 {
                     data["joinType"] = Col<string?>(result.Row, "JoinType");
-                    data["orgId"]    = ColNullable<int>(result.Row,    "OrgId");
+                    orgId            = ColNullable<int>(result.Row, "OrgId");
+                    data["orgId"]    = orgId;
                     data["orgName"]  = Col<string?>(result.Row, "OrgName");
+                }
+
+                // Fire FCM push to org admins (in-app notification already written by SP)
+                if (orgId.HasValue)
+                {
+                    _ = FireAdminFcmAsync(
+                        orgId.Value,
+                        "New member joined",
+                        "A user accepted your invitation and has joined the organisation as a member.",
+                        "INVITE_ACCEPTED", orgId.Value, "ORG");
                 }
 
                 return ApiResponse<DynamicRow>.Success(data, result.Message);
@@ -361,6 +411,27 @@ namespace NGOConnect.Infrastructure.DAL
                 return row?.Get<string>("orgName") ?? "Organisation";
             }
             catch { return "Organisation"; }
+        }
+
+        /// <summary>
+        /// Sends FCM push to all FOUNDER/ADMIN device tokens for an org.
+        /// The in-app notification row is already written by the SP; this only handles push delivery.
+        /// Fire-and-forget — never blocks the API response.
+        /// </summary>
+        private async Task FireAdminFcmAsync(
+            int orgId, string title, string body,
+            string notifType, int? refId = null, string? refType = null)
+        {
+            try
+            {
+                var tokens = await _notif.GetAdminTokensByOrgIdAsync(orgId);
+                if (tokens.Count > 0)
+                    await _fcm.SendMulticastAsync(tokens, title, body, notifType, refId, refType);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "FireAdminFcmAsync failed OrgId={OrgId} NotifType={Type}", orgId, notifType);
+            }
         }
 
         private static string MaskValue(string value, string typeCode)

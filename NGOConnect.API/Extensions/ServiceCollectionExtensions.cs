@@ -64,6 +64,8 @@ namespace NGOConnect.API.Extensions
             services.AddScoped<ISuperAdminDal,    SuperAdminDal>();
             // v4.9 — Org Member Invitations
             services.AddScoped<IOrgInviteDal,     OrgInviteDal>();
+            // v4.9 — URL Share Token encryption (AES-256-GCM; key from Settings table)
+            services.AddSingleton<IUrlTokenService, UrlTokenService>();
             return services;
         }
 

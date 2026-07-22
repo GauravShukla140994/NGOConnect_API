@@ -175,6 +175,15 @@ When it is included in a Railway patch, update to `✅ Railway applied`.
 | `NGOConnect_Patch_SuperAdminOrgDetail_TaxEligibility.sql` | Organisations.Is80GEligible/Is12AEligible columns (idempotent ALTER); SuperAdmin_Org_GetDetail SP | ✅ Railway applied |
 | `NGOConnect_Patch_OrgUpdateResubmit_TaxEligibility.sql` | Org_Update + Org_Resubmit: add p_Is80GEligible/p_Is12AEligible params | ✅ Railway applied |
 
+### v4.9 Pending — Not yet applied to Railway
+
+| File | What it covers | Status |
+|---|---|---|
+| `NGOConnect_Patch_InviteListAndPending_v4.9.sql` | Org_Invite_GetHistory: history list SP; Org_Invite_GetPendingForUser: UserId match fix | ⏳ Pending Railway |
+| `NGOConnect_Patch_InviteAcceptDirectJoin_v4.9.sql` | Org_Invite_Accept: direct OrgMembers INSERT (skip OrgMembershipRequests approval step) | ⏳ Pending Railway |
+| `NGOConnect_Patch_InviteNotifications_v4.9.sql` | Invite notification SPs | ⏳ Pending Railway |
+| `NGOConnect_Patch_UrlShareToken_v4.9.sql` | Settings INSERT: SECURITY/URL_SHARE_SECRET_KEY for AES-256-GCM share URL encryption. ⚠️ Replace placeholder with `openssl rand -hex 32` output before running | ⏳ Pending Railway |
+
 ### Other Individual Patches (absorbed into versioned patches or superseded)
 
 | File | Absorbed into | Status |
@@ -328,5 +337,133 @@ _Mobile (React Native):_
 - MODIFIED `src/navigation/AppNavigator.tsx`: added `InviteMembers` stack screen
 - MODIFIED `src/screens/admin/AdminVolunteersScreen.tsx`: `+ Invite` button in header → navigates to InviteMembers
 - MODIFIED `src/screens/home/HomeScreen.tsx`: `PendingInviteBanner` component; `inviteApi.getPending()` called in `init`; dismissible banners shown in ListHeaderComponent
+
+---
+
+**Org Invite — Decline flow** (2026-07-22)
+
+_Database (NGOConnect_Complete_Setup_v4.9.sql):_
+- NEW SP `Org_Invite_Decline(p_InvitationId, p_UserId)` — invitee declines their own invitation; verifies caller by matching Users.Mobile / Users.Email against OrgInvitations.InviteValue; marks status CANCELLED. Distinct from Org_Invite_Cancel (admin-only).
+- NEW patch file: `NGOConnect_Patch_OrgInviteDecline_v4.9.sql`
+
+_Backend:_
+- `IOrgInviteDal.cs`: added `DeclineAsync(invitationId, userId) → ApiResponse`
+- `OrgInviteDal.cs`: implemented `DeclineAsync` — calls `Org_Invite_Decline` SP
+- `OrgInviteController.cs`: added `POST /api/v1/org/invite/{invitationId}/decline` [Authorize]
+
+_Mobile (React Native):_
+- `src/api/invite.api.ts`: added `decline(invitationId)` method → `POST /org/invite/{id}/decline`
+- `src/screens/home/HomeScreen.tsx`:
+  - `PendingInviteBanner`: added `onDecline` prop with its own loading state (`declining`); Decline button now calls `onDecline` with red styling; ✕ button still only local-dismisses (user can accept later)
+  - `onDecline` callback calls `inviteApi.decline()` → on success removes invite from `pendingInvites` state (permanently, not just local dismiss)
+  - `onAccept` callback: after success removes from `pendingInvites` state and re-fetches `getMyOrgs()` so the newly joined org appears in the switcher
+  - Busy state guards both Accept and Decline buttons to prevent double-tap
+
+---
+
+**Invite Accept/Decline — Admin Notifications** (2026-07-22)
+
+_Database (NGOConnect_Complete_Setup_v4.9.sql):_
+- `Org_Invite_Accept`: added cursor loop over org FOUNDER/ADMIN members; inserts `Notifications` row (NotifType=`INVITE_ACCEPTED`) for each after membership request is created; title/body include invitee's full name and org name; RefId=OrgId, RefType='ORG'
+- `Org_Invite_Decline`: fetches OrgId in initial SELECT; adds cursor loop over FOUNDER/ADMIN members; inserts `Notifications` row (NotifType=`INVITE_DECLINED`) for each; now returns OrgId in result SELECT
+- NEW patch file: `NGOConnect_Patch_InviteNotifications_v4.9.sql` — both updated SPs
+
+_Backend:_
+- `OrgInviteDal.cs`: injected `IFCMService` + `INotificationDal`; added private `FireAdminFcmAsync(orgId, title, body, notifType, refId, refType)` helper; `AcceptAsync` fires FCM to org admins after success; `DeclineAsync` reads OrgId from SP result row, fires FCM to org admins after success
+
+_Mobile (React Native):_
+- `NotificationsScreen.tsx` → `notifMeta`: added `INVITE_ACCEPTED` (✅ green) and `INVITE_DECLINED` (❌ red)
+- `NotificationsScreen.tsx` → `resolveScreen`: `INVITE_ACCEPTED` navigates to `AdminVolunteers` (refId=orgId); `INVITE_DECLINED` navigates to `MyOrgs`
+
+---
+
+**Notifications — bug fixes** (2026-07-22)
+
+_Backend:_
+- `FCMService.cs` (`SendAsync` + `SendMulticastAsync`): `ChannelId` changed from `"ngoconnect_default"` → `"ripplehub_default"` to match the Android notification channel created in `MainApplication.kt`
+
+_Mobile (React Native):_
+- `src/api/notification.api.ts`: `registerDeviceToken` — `platform: 'android'` replaced with `platform: Platform.OS`; iOS devices now register with the correct platform string
+- `src/screens/home/NotificationsScreen.tsx`:
+  - `onPressNotif`: mark-as-read is now awaited; on API failure the optimistic update reverts (previously fire-and-forget `.catch(() => {})` silently failed, causing unread state to reappear on refresh)
+  - `resolveScreen`: added `MEMBER_INVITE` → InviteAccept (refId = orgId) or MyOrgs fallback; added `DONATION_RECEIVED_ADMIN` → NgoProfile (refId = orgId) or MyOrgs fallback
+
+---
+
+**Home screen — re-invite banner fix** (2026-07-22)
+
+_Mobile (React Native):_
+- `src/screens/home/HomeScreen.tsx`: `init()` now calls `inviteApi.getPending()` again (in addition to `useFocusEffect`). Root cause: if user was already on Home screen when admin re-invited, `useFocusEffect` never fired. `init()` is what pull-to-refresh calls, so the banner now also refreshes on pull-to-refresh.
+
+---
+
+**Invite History (list) + Re-invite banner — SP fixes** (2026-07-22)
+
+_Database (NGOConnect_Complete_Setup_v4.9.sql):_
+- `Org_Invite_List`: permission-denied branch changed from `SELECT 0 AS IsSuccess, 'Permission denied.'` to two empty result sets (`SELECT ... WHERE FALSE` + `SELECT 0 AS TotalCount`). The old single-row response broke `ExecuteDynamicPagedListAsync` which expects two result sets; the DAL caught the exception silently, returning an empty list with no error shown to the user.
+- `Org_Invite_GetPendingForUser`: WHERE clause (SELECT and auto-expiry UPDATE) now also matches `oi.InvitedUserId = p_UserId` in addition to phone/email string match. For existing-platform users, `Org_Invite_Send` stores their UserId directly in `InvitedUserId`. Any phone format mismatch between `InviteValue` and `Users.Mobile` would cause the old string-only match to miss the invite. The UserId match bypasses that entirely.
+- NEW patch file: `NGOConnect_Patch_InviteListAndPending_v4.9.sql`
+
+---
+
+**URL Share Token Encryption — Hide raw numeric IDs in public URLs** (2026-07-22)
+
+_New C# files:_
+- `NGOConnect.Core/Interfaces/IUrlTokenService.cs`: `Encrypt(entityType, id) → string`, `Decrypt(token) → (EntityType, Id)?`
+- `NGOConnect.Infrastructure/Services/UrlTokenService.cs`: AES-256-GCM, 12-byte random nonce, 16-byte tag; payload = `"ORG:55"` or `"OPP:3"`; output = URL-safe Base64 (46 chars); key from `ISettingsCache → URL_SHARE_SECRET_KEY`
+- `NGOConnect.API/Controllers/ShareController.cs`: `GET /api/v1/share/token?type=ORG&id=55` (requires `[Authorize]`); returns `{ token, url, entityType, entityId }`
+- `NGOConnect.API/Controllers/PublicController.cs` (no auth):
+  - `GET /api/v1/public/resolve/{token}` → `{ entityType, entityId }` — mobile deep-link resolver
+  - `GET /api/v1/public/org/{token}` → org public preview via `Org_GetPublicPreview`
+  - `GET /api/v1/public/opportunity/{token}` → project details via `Project_GetByIdAsync(userId=0)`
+
+_ServiceCollectionExtensions.cs:_
+- Added `services.AddSingleton<IUrlTokenService, UrlTokenService>()` (v4.9 block)
+
+_Database (NGOConnect_Complete_Setup_v4.9.sql):_
+- Added `Settings` seed row: `SECURITY / URL_SHARE_SECRET_KEY` — placeholder value; replace with `openssl rand -hex 32` output before deploying
+
+_Mobile (React Native):_
+- `src/api/share.api.ts` (NEW): `shareApi.getToken(type, id)` → `GET /api/v1/share/token`; `shareApi.resolveToken(token)` → `GET /api/v1/public/resolve/{token}`
+- `src/store/pendingDeepLinkStore.ts`: extended `DeepLinkTarget` to support `{ type, token }` in addition to `{ type, id }` for pre-login encrypted-token deep links
+- `src/navigation/RootNavigator.tsx`: replaced `extractOrgId`/`extractProjectId` with `extractOrgLink`/`extractProjectLink` that return either `{ orgId }` (legacy) or `{ token }` (encrypted); `handleDeepLink` resolves tokens via `shareApi.resolveToken` before navigating; pending link flush updated for token case; `shareApi` imported
+- `src/screens/ngo/NgoProfileScreen.tsx`: Share button now calls `shareApi.getToken('ORG', orgId)` → uses encrypted URL; brief loading spinner while fetching; fallback to legacy URL on error; `shareApi` imported
+- `src/screens/volunteer/AllOpportunitiesScreen.tsx`: `ShareSheet` fetches encrypted URL via `shareApi.getToken('OPP', projectId)` on mount; shows legacy URL immediately, replaces with encrypted URL when ready; `buildShareUrl` helper removed; `shareApi` imported
+
+_API docs (pending — add to API_Documentation_v4.9.docx):_
+- New section "Share & Public Endpoints"
+  - `GET /api/v1/share/token` — auth required, params: `type` (ORG|OPP), `id` (int)
+  - `GET /api/v1/public/resolve/{token}` — no auth
+  - `GET /api/v1/public/org/{token}` — no auth
+  - `GET /api/v1/public/opportunity/{token}` — no auth
+
+_Postman (pending — add to NGOConnect_Postman_Collection_v4.9.json):_
+- Add "Share" folder: Get Share Token request
+- Add "Public" folder: Resolve Token, Get Org Preview, Get Opportunity Preview requests
+
+_Action required before first deploy:_
+1. Run `openssl rand -hex 32` → paste output as `URL_SHARE_SECRET_KEY` in Railway staging Settings table (or via Railway env if preferred)
+2. Never reuse the same key across staging and production environments
+
+---
+
+**Invite Accept — Direct Member Join (no approval step)** (2026-07-22)
+
+_Database (NGOConnect_Complete_Setup_v4.9.sql):_
+- `Org_Invite_Accept`: completely reworked. Previously created an `OrgMembershipRequests` row with `APPLICATION_STATUS = PENDING`, requiring a second admin approval. Now inserts directly into `OrgMembers` with `MEMBER_ROLE = MEMBER` and `MEMBER_STATUS = APPROVED` — the invitation itself IS the approval. Uses `ON DUPLICATE KEY UPDATE` for idempotency. Also:
+  - Removed `APPLICATION_STATUS` lookup (was from wrong lookup type anyway)
+  - Added `MEMBER_ROLE → MEMBER` and `MEMBER_STATUS → APPROVED` lookups
+  - `ALREADY_MEMBER` case now returns `IsSuccess = 1` (not 0) since the user is already in the correct state
+  - Notification body updated: "has joined as a member" (was "membership request pending approval")
+  - Return column `JoinType` changed from `REQUEST_SUBMITTED` → `DIRECT_JOINED`
+  - Return message: "Welcome to {OrgName}! You are now a member."
+- NEW patch file: `NGOConnect_Patch_InviteAcceptDirectJoin_v4.9.sql`
+
+_Backend:_
+- `OrgInviteDal.cs` `AcceptAsync`: FCM push body updated — "A user accepted your invitation and has joined the organisation as a member." (was "pending approval")
+
+_Mobile (React Native):_
+- `HomeScreen.tsx` `onAccept` Alert: changed from "Request Sent 🎉 / request submitted…" to "Welcome! 🎉 / {SP message}"
+- `InviteAcceptScreen.tsx`: Alert changed from "Request Submitted 🎉" to "Welcome! 🎉 / {SP message}"; body copy updated from "Accept to submit a membership request — admins will approve it" to "Accept the invitation to join instantly as a member"
 
 ---
