@@ -544,3 +544,24 @@ _Mobile (React Native):_
   - `attachmentUrl` included in `submitSupportContact` request body
 
 ---
+
+**Application Withdraw — 24-hour rule** (2026-07-22)
+
+_Database (NGOConnect_Complete_Setup_v4.9.sql):_
+- NEW SP `Application_Withdraw(p_ApplicationId, p_UserId)`:
+  - Validates application belongs to user and is in PENDING status
+  - For ONE_TIME/RECURRING projects: blocks if `TIMESTAMPDIFF(HOUR, NOW(), start_datetime) < 24`
+  - For FLEXIBLE projects: always allows withdrawal
+  - On success: sets `StatusLkpId → WITHDRAWN` on `ProjectApplications`
+- NEW patch file: `NGOConnect_Patch_ApplicationWithdraw_v4.9.sql`
+
+_Backend:_
+- `IApplicationDal.cs`: added `WithdrawAsync(applicationId, userId) → ApiResponse`
+- `ApplicationDal.cs`: implemented `WithdrawAsync` calling `Application_Withdraw` SP
+- `ApplicationController.cs`: added `DELETE /api/v1/applications/{applicationId}/withdraw` [Authorize]
+
+_Mobile (React Native):_
+- `user.api.ts`: added `withdrawApplication(applicationId)` → `DELETE /applications/{id}/withdraw`
+- `ImpactScreen.tsx`: `canWithdraw(app)` helper, disabled button style, `handleWithdraw` with confirmation + local state update
+
+---

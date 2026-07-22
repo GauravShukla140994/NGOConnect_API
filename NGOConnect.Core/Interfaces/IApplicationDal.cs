@@ -9,5 +9,6 @@ namespace NGOConnect.Core.Interfaces
         Task<ApiResponse<PagedResult<DynamicRow>>> GetByProjectAsync(int projectId, int? statusLkpId, int pageNumber, int pageSize);
         Task<ApiResponse> ReviewAsync(int applicationId, int reviewedBy, ReviewApplicationRequest request);
         Task<ApiResponse<List<DynamicRow>>> GetMyApplicationsAsync(int userId);
+        Task<ApiResponse> WithdrawAsync(int applicationId, int userId);
     }
 }

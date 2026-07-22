@@ -111,6 +111,24 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
+        public async Task<ApiResponse> WithdrawAsync(int applicationId, int userId)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("Application_Withdraw", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_ApplicationId", applicationId);
+                    _db.AddParameter(cmd, "p_UserId",        userId);
+                });
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "WithdrawAsync failed ApplicationId={Id}", applicationId);
+                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
         // ── Notification helpers ──────────────────────────────────────────────────
 
         private async Task FireUserNotifAsync(int userId, string title, string body,

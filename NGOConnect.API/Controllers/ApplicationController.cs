@@ -28,6 +28,11 @@ namespace NGOConnect.API.Controllers
         public async Task<IActionResult> GetMyApplications()
             => Ok(await _app.GetMyApplicationsAsync(GetCurrentUserId()));
 
+        /// <summary>Withdraw a pending application. Blocked within 24 hours of project start.</summary>
+        [HttpDelete("applications/{applicationId:int}/withdraw")]
+        public async Task<IActionResult> Withdraw(int applicationId)
+            => Ok(await _app.WithdrawAsync(applicationId, GetCurrentUserId()));
+
         private int GetCurrentUserId()
             => int.TryParse(User.FindFirst("uid")?.Value, out var id) ? id : 0;
     }
