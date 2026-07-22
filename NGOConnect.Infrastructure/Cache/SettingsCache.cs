@@ -1,5 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using NGOConnect.Core.Interfaces;
+using NGOConnect.Core.Models.Settings;
+using Serilog;
 
 namespace NGOConnect.Infrastructure.Cache
 {
@@ -38,7 +40,6 @@ namespace NGOConnect.Infrastructure.Cache
 
         public Dictionary<string, string> GetGroupSettings(string group)
         {
-            var prefix = group.ToUpperInvariant() + ":";
             return _all
                 .Where(kv => _groups.TryGetValue(kv.Key, out var g) && g.Equals(group, StringComparison.OrdinalIgnoreCase))
                 .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
@@ -46,32 +47,74 @@ namespace NGOConnect.Infrastructure.Cache
 
         public async Task RefreshAsync()
         {
+            Log.Information("SettingsCache.RefreshAsync: acquiring lock...");
             await _lock.WaitAsync();
             try
             {
-                // Create a transient scope so the scoped ISettingsDal is properly managed.
-                // The scope (and the DbConnection it holds) is disposed as soon as we exit this block.
-                await using var scope   = _scopeFactory.CreateAsyncScope();
-                var settingsDal         = scope.ServiceProvider.GetRequiredService<ISettingsDal>();
-                var settings            = await settingsDal.GetAllAsync();
-                var all     = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                var pub     = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-                var grp     = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                Log.Information("SettingsCache.RefreshAsync: creating DI scope...");
+                await using var scope = _scopeFactory.CreateAsyncScope();
+
+                Log.Information("SettingsCache.RefreshAsync: resolving ISettingsDal...");
+                ISettingsDal settingsDal;
+                try
+                {
+                    settingsDal = scope.ServiceProvider.GetRequiredService<ISettingsDal>();
+                    Log.Information("SettingsCache.RefreshAsync: ISettingsDal resolved OK.");
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "SettingsCache.RefreshAsync: failed to resolve ISettingsDal — {Message}", ex.Message);
+                    throw;
+                }
+
+                Log.Information("SettingsCache.RefreshAsync: calling GetAllAsync...");
+                List<SettingModel> settings;
+                try
+                {
+                    settings = await settingsDal.GetAllAsync();
+                    Log.Information("SettingsCache.RefreshAsync: GetAllAsync returned {Count} rows.", settings?.Count ?? -1);
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "SettingsCache.RefreshAsync: GetAllAsync threw — {Message}", ex.Message);
+                    throw;
+                }
+
+                var all = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                var pub = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                var grp = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
                 foreach (var s in settings)
                 {
-                    all[s.SettingKey]  = s.SettingValue;
-                    grp[s.SettingKey]  = s.SettingGroup;
-                    if (s.IsPublic) pub[s.SettingKey] = true;
+                    try
+                    {
+                        all[s.SettingKey]  = s.SettingValue;
+                        grp[s.SettingKey]  = s.SettingGroup;
+                        if (s.IsPublic) pub[s.SettingKey] = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warning(ex, "SettingsCache.RefreshAsync: failed to map row — {Message}", ex.Message);
+                    }
                 }
 
                 _all    = all;
                 _public = pub;
                 _groups = grp;
+
+                Log.Information("SettingsCache.RefreshAsync: complete. {Total} keys loaded, {Public} public.",
+                    _all.Count, _public.Count);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "SettingsCache.RefreshAsync: unhandled exception — {Type}: {Message}",
+                    ex.GetType().Name, ex.Message);
+                throw;
             }
             finally
             {
                 _lock.Release();
+                Log.Information("SettingsCache.RefreshAsync: lock released.");
             }
         }
     }

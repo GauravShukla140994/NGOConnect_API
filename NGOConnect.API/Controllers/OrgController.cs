@@ -23,6 +23,11 @@ namespace NGOConnect.API.Controllers
         public async Task<ApiResponse<DynamicRow>> GetProfile(int orgId)
             => await _org.GetProfileAsync(orgId, GetUserId());
 
+        // Public preview — no auth required — used by website deep link landing page (/ngo/{orgId})
+        [HttpGet("{orgId:int}/public")]
+        public async Task<ApiResponse<DynamicRow>> GetPublicPreview(int orgId)
+            => await _org.GetPublicPreviewAsync(orgId);
+
         // Admin dashboard KPIs — Total Members, Active Volunteers, Hours, Active Projects, Pending
         [HttpGet("{orgId:int}/dashboard")] [Authorize]
         public async Task<ApiResponse<OrgDashboardModel>> GetDashboard(int orgId)

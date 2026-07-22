@@ -81,6 +81,25 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
+        public async Task<ApiResponse<DynamicRow>> GetPublicPreviewAsync(int orgId)
+        {
+            try
+            {
+                var row = await ExecuteDynamicGetAsync("Org_GetPublicPreview", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_OrgId", orgId);
+                });
+                return row is null
+                    ? ApiResponse<DynamicRow>.Failure("Organisation not found.", "NOT_FOUND")
+                    : ApiResponse<DynamicRow>.Success(row);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetPublicPreviewAsync failed OrgId={OrgId}", orgId);
+                return ApiResponse<DynamicRow>.Failure("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
         public async Task<ApiResponse> UpdateAsync(int orgId, int userId, UpdateOrgRequest request)
         {
             try

@@ -12,5 +12,11 @@ namespace NGOConnect.Core.Interfaces
         /// Returns true if the email was accepted by the SMTP server.
         /// </summary>
         Task<bool> SendOtpAsync(string toEmail, string otpCode, int expiryMinutes);
+
+        /// <summary>
+        /// Send an org member invitation email with an accept link.
+        /// Returns true if the email was accepted by the gateway.
+        /// </summary>
+        Task<bool> SendInviteAsync(string toEmail, string inviterName, string orgName, string inviteLink);
     }
 }

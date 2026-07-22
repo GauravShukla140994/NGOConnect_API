@@ -62,6 +62,8 @@ namespace NGOConnect.API.Extensions
             services.AddScoped<IBadgeDal,         BadgeDal>();
             // v4.5 — Super Admin module (new SPs only, see SuperAdminDal for isolation notes)
             services.AddScoped<ISuperAdminDal,    SuperAdminDal>();
+            // v4.9 — Org Member Invitations
+            services.AddScoped<IOrgInviteDal,     OrgInviteDal>();
             return services;
         }
 
@@ -92,6 +94,22 @@ namespace NGOConnect.API.Extensions
                 Log.Information("EmailService: SmtpEmailService (SMTP / MailKit)");
             }
 
+            return services;
+        }
+
+        // ── SMS Service ──────────────────────────────────────────
+        /// <summary>
+        /// Register Fast2SMS gateway for mobile OTP delivery.
+        /// Config: appsettings.json → "Sms" section.
+        ///   Sms:ApiKey     — Fast2SMS API key (gitignored / Railway env var Sms__ApiKey)
+        ///   Sms:Route      — "q" (quick/test) | "dlt" (production, TRAI-registered)
+        ///   Sms:SenderId   — DLT route only (registered sender ID)
+        ///   Sms:TemplateId — DLT route only (TRAI-approved template ID)
+        /// </summary>
+        public static IServiceCollection AddSmsService(
+            this IServiceCollection services)
+        {
+            services.AddHttpClient<ISmsService, Fast2SmsService>();
             return services;
         }
 

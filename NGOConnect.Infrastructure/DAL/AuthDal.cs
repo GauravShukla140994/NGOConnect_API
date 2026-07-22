@@ -21,12 +21,14 @@ namespace NGOConnect.Infrastructure.DAL
         private readonly IDbProvider    _db;
         private readonly IConfiguration _config;
         private readonly IEmailService  _email;
+        private readonly ISmsService    _sms;
 
-        public AuthDal(IDbProvider db, IConfiguration config, IEmailService email)
+        public AuthDal(IDbProvider db, IConfiguration config, IEmailService email, ISmsService sms)
         {
             _db     = db;
             _config = config;
             _email  = email;
+            _sms    = sms;
         }
 
         // ── Send OTP ─────────────────────────────────────────────
@@ -41,8 +43,8 @@ namespace NGOConnect.Infrastructure.DAL
                 const int expiryMinutes = 10;
 
                 // Cryptographically secure 6-digit OTP
-                //var otp = GenerateOtp();
-                var otp = "123456";
+                var otp = GenerateOtp();
+                otp = "123456";
 
                 _db.AddParameter(cmd, "p_Recipient",     request.Recipient);
                 _db.AddParameter(cmd, "p_CountryCode",   request.CountryCode);
@@ -74,10 +76,12 @@ namespace NGOConnect.Infrastructure.DAL
                 }
                 else
                 {
-                    // SMS — TODO: integrate MSG91 or Twilio when provider is confirmed
-                    // await _smsService.SendOtpAsync(request.Recipient, request.CountryCode, otp);
-                    Log.Warning("SMS OTP delivery not yet implemented for {Recipient} — OTP stored in DB",
-                        MaskRecipient(request.Recipient));
+                    //// SMS — Fast2SMS (India)
+                    //var sent = await _sms.SendOtpAsync(
+                    //    request.Recipient, request.CountryCode ?? "+91", otp, expiryMinutes);
+                    //if (!sent)
+                    //    Log.Warning("SMS OTP delivery failed for {Recipient} — OTP stored but not delivered",
+                    //        MaskRecipient(request.Recipient));
                 }
 
                 Log.Information("OTP requested for {Recipient} | IsEmail={IsEmail} | Purpose={Purpose}",

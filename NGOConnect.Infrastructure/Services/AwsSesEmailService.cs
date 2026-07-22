@@ -168,6 +168,115 @@ namespace NGOConnect.Infrastructure.Services
             </html>
             """;
 
+        public async Task<bool> SendInviteAsync(
+            string toEmail, string inviterName, string orgName, string inviteLink)
+        {
+            try
+            {
+                var region      = _config["AWS:Region"]          ?? "ap-south-1";
+                var accessKey   = _config["AWS:AccessKeyId"]     ?? throw new InvalidOperationException("AWS:AccessKeyId not configured");
+                var secretKey   = _config["AWS:SecretAccessKey"] ?? throw new InvalidOperationException("AWS:SecretAccessKey not configured");
+                var fromAddress = _config["Email:FromAddress"]   ?? "no-reply@ripplehub.app";
+                var fromName    = _config["Email:FromName"]      ?? "RippleHub";
+
+                var credentials = new BasicAWSCredentials(accessKey, secretKey);
+                var sesRegion   = RegionEndpoint.GetBySystemName(region);
+                using var client = new AmazonSimpleEmailServiceV2Client(credentials, sesRegion);
+
+                var request = new SendEmailRequest
+                {
+                    FromEmailAddress = $"{fromName} <{fromAddress}>",
+                    Destination = new Destination { ToAddresses = new List<string> { toEmail } },
+                    Content = new EmailContent
+                    {
+                        Simple = new Message
+                        {
+                            Subject = new Content
+                            {
+                                Data    = $"{inviterName} invited you to join {orgName} on RippleHub",
+                                Charset = "UTF-8"
+                            },
+                            Body = new Body
+                            {
+                                Html = new Content { Data = BuildInviteHtml(inviterName, orgName, inviteLink), Charset = "UTF-8" },
+                                Text = new Content
+                                {
+                                    Data    = $"{inviterName} has invited you to join {orgName} on RippleHub.\n\nAccept the invitation: {inviteLink}\n\nThis link expires in 30 days.",
+                                    Charset = "UTF-8"
+                                }
+                            }
+                        }
+                    }
+                };
+
+                await client.SendEmailAsync(request);
+                Log.Information("Invite email sent via AWS SES to {Email} for Org={OrgName}", MaskEmail(toEmail), orgName);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "AwsSesEmailService failed to send invite to {Email}", MaskEmail(toEmail));
+                return false;
+            }
+        }
+
+        private static string BuildInviteHtml(string inviterName, string orgName, string inviteLink) => $"""
+            <!DOCTYPE html>
+            <html lang="en">
+            <head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+            <title>You're invited to {orgName}</title></head>
+            <body style="margin:0;padding:0;background:#f0f4f8;font-family:Arial,Helvetica,sans-serif;">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f0f4f8;padding:40px 0;">
+                <tr><td align="center">
+                  <table width="560" cellpadding="0" cellspacing="0" border="0"
+                         style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+                    <tr>
+                      <td style="background:#1a56db;padding:32px 40px;text-align:center;">
+                        <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;">RippleHub</h1>
+                        <p style="margin:6px 0 0;color:#bfdbfe;font-size:13px;">The LinkedIn of Social Impact</p>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding:40px;">
+                        <p style="margin:0 0 16px;color:#111827;font-size:16px;font-weight:600;">
+                          You've been invited to join {orgName}!
+                        </p>
+                        <p style="margin:0 0 28px;color:#4b5563;font-size:14px;line-height:1.6;">
+                          <strong>{inviterName}</strong> has invited you to become a member of <strong>{orgName}</strong> on RippleHub.
+                          Click the button below to view the organisation and accept the invitation.
+                        </p>
+                        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                          <tr>
+                            <td align="center" style="padding:8px 0 32px;">
+                              <a href="{inviteLink}" target="_blank"
+                                 style="display:inline-block;background:#1a56db;color:#ffffff;text-decoration:none;
+                                        font-size:15px;font-weight:600;padding:14px 36px;border-radius:8px;">
+                                Accept Invitation
+                              </a>
+                            </td>
+                          </tr>
+                        </table>
+                        <p style="margin:0;color:#6b7280;font-size:12px;">
+                          Or copy this link: <a href="{inviteLink}" style="color:#1a56db;">{inviteLink}</a>
+                        </p>
+                        <p style="margin:16px 0 0;color:#9ca3af;font-size:12px;">This invitation expires in 30 days.</p>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="background:#f9fafb;padding:20px 40px;border-top:1px solid #e5e7eb;text-align:center;">
+                        <p style="margin:0;color:#9ca3af;font-size:11px;line-height:1.6;">
+                          © {DateTime.UtcNow.Year} RippleHub — RippleHub Pvt. Ltd.<br/>
+                          This is an automated message. Please do not reply to this email.
+                        </p>
+                      </td>
+                    </tr>
+                  </table>
+                </td></tr>
+              </table>
+            </body>
+            </html>
+            """;
+
         private static string MaskEmail(string email)
         {
             var parts = email.Split('@');

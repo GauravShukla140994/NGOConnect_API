@@ -4,6 +4,7 @@ using Serilog.Events;
 using NGOConnect.API.Extensions;
 using NGOConnect.API.Hubs;
 using NGOConnect.API.Middleware;
+using NGOConnect.Core.Interfaces;
 
 // ── Serilog Bootstrap Logger ─────────────────────────────────
 // Captures startup errors before the full host is built
@@ -48,6 +49,7 @@ try
     builder.Services.AddDataAccessLayer();               // All DAL registrations
     builder.Services.AddBlobService(builder.Configuration); // IBlobService → driven by StorageProvider in appsettings
     builder.Services.AddEmailService(builder.Configuration); // IEmailService → driven by EmailProvider in appsettings
+    builder.Services.AddSmsService();                        // ISmsService → Fast2SmsService
     builder.Services.AddJwtAuthentication(builder.Configuration);
     builder.Services.AddSwaggerWithJwt();
     builder.Services.AddNgoConnectCors(builder.Configuration);
@@ -91,6 +93,13 @@ try
 
     // ── Build App ─────────────────────────────────────────────
     var app = builder.Build();
+
+    // ── Warm up Settings Cache ────────────────────────────────
+    // Must run before any request is served. RefreshAsync() loads all rows
+    // from the Settings table into memory so every GetValue() call is zero-DB.
+    var settingsCache = app.Services.GetRequiredService<ISettingsCache>();
+    await settingsCache.RefreshAsync();
+    Log.Information("SettingsCache loaded.");
 
     // ── Middleware Pipeline (ORDER MATTERS) ───────────────────
     // 1. Sentry request tracing — must be before other middleware
