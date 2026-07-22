@@ -1938,12 +1938,18 @@ END //
 
 CREATE PROCEDURE Settings_GetPublic()
 BEGIN
-    SELECT SettingKey, SettingValue, DataType FROM Settings WHERE IsPublic = 1 AND IsDeleted = 0 ORDER BY SettingGroup, SettingKey;
+    SELECT SettingId, SettingGroup, SettingKey, SettingValue, DataType, Description, IsPublic
+    FROM   Settings
+    WHERE  IsPublic = 1 AND IsDeleted = 0
+    ORDER  BY SettingGroup, SettingKey;
 END //
 
 CREATE PROCEDURE Settings_GetByGroup(IN p_Group VARCHAR(50))
 BEGIN
-    SELECT SettingKey, SettingValue, DataType, Description, IsPublic FROM Settings WHERE SettingGroup = p_Group AND IsDeleted = 0;
+    SELECT SettingId, SettingGroup, SettingKey, SettingValue, DataType, Description, IsPublic
+    FROM   Settings
+    WHERE  SettingGroup = p_Group AND IsDeleted = 0
+    ORDER  BY SettingKey;
 END //
 
 CREATE PROCEDURE Settings_Update(IN p_Key VARCHAR(100), IN p_Value TEXT, IN p_UpdatedBy INT UNSIGNED)
@@ -1977,6 +1983,8 @@ END //
 -- ── USER SPs ─────────────────────────────────────────────────────
 
 -- v4.0 MODIFIED: returns all profile fields incl. Education/WorkExp/Address
+-- v4.9 MODIFIED: added TotalHours, ProjectsCount, NgosJoined so Profile screen
+--                stats match Impact screen (same logic as User_GetImpact)
 CREATE PROCEDURE User_GetProfile(IN p_UserId INT UNSIGNED, IN p_RequestingUserId INT UNSIGNED)
 BEGIN
     SELECT
@@ -1998,7 +2006,36 @@ BEGIN
             WHEN up.FirstName IS NOT NULL AND TRIM(up.FirstName) != ''
              AND up.LastName  IS NOT NULL AND TRIM(up.LastName)  != ''
             THEN 1 ELSE 0
-        END AS IsProfileComplete
+        END AS IsProfileComplete,
+        -- ── Impact stats (same logic as User_GetImpact) ──────────────────────
+        ROUND(IFNULL((
+            SELECT SUM(TIMESTAMPDIFF(MINUTE, ps.StartTime, ps.EndTime)) / 60.0
+            FROM   ProjectAttendance pa2
+            JOIN   ProjectSessions   ps  ON pa2.SessionId       = ps.SessionId
+            JOIN   LookupValues      lva ON pa2.AttendStatusLkpId = lva.LookupValueId
+            JOIN   LookupTypes       lta ON lva.LookupTypeId    = lta.LookupTypeId
+            WHERE  pa2.UserId = p_UserId
+              AND  lta.TypeCode = 'ATTENDANCE_STATUS' AND lva.ValueCode = 'ATTENDED'
+        ), 0), 1) AS TotalHours,
+        IFNULL((
+            SELECT COUNT(DISTINCT ps2.ProjectId)
+            FROM   ProjectAttendance pa2
+            JOIN   ProjectSessions   ps2 ON pa2.SessionId        = ps2.SessionId
+            JOIN   Projects          pr  ON ps2.ProjectId        = pr.ProjectId
+            JOIN   LookupValues      lva ON pa2.AttendStatusLkpId = lva.LookupValueId
+            JOIN   LookupTypes       lta ON lva.LookupTypeId     = lta.LookupTypeId
+            JOIN   LookupValues      lpv ON pr.StatusLkpId       = lpv.LookupValueId
+            WHERE  pa2.UserId = p_UserId
+              AND  lta.TypeCode = 'ATTENDANCE_STATUS' AND lva.ValueCode = 'ATTENDED'
+              AND  lpv.ValueCode IN ('COMPLETED', 'EXPIRED')
+        ), 0) AS ProjectsCount,
+        IFNULL((
+            SELECT COUNT(*)
+            FROM   OrgMembers   om2
+            JOIN   LookupValues lvo ON om2.StatusLkpId = lvo.LookupValueId
+            WHERE  om2.UserId = p_UserId AND om2.IsDeleted = 0
+              AND  lvo.ValueCode = 'APPROVED'
+        ), 0) AS NgosJoined
     FROM Users u
     JOIN UserProfiles up ON u.UserId = up.UserId AND up.IsDeleted = 0
     LEFT JOIN LookupValues gv ON up.GenderLkpId    = gv.LookupValueId
@@ -5770,6 +5807,12 @@ BEGIN
          + v_CertCount * 25 + v_BadgeCount * 15 + v_SkillCount * 5)
         - (v_NoShows * 20 + v_Withdrawals * 15)
     ));
+
+    -- Write computed score back so User_GetProfile (and any caller reading the
+    -- stored column) always sees an up-to-date value.
+    UPDATE UserProfiles
+    SET    ImpactScore = v_ImpactScore
+    WHERE  UserId = p_UserId AND IsDeleted = 0;
 
     SELECT
         SUM(CASE WHEN AttendStatusLkpId = v_AttStatusAttended THEN 1 ELSE 0 END),

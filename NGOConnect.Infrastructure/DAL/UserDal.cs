@@ -486,7 +486,11 @@ namespace NGOConnect.Infrastructure.DAL
             ReliabilityPct    = Col<decimal>(row,  "ReliabilityPct"),
             MemberSince       = Col<DateTime>(row, "MemberSince"),      // u.CreatedAt aliased in SP
             UpdatedAt         = ColNullable<DateTime>(row, "UpdatedAt"),
-            IsProfileComplete = Col<bool>(row,     "IsProfileComplete")
+            IsProfileComplete = Col<bool>(row,     "IsProfileComplete"),
+            // v4.9: impact stats now returned by User_GetProfile SP
+            TotalHours        = Col<decimal>(row,  "TotalHours"),
+            ProjectsCount     = Col<int>(row,      "ProjectsCount"),
+            NgosJoined        = Col<int>(row,      "NgosJoined")
         };
 
         private static UserSkillModel MapSkill(IDataReader r) => new()

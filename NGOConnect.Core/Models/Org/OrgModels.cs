@@ -185,7 +185,8 @@ namespace NGOConnect.Core.Models.Org
     // ── Recommended org (s-explore Recommended tab) ───────────────────────────────
     public class RecommendedOrgModel : OrgListItemModel
     {
-        public int MatchScore { get; set; }   // number of matching user interests
+        public int     MatchScore             { get; set; }   // matching user interest count
+        public string? VerificationStatusCode { get; set; }   // e.g. VERIFIED, PENDING, REJECTED
     }
 
     // ── Trending campaign (s-explore Trending tab) ───────────────────────────────

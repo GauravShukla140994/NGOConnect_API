@@ -42,6 +42,10 @@ namespace NGOConnect.Core.Models.User
         public DateTime  MemberSince        { get; set; }   // u.CreatedAt aliased in SP
         public DateTime? UpdatedAt          { get; set; }
         public bool      IsProfileComplete  { get; set; }
+        // ── Impact stats (v4.9 — same logic as User_GetImpact) ───────────────
+        public decimal   TotalHours         { get; set; }
+        public int       ProjectsCount      { get; set; }
+        public int       NgosJoined         { get; set; }
     }
 
     // ── Update Profile Request (v4.0 — 18 params) ───────────────────────────────

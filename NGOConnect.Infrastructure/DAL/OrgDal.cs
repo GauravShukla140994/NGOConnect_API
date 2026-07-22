@@ -245,9 +245,10 @@ namespace NGOConnect.Infrastructure.DAL
                         State       = Col<string>(r,   "State"),
                         MemberCount = Col<int>(r,      "MemberCount"),
                         AvgRating   = Col<decimal>(r,  "AvgRating"),
-                        Latitude    = ColNullable<decimal>(r, "Latitude"),
-                        Longitude   = ColNullable<decimal>(r, "Longitude"),
-                        MatchScore  = Col<int>(r,      "MatchScore"),
+                        Latitude               = ColNullable<decimal>(r, "Latitude"),
+                        Longitude              = ColNullable<decimal>(r, "Longitude"),
+                        MatchScore             = Col<int>(r,     "MatchScore"),
+                        VerificationStatusCode = Col<string>(r,  "VerificationStatusCode"),
                     },
                     cmd => _db.AddParameter(cmd, "p_UserId", userId));
                 return ApiResponse<List<RecommendedOrgModel>>.Success(rows);
@@ -406,10 +407,10 @@ namespace NGOConnect.Infrastructure.DAL
                         OrgCount       = Col<int>(r,      "OrgCount"),
                         ReliabilityPct = Col<decimal>(r,  "ReliabilityPct"),
                         AvgRating      = Col<decimal>(r,  "AvgRating"),
-                        PeerRating     = Col<decimal>(r,  "PeerRating"),
+                        // PeerRating: SP does not return this yet — model property defaults to 0
                         NoShowCount    = Col<int>(r,      "NoShowCount"),
                         ExcusedCount   = Col<int>(r,      "ExcusedCount"),
-                        ComplaintCount = Col<int>(r,      "ComplaintCount"),
+                        // ComplaintCount: SP does not return this yet — model property defaults to 0
                         RoleCode       = Col<string>(r,   "RoleCode"),
                         RoleName       = Col<string>(r,   "RoleName"),
                         StatusCode     = Col<string>(r,   "StatusCode"),
@@ -451,7 +452,7 @@ namespace NGOConnect.Infrastructure.DAL
                         OrgCount       = Col<int>(r,     "OrgCount"),
                         BadgeCount     = Col<int>(r,     "BadgeCount"),
                         NoShowCount    = Col<int>(r,     "NoShowCount"),
-                        ComplaintCount = Col<int>(r,     "ComplaintCount"),
+                        // ComplaintCount: SP does not return this yet — model property defaults to 0
                     },
                     cmd =>
                     {

@@ -467,3 +467,20 @@ _Mobile (React Native):_
 - `InviteAcceptScreen.tsx`: Alert changed from "Request Submitted 🎉" to "Welcome! 🎉 / {SP message}"; body copy updated from "Accept to submit a membership request — admins will approve it" to "Accept the invitation to join instantly as a member"
 
 ---
+
+**Profile Stats Sync — Hours / Projects / Score / NGOs now match Impact screen** (2026-07-22)
+
+_Database (NGOConnect_Complete_Setup_v4.9.sql):_
+- `User_GetProfile`: added `TotalHours`, `ProjectsCount`, `NgosJoined` subqueries (identical logic to `User_GetImpact` — same ATTENDANCE_STATUS/ATTENDED lookup, same COMPLETED/EXPIRED project filter, same APPROVED OrgMembers count). Profile screen stats now computed at read time, not from stale stored columns.
+- `User_GetImpact`: added `UPDATE UserProfiles SET ImpactScore = v_ImpactScore WHERE UserId = p_UserId` after score calculation so stored `ImpactScore` is kept in sync. Profile screen Score is now correct even before the user visits the Impact tab.
+- NEW patch file: `NGOConnect_Patch_ProfileStatsSync_v4.9.sql` — both updated SPs
+
+_Backend:_
+- `NGOConnect.Core/Models/User/UserModels.cs` → `UserProfileModel`: added `TotalHours (decimal)`, `ProjectsCount (int)`, `NgosJoined (int)` properties
+- `NGOConnect.Infrastructure/DAL/UserDal.cs` → `MapProfile`: added `Col<decimal>(row, "TotalHours")`, `Col<int>(row, "ProjectsCount")`, `Col<int>(row, "NgosJoined")` mappings
+
+_Mobile (React Native):_
+- `src/types/api.types.ts` → `UserProfile`: added `ngosJoined?: number`
+- `src/screens/profile/ProfileScreen.tsx`: NGOs stat changed from `orgs.length` (all orgs including pending) → `profile?.ngosJoined ?? 0` (approved memberships only, matches Impact screen)
+
+---
