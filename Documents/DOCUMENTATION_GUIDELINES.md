@@ -484,3 +484,63 @@ _Mobile (React Native):_
 - `src/screens/profile/ProfileScreen.tsx`: NGOs stat changed from `orgs.length` (all orgs including pending) → `profile?.ngosJoined ?? 0` (approved memberships only, matches Impact screen)
 
 ---
+
+**Help & Support — Phase 1 (email-only)** (2026-07-22)
+
+_Database (NGOConnect_Complete_Setup_v4.9.sql):_
+- NEW SP `Support_LogContact(p_UserId, p_CategoryCode, p_Subject, p_Description, p_ContactEmail, p_ContactName, p_IpAddress)` — inserts a row into `AuditLogs` (Action=`SUPPORT_CONTACT`, EntityName=`SupportContact`, NewValue=JSON). Returns `IsSuccess=1, Message='Your message has been sent…'`. No new tables in Phase 1.
+- NEW patch file: `NGOConnect_Patch_SupportLogContact_v4.9.sql`
+
+_Backend:_
+- `IEmailService.cs`: added `SendSupportEmailAsync(contactName, categoryLabel, subject, description, contactEmail)`; email goes TO `Email:SupportAddress` (default: `support@ripplehub.app`), Reply-To = user's contactEmail
+- `SmtpEmailService.cs`: implemented `SendSupportEmailAsync` with branded HTML template (category badge, from/email detail table, message body, Reply-To tip)
+- `AwsSesEmailService.cs`: implemented `SendSupportEmailAsync` (ReplyToAddresses = user email)
+- NEW `NGOConnect.Core/Models/Support/SupportModels.cs`: `SupportContactRequest` (CategoryCode, CategoryLabel, Subject, Description, ContactEmail, ContactName)
+- NEW `NGOConnect.Core/Interfaces/ISupportDal.cs`: `LogContactAsync(userId, request, ipAddress) → WriteResult`
+- NEW `NGOConnect.Infrastructure/DAL/SupportDal.cs`: calls `Support_LogContact` via `ExecuteWriteAsync`
+- NEW `NGOConnect.API/Controllers/SupportController.cs`: `POST /api/v1/support/contact` [Authorize] — logs then fires email (fire-and-forget so email glitch never fails the user)
+- `ServiceCollectionExtensions.cs` `AddDataAccessLayer`: added `services.AddScoped<ISupportDal, SupportDal>()`
+
+_New Railway env var (optional):_
+- `Email__SupportAddress` — override support inbox (default: `support@ripplehub.app`)
+
+_API endpoint (add to API_Documentation_v4.9.docx):_
+- `POST /api/v1/support/contact` [Authorize]
+  - Body: `{ categoryCode, categoryLabel, subject, description, contactEmail, contactName }`
+  - Response: `ApiResponse` (IsSuccess=1, Message = confirmation string)
+  - Category codes: `GENERAL_QUERY | DONATION_SUPPORT | ORG_APPROVAL | BUG_REPORT | FEEDBACK`
+
+_Postman (add to NGOConnect_Postman_Collection_v4.9.json):_
+- New "Support" folder: Submit Contact request
+
+_Mobile (React Native):_
+- NEW `src/api/support.api.ts`: `submitSupportContact(request)` → `POST /support/contact`
+- NEW `src/screens/profile/HelpSupportScreen.tsx`: category chip picker (5 options), Subject + Description inputs (char count), pre-filled Name + Email (editable), Submit → API → success state ("Message Sent!")
+- `src/navigation/AppNavigator.tsx`: added `HelpSupport` stack screen → `HelpSupportScreen`
+- `src/screens/profile/ProfileScreen.tsx` `SETTINGS_ITEMS`: added `{ icon: '🆘', label: 'Help & Support', screen: 'HelpSupport' }` after Privacy Policy
+
+---
+
+**Help & Support — Attachment support (≤ 5 MB)** (2026-07-22)
+
+_Database (NGOConnect_Complete_Setup_v4.9.sql):_
+- `Support_LogContact`: added `IN p_AttachmentUrl VARCHAR(2048)`; stored in AuditLogs NewValue JSON as `attachmentUrl` key
+- `NGOConnect_Patch_SupportLogContact_v4.9.sql`: updated with new param
+
+_Backend:_
+- `SupportModels.cs` → `SupportContactRequest`: added `AttachmentUrl? (string, max 2048)`
+- `ISupportDal.cs` / `SupportDal.cs`: passes `p_AttachmentUrl` to SP
+- `IEmailService.cs` → `SendSupportEmailAsync`: added `attachmentUrl? = null` param
+- `SmtpEmailService.cs` + `AwsSesEmailService.cs`: HTML shows 📎 ATTACHMENT block with clickable link when present; plain-text body appends `\nAttachment: {url}`
+- `SupportController.cs`: passes `request.AttachmentUrl` to email service
+
+_Mobile (React Native):_
+- `support.api.ts` → `SupportContactRequest`: added `attachmentUrl?: string`
+- `HelpSupportScreen.tsx`:
+  - "Attach a file" dashed-border button (📎) opens Alert with two options: Photo/Image (launchImageLibrary — photos + videos) and PDF/Video/File (DocumentPicker — pdf, video, allFiles)
+  - 5 MB guard: `picked.size > MAX_BYTES` → Alert and abort before attaching
+  - Attachment preview card: image thumbnail for photos; emoji icon (📄/🎬/📁) for docs/videos; file name + "Ready to upload" label; ✕ remove button
+  - On submit: uploads to `/media/upload?module=support-attachments` (public module → directly-clickable URL); upload failure prompts "Send anyway?" — non-blocking
+  - `attachmentUrl` included in `submitSupportContact` request body
+
+---

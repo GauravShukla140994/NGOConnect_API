@@ -18,5 +18,19 @@ namespace NGOConnect.Core.Interfaces
         /// Returns true if the email was accepted by the gateway.
         /// </summary>
         Task<bool> SendInviteAsync(string toEmail, string inviterName, string orgName, string inviteLink);
+
+        /// <summary>
+        /// Forward a user's Help &amp; Support submission to the support inbox.
+        /// Email goes TO Email:SupportAddress (default: support@ripplehub.app).
+        /// Reply-To is set to contactEmail so the team can reply directly to the user.
+        /// Returns true if the email was accepted by the gateway.
+        /// </summary>
+        Task<bool> SendSupportEmailAsync(
+            string contactName,
+            string categoryLabel,
+            string subject,
+            string description,
+            string contactEmail,
+            string? attachmentUrl = null);
     }
 }

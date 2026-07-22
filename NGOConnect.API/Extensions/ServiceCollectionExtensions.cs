@@ -66,6 +66,8 @@ namespace NGOConnect.API.Extensions
             services.AddScoped<IOrgInviteDal,     OrgInviteDal>();
             // v4.9 — URL Share Token encryption (AES-256-GCM; key from Settings table)
             services.AddSingleton<IUrlTokenService, UrlTokenService>();
+            // v4.9 — Help & Support (Phase 1: logs to AuditLogs, sends email)
+            services.AddScoped<ISupportDal, SupportDal>();
             return services;
         }
 
