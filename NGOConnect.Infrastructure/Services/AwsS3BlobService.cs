@@ -37,19 +37,21 @@ namespace NGOConnect.Infrastructure.Services
         private static readonly Dictionary<string, HashSet<string>> AllowedExtensions =
             new(StringComparer.OrdinalIgnoreCase)
         {
-            ["user-photos"]    = ["jpg", "jpeg", "png"],
-            ["org-logos"]      = ["jpg", "jpeg", "png", "svg"],
-            ["project-images"] = ["jpg", "jpeg", "png"],
-            ["post-media"]     = ["jpg", "jpeg", "png", "mp4", "mov", "webm", "mkv", "m4v"],
+            ["user-photos"]          = ["jpg", "jpeg", "png"],
+            ["org-logos"]            = ["jpg", "jpeg", "png", "svg"],
+            ["project-images"]       = ["jpg", "jpeg", "png"],
+            ["post-media"]           = ["jpg", "jpeg", "png", "mp4", "mov", "webm", "mkv", "m4v"],
+            ["support-attachments"]  = ["jpg", "jpeg", "png", "pdf", "mp4", "mov"],
         };
 
         private static readonly Dictionary<string, long> MaxFileSizePerModule =
             new(StringComparer.OrdinalIgnoreCase)
         {
-            ["user-photos"]    =  5L * 1024 * 1024,
-            ["org-logos"]      =  5L * 1024 * 1024,
-            ["project-images"] = 10L * 1024 * 1024,
-            ["post-media"]     = 50L * 1024 * 1024,
+            ["user-photos"]         =  5L * 1024 * 1024,
+            ["org-logos"]           =  5L * 1024 * 1024,
+            ["project-images"]      = 10L * 1024 * 1024,
+            ["post-media"]          = 50L * 1024 * 1024,
+            ["support-attachments"] =  5L * 1024 * 1024,
         };
 
         public AwsS3BlobService(IConfiguration config)

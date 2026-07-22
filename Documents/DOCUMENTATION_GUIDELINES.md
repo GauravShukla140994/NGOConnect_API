@@ -565,3 +565,23 @@ _Mobile (React Native):_
 - `ImpactScreen.tsx`: `canWithdraw(app)` helper, disabled button style, `handleWithdraw` with confirmation + local state update
 
 ---
+
+**Help & Support — attachment upload fix** (2026-07-22)
+
+_Backend:_
+- `AwsS3BlobService.cs`: added `support-attachments` to `AllowedExtensions` (jpg/jpeg/png/pdf/mp4/mov) and `MaxFileSizePerModule` (5 MB). Root cause: upload was throwing `ArgumentException("Unknown module")` which the frontend caught as "attachment has failed".
+- `LocalFileService.cs`: same addition to `AllowedExtensions` + `MaxFileSizePerModule`.
+- `CloudinaryBlobService.cs`: same addition to `AllowedExtensions`.
+
+---
+
+**Personalised Feed — latest-first ordering** (2026-07-22)
+
+_Database (NGOConnect_Complete_Setup_v4.9.sql + NGOConnect_Patch_PersonalizedFeed.sql):_
+- `Feed_GetPersonalized`: changed `ORDER BY sf.FeedScore DESC, sf.PostId DESC` → `ORDER BY sf.CreatedAt DESC, sf.PostId DESC`
+- Cursor filter changed: `p_CursorScore` now carries `UNIX_TIMESTAMP(CreatedAt)` of last seen post (was FeedScore). Filter: `UNIX_TIMESTAMP(sf.CreatedAt) < p_CursorScore OR (UNIX_TIMESTAMP(sf.CreatedAt) = p_CursorScore AND sf.PostId < p_CursorPostId)`. FeedScore still computed and returned for analytics; emergency posts (IsEmergency=1, FeedScore +1000) still float to top naturally via CreatedAt since they are recent by definition.
+
+_Backend:_
+- `FeedDal.cs` → `ApplyDiversityEngine`: `NextCursorScore` now set to `UNIX_TIMESTAMP(lastCreatedAt)` (Unix epoch seconds as decimal) instead of reading `feedScore`. No parameter, type, or endpoint changes needed.
+
+---

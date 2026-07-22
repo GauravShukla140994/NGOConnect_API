@@ -39,12 +39,13 @@ namespace NGOConnect.Infrastructure.Services
         private static readonly Dictionary<string, HashSet<string>> AllowedExtensions =
             new(StringComparer.OrdinalIgnoreCase)
         {
-            ["user-documents"] = ["pdf", "jpg", "jpeg", "png"],
-            ["user-photos"]    = ["jpg", "jpeg", "png"],
-            ["org-documents"]  = ["pdf", "jpg", "jpeg", "png"],
-            ["org-logos"]      = ["jpg", "jpeg", "png", "svg"],
-            ["certificates"]   = ["pdf"],
-            ["post-media"]     = ["jpg", "jpeg", "png", "mp4", "mov", "webm", "mkv", "m4v"],
+            ["user-documents"]      = ["pdf", "jpg", "jpeg", "png"],
+            ["user-photos"]         = ["jpg", "jpeg", "png"],
+            ["org-documents"]       = ["pdf", "jpg", "jpeg", "png"],
+            ["org-logos"]           = ["jpg", "jpeg", "png", "svg"],
+            ["certificates"]        = ["pdf"],
+            ["post-media"]          = ["jpg", "jpeg", "png", "mp4", "mov", "webm", "mkv", "m4v"],
+            ["support-attachments"] = ["jpg", "jpeg", "png", "pdf", "mp4", "mov"],
         };
 
         private static readonly HashSet<string> AllowedModules =

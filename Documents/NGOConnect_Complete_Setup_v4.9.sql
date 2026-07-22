@@ -8277,11 +8277,13 @@ BEGIN
 
     ) sf
 
+    -- p_CursorScore now carries UNIX_TIMESTAMP(CreatedAt) of the last seen post.
+    -- This gives a strict chronological cursor: newest posts always appear first.
     WHERE  p_CursorScore IS NULL
-        OR sf.FeedScore < p_CursorScore
-        OR (sf.FeedScore = p_CursorScore AND sf.PostId < p_CursorPostId)
+        OR UNIX_TIMESTAMP(sf.CreatedAt) < p_CursorScore
+        OR (UNIX_TIMESTAMP(sf.CreatedAt) = p_CursorScore AND sf.PostId < p_CursorPostId)
 
-    ORDER BY sf.FeedScore DESC, sf.PostId DESC
+    ORDER BY sf.CreatedAt DESC, sf.PostId DESC
     LIMIT  v_FetchSize;
 
 END //
@@ -9136,8 +9138,10 @@ BEGIN
     ELSEIF v_StatusCode NOT IN ('PENDING', 'APPROVED') THEN
         SELECT 0 AS IsSuccess, 'This application cannot be withdrawn.' AS Message;
 
-    -- 24-hour gate for fixed-schedule projects
-    ELSEIF v_SchType IN ('ONE_TIME', 'RECURRING') AND v_RecurStart IS NOT NULL
+    -- APPROVED: enforce 24-hour gate for fixed-schedule projects
+    -- PENDING: always allow (admin has not reviewed yet)
+    ELSEIF v_StatusCode = 'APPROVED'
+       AND v_SchType IN ('ONE_TIME', 'RECURRING') AND v_RecurStart IS NOT NULL
        AND TIMESTAMPDIFF(HOUR, NOW(),
              CASE WHEN v_SessionStart IS NOT NULL
                   THEN TIMESTAMP(v_RecurStart, v_SessionStart)

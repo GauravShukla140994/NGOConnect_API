@@ -156,14 +156,19 @@ namespace NGOConnect.Infrastructure.DAL
                 }
             }
 
-            // Cursor = last selected item's (FeedScore, PostId)
+            // Cursor = last selected item's (UNIX_TIMESTAMP(CreatedAt), PostId).
+            // NextCursorScore now carries the Unix timestamp of the last post's CreatedAt,
+            // matching the SP's time-first pagination (ORDER BY CreatedAt DESC, PostId DESC).
             var last = selected.LastOrDefault();
+            var lastCreatedAt = last?.Get<DateTime?>("createdAt");
             return new FeedPageResult
             {
                 Items            = selected,
                 NextCursorPostId = last?.Get<int?>("postId"),
-                NextCursorScore  = last?.Get<decimal?>("feedScore"),
-                HasMore          = candidates.Count > pageSize, // SP returned more than a full page
+                NextCursorScore  = lastCreatedAt.HasValue
+                    ? (decimal)new DateTimeOffset(DateTime.SpecifyKind(lastCreatedAt.Value, DateTimeKind.Utc)).ToUnixTimeSeconds()
+                    : null,
+                HasMore          = candidates.Count > pageSize,
             };
         }
 

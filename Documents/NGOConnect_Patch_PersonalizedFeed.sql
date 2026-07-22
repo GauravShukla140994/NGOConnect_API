@@ -340,11 +340,13 @@ BEGIN
     ) sf  -- end scored subquery
 
     -- ── Cursor filter (skip already-seen items) ───────────────────────────────
+    -- p_CursorScore now carries UNIX_TIMESTAMP(CreatedAt) of the last seen post.
+    -- This gives a strict chronological cursor: newest posts always appear first.
     WHERE  p_CursorScore IS NULL
-        OR sf.FeedScore < p_CursorScore
-        OR (sf.FeedScore = p_CursorScore AND sf.PostId < p_CursorPostId)
+        OR UNIX_TIMESTAMP(sf.CreatedAt) < p_CursorScore
+        OR (UNIX_TIMESTAMP(sf.CreatedAt) = p_CursorScore AND sf.PostId < p_CursorPostId)
 
-    ORDER BY sf.FeedScore DESC, sf.PostId DESC
+    ORDER BY sf.CreatedAt DESC, sf.PostId DESC
     LIMIT  v_FetchSize;
 
 END //

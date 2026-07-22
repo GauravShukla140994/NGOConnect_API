@@ -45,8 +45,10 @@ BEGIN
     ELSEIF v_StatusCode NOT IN ('PENDING', 'APPROVED') THEN
         SELECT 0 AS IsSuccess, 'This application cannot be withdrawn.' AS Message;
 
-    -- 24-hour gate for fixed-schedule projects
-    ELSEIF v_SchType IN ('ONE_TIME', 'RECURRING') AND v_RecurStart IS NOT NULL
+    -- APPROVED: enforce 24-hour gate for fixed-schedule projects
+    -- PENDING: always allow (admin has not reviewed yet)
+    ELSEIF v_StatusCode = 'APPROVED'
+       AND v_SchType IN ('ONE_TIME', 'RECURRING') AND v_RecurStart IS NOT NULL
        AND TIMESTAMPDIFF(HOUR, NOW(),
              CASE WHEN v_SessionStart IS NOT NULL
                   THEN TIMESTAMP(v_RecurStart, v_SessionStart)
