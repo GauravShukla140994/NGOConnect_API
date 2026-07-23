@@ -368,6 +368,43 @@ namespace NGOConnect.Infrastructure.Services
             </html>
             """;
 
+        // v5.0 NEW: Marketing & Communication Center, Phase 1 — arbitrary campaign email
+        public async Task<bool> SendCampaignEmailAsync(string toEmail, string subject, string htmlBody)
+        {
+            try
+            {
+                var host        = _config["Email:SmtpHost"]     ?? throw new InvalidOperationException("Email:SmtpHost not configured");
+                var port        = int.Parse(_config["Email:SmtpPort"] ?? "587");
+                var username    = _config["Email:SmtpUsername"] ?? throw new InvalidOperationException("Email:SmtpUsername not configured");
+                var password    = _config["Email:SmtpPassword"] ?? throw new InvalidOperationException("Email:SmtpPassword not configured");
+                var fromAddress = _config["Email:FromAddress"]  ?? "no-reply@ripplehub.app";
+                var fromName    = _config["Email:FromName"]     ?? "RippleHub";
+                var useSsl      = bool.Parse(_config["Email:UseSsl"] ?? "false");
+
+                var message = new MimeMessage();
+                message.From.Add(new MailboxAddress(fromName, fromAddress));
+                message.To.Add(MailboxAddress.Parse(toEmail));
+                message.Subject = subject;
+                message.Body = new BodyBuilder { HtmlBody = htmlBody }.ToMessageBody();
+
+                using var client = new SmtpClient();
+                client.Timeout = 8_000;
+                var socketOptions = useSsl ? SecureSocketOptions.SslOnConnect : SecureSocketOptions.StartTls;
+                await client.ConnectAsync(host, port, socketOptions);
+                await client.AuthenticateAsync(username, password);
+                await client.SendAsync(message);
+                await client.DisconnectAsync(true);
+
+                Log.Information("Campaign email sent to {Email}", MaskEmail(toEmail));
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "SmtpEmailService failed to send campaign email to {Email}", MaskEmail(toEmail));
+                return false;
+            }
+        }
+
         private static string MaskEmail(string email)
         {
             var parts = email.Split('@');

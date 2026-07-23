@@ -7,7 +7,14 @@ namespace NGOConnect.Infrastructure.DAL
 {
     public class PostDal : BaseDal, IPostDal
     {
-        public PostDal(IDbProvider db) : base(db) { }
+        private readonly INotificationDal _notif;
+        private readonly IFCMService      _fcm;
+
+        public PostDal(IDbProvider db, INotificationDal notif, IFCMService fcm) : base(db)
+        {
+            _notif = notif;
+            _fcm   = fcm;
+        }
 
         public async Task<ApiResponse<PostPermissionsModel>> GetPermissionsAsync(int orgId, int userId)
         {
@@ -67,6 +74,38 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_PostId", postId);
                     _db.AddParameter(cmd, "p_UserId", userId);
                 });
+
+                // Fire-and-forget: notify all approved org members about the new post.
+                // Only fired when the post is associated with an organisation.
+                // Non-blocking — post creation returns immediately.
+                if (request.OrgId is > 0)
+                {
+                    var capturedPostId = postId;
+                    var capturedOrgId  = request.OrgId.Value;
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var notif = await _notif.BulkNotifyFeedPostAsync(capturedPostId, capturedOrgId, userId);
+                            if (notif.Tokens.Count > 0)
+                            {
+                                await _fcm.SendMulticastAsync(
+                                    notif.Tokens,
+                                    notif.Title,
+                                    notif.Body,
+                                    "NEW_FEED_POST",
+                                    capturedPostId,
+                                    "POST");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Error(ex, "Post feed notification failed PostId={PostId} OrgId={OrgId}",
+                                capturedPostId, capturedOrgId);
+                        }
+                    });
+                }
+
                 return ApiResponse<DynamicRow>.Success(row!, result.Message);
             }
             catch (Exception ex)

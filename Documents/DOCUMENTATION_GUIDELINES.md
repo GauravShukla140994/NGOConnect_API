@@ -183,6 +183,7 @@ When it is included in a Railway patch, update to `✅ Railway applied`.
 | `NGOConnect_Patch_InviteAcceptDirectJoin_v4.9.sql` | Org_Invite_Accept: direct OrgMembers INSERT (skip OrgMembershipRequests approval step) | ⏳ Pending Railway |
 | `NGOConnect_Patch_InviteNotifications_v4.9.sql` | Invite notification SPs | ⏳ Pending Railway |
 | `NGOConnect_Patch_UrlShareToken_v4.9.sql` | Settings INSERT: SECURITY/URL_SHARE_SECRET_KEY for AES-256-GCM share URL encryption. ⚠️ Replace placeholder with `openssl rand -hex 32` output before running | ⏳ Pending Railway |
+| `NGOConnect_Patch_MarketingCommunicationCenter_Phase0Phase1.sql` | 6 new tables (UserCommunicationPreferences, Campaigns, CampaignChannels, CampaignAudienceRules, CampaignRecipients, CampaignQueueJobs); 2 new Users indexes; MKTG_CAMPAIGN_TYPE/PRIORITY/STATUS/CHANNEL lookups; COMMUNICATION Settings group; 20 new SPs. Not yet applied anywhere, not yet build-verified (see pending list above) | 🟡 Local only |
 
 ### Other Individual Patches (absorbed into versioned patches or superseded)
 
@@ -264,6 +265,38 @@ When there is a conflict between files, this priority order applies:
 
 
 ## Current Pending Document Updates
+
+---
+
+**Marketing & Communication Center — Phase 0 + Phase 1 IMPLEMENTED (code + SQL written, not yet applied to any DB)** (2026-07-23)
+- BRD: `Documents/MarketingCommunicationCenter_BRD_v1.0.docx` (not one of the 4 maintained documents, no version-bump workflow applies to it).
+- Setup SQL (`NGOConnect_Complete_Setup_v4.9.sql`) updated directly, per the mandatory SP-first workflow:
+  - New tables: `UserCommunicationPreferences`, `Campaigns`, `CampaignChannels`, `CampaignAudienceRules`, `CampaignRecipients` (BIGINT PK), `CampaignQueueJobs` (BIGINT PK).
+  - Two new additive indexes: `Users.idx_users_lastlogin`, `Users.idx_users_createdat` (support Active/Inactive/New audience segment queries).
+  - New LookupTypes: `MKTG_CAMPAIGN_TYPE`, `MKTG_CAMPAIGN_PRIORITY`, `MKTG_CAMPAIGN_STATUS`, `MKTG_CAMPAIGN_CHANNEL` (deliberately `MKTG_`-prefixed — plain `CAMPAIGN_TYPE`/`CAMPAIGN_STATUS` already exist for the donation-fundraising module, different feature, would have collided on the TypeCode unique key).
+  - New Settings group `COMMUNICATION`: `CAMPAIGN_BATCH_SIZE` (500), `CAMPAIGN_RETRY_MAX_ATTEMPTS` (3), `CAMPAIGN_RETRY_BACKOFF_MINUTES` (5), `CAMPAIGN_SMS_ENABLED` (false — SMS gate), `HANGFIRE_DASHBOARD_KEY` (empty — fail-closed dashboard gate, must be set before relying on `/hangfire` outside Development).
+  - 20 new SPs: `UserCommunicationPreference_Get/Update`, `Campaign_Create/Update/SetStatus`, `CampaignChannel_Save/Delete`, `CampaignAudienceRule_Save`, `Campaign_EstimateAudience`, `Campaign_ResolveRecipients`, `Campaign_GetQueuedRecipients`, `CampaignRecipient_MarkStatus/MarkEngagement`, `CampaignQueueJob_Create/MarkStatus`, `Campaign_GetList/GetById/GetHistoryDetail`, `Communication_GetDashboardStats`, `User_GetContactsByIds`.
+  - Patch file (local DB only, not yet run anywhere): `Documents/NGOConnect_Patch_MarketingCommunicationCenter_Phase0Phase1.sql` — all 6 tables use `CREATE TABLE IF NOT EXISTS`; re-running is safe except the two `ALTER TABLE ... ADD INDEX` lines (harmless duplicate-key error on re-run) and the lookup/settings INSERTs (harmless duplicate-key error on re-run).
+- C# additions (all additive, nothing existing touched except two interface extensions below):
+  - `NGOConnect.Core/Models/Campaign/CampaignModels.cs`, `ICampaignDal`, `ICommunicationPreferenceDal`, `ICampaignDispatchService`.
+  - `NGOConnect.Infrastructure/DAL/CampaignDal.cs`, `CommunicationPreferenceDal.cs`, `Services/CampaignDispatchService.cs` (the Hangfire-invoked worker — resolves audience, batches sends, respects opt-outs, marks Running/Completed/Failed).
+  - `IEmailService` interface extended with `SendCampaignEmailAsync(toEmail, subject, htmlBody)` — implemented in **both** `AwsSesEmailService` and `SmtpEmailService` (existing methods untouched).
+  - `NGOConnect.API/Controllers/CampaignController.cs` (`/api/v1/superadmin/campaigns/*`, `/api/v1/superadmin/communication/dashboard` — SUPER_ADMIN only) and `CommunicationPreferencesController.cs` (`/api/v1/communication-preferences` — any authenticated user).
+  - `NGOConnect.API/Hangfire/HangfireDashboardAuthFilter.cs` — gates `/hangfire`; Development always allowed, otherwise requires `Settings.COMMUNICATION.HANGFIRE_DASHBOARD_KEY` via `?key=` or `X-Hangfire-Key` header, fails closed if unset.
+  - `ServiceCollectionExtensions.cs`: new `AddHangfireBackgroundJobs()` extension (reuses `DefaultConnection`, Hangfire manages its own storage schema — not part of the setup SQL) + DI registrations for the three new interfaces above. `Program.cs`: calls the new extension method, adds `UseHangfireDashboard("/hangfire", ...)` to the pipeline.
+  - Packages added: `Hangfire.AspNetCore` 1.8.14, `Hangfire.MySqlStorage` 2.0.3 (both in `NGOConnect.API.csproj`) — **versions unverified against live NuGet**, this sandbox has no internet access to nuget.org and no .NET SDK installed, so `dotnet restore`/`dotnet build` could not actually be run. Please run a local build before relying on this — see note below.
+- Scope decisions confirmed 2026-07-23: SMS excluded from Phase 1 (Fast2SMS is test-route only; blocked at three layers — Settings toggle, `CampaignChannel_Save` SP guard, and simply never enabled in the dispatcher — until DLT/TRAI registration completes). AWS SES confirmed production-ready, so Email works from Phase 1. WhatsApp confirmed for a later stage (Phase 4) — seeded as an inert `MKTG_CAMPAIGN_CHANNEL` lookup value now so activating it later is a feature flag, not a schema change.
+- Known simplifications/limitations, stated openly rather than silently shipped as "done":
+  - Phase 1 supports exactly **one** audience rule per campaign (no composable combinations across rule types) — full reusable Segment Builder is Phase 2, per the BRD.
+  - `Campaign_EstimateAudience` runs a live `COUNT()` when called (on wizard step transitions, not per keystroke) rather than the BRD's fuller pre-aggregated-cache proposal — a documented, deliberate simplification.
+  - Push notifications only send `title`+`body` via `IFCMService.SendMulticastAsync` — `PushImageUrl`/`PushDeepLink` are captured and stored in `CampaignChannels` but not yet transmitted in the FCM payload; the mobile app would need a tap-handler keyed on `notifType="CAMPAIGN"` + `refId`/`refType` (the same mechanism already used elsewhere) to actually deep-link on tap.
+  - Open/click tracking has a DB hook (`CampaignRecipient_MarkEngagement`) but no HTTP tracking-pixel/redirect endpoints wired yet — natural fit alongside Phase 2's richer HTML editor.
+  - **No Super Admin frontend UI was built this session** — this work was scoped and executed as backend/API only (DB, SPs, C#, Hangfire). The wizard, dashboard, and history table described in BRD Section 7 still need a frontend pass.
+- **Not yet done, must happen before this is usable anywhere:**
+  1. Run `Documents/NGOConnect_Patch_MarketingCommunicationCenter_Phase0Phase1.sql` against the local dev DB.
+  2. Run `dotnet restore` + `dotnet build` locally (or in CI) — package versions and full compilation were not verifiable in this session's sandbox (no .NET SDK, no NuGet network access). `python3 scripts/validate_sp_params.py` was run and passed cleanly (196 SPs, all IN-params and `Col<T>` reads matched) — that check doesn't require the SDK and is a strong signal, but it is not a substitute for an actual build.
+  3. Once building locally: exercise the endpoints via Swagger/Postman before combining into a Railway staging patch.
+- **Two corrections identified for the `software-architect-skill`'s Decisions Log** (cannot edit the skill file directly — read-only cache in this session): (1) SMS provider is actually **Fast2SMS**, not "Twilio or MSG91"; (2) Cloud is actually **AWS-only** in practice (S3 + SES), not "Azure primary, AWS secondary". Gaurav should update these via Settings > Capabilities so future sessions plan against the real stack.
 
 ---
 
@@ -583,5 +616,22 @@ _Database (NGOConnect_Complete_Setup_v4.9.sql + NGOConnect_Patch_PersonalizedFee
 
 _Backend:_
 - `FeedDal.cs` → `ApplyDiversityEngine`: `NextCursorScore` now set to `UNIX_TIMESTAMP(lastCreatedAt)` (Unix epoch seconds as decimal) instead of reading `feedScore`. No parameter, type, or endpoint changes needed.
+
+---
+
+**Feed Post Notification — NEW_FEED_POST fan-out** (2026-07-22)
+
+_Database (NGOConnect_Complete_Setup_v4.9.sql + NGOConnect_Patch_FeedPostNotification_v4.9.sql):_
+- NEW SP `Post_BulkNotifyOrgMembers(p_PostId, p_OrgId, p_AuthorUserId)`: bulk-inserts one `Notifications` inbox row per approved org member (excluding author); NotifType=`NEW_FEED_POST`, RefId=PostId, RefType=`POST`. Returns `(UserId, Token, Platform, Title, Body)` rows for FCM multicast dispatch. Title = "[AuthorName] posted in [OrgName]"; Body = first 100 chars of content.
+
+_Backend:_
+- `NotificationModels.cs`: NEW class `FeedPostNotifData { Title, Body, Tokens }`
+- `INotificationDal.cs`: added `BulkNotifyFeedPostAsync(postId, orgId, authorUserId) → FeedPostNotifData`
+- `NotificationDal.cs`: implemented `BulkNotifyFeedPostAsync` — calls `Post_BulkNotifyOrgMembers` via `ExecuteReaderListAsync`, returns tokens + text
+- `PostDal.cs`: injected `INotificationDal` + `IFCMService` into constructor; `CreateAsync` fires background Task (fire-and-forget) after post creation for org posts — calls `BulkNotifyFeedPostAsync` then `SendMulticastAsync("NEW_FEED_POST")`
+
+_Mobile (React Native):_
+- `RootNavigator.tsx` → `resolveScreen`: added `NEW_FEED_POST` → navigates to `Home` screen
+- `FCMTestScreen.tsx` → `NOTIF_TYPES`: added `📝 New Feed Post (→ home)` entry with `refType: 'POST'`
 
 ---

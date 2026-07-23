@@ -32,5 +32,13 @@ namespace NGOConnect.Core.Interfaces
             string description,
             string contactEmail,
             string? attachmentUrl = null);
+
+        /// <summary>
+        /// Send an arbitrary marketing/communication campaign email (Marketing &amp;
+        /// Communication Center, Phase 1). Unlike the methods above, subject and HTML
+        /// body are fully caller-supplied — the campaign's own compose step, not a
+        /// fixed template. Returns true if the email was accepted by the gateway.
+        /// </summary>
+        Task<bool> SendCampaignEmailAsync(string toEmail, string subject, string htmlBody);
     }
 }

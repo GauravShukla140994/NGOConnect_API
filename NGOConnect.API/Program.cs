@@ -2,6 +2,7 @@ using Microsoft.Extensions.FileProviders;
 using Serilog;
 using Serilog.Events;
 using NGOConnect.API.Extensions;
+using NGOConnect.API.Hangfire;
 using NGOConnect.API.Hubs;
 using NGOConnect.API.Middleware;
 using NGOConnect.Core.Interfaces;
@@ -50,6 +51,8 @@ try
     builder.Services.AddBlobService(builder.Configuration); // IBlobService → driven by StorageProvider in appsettings
     builder.Services.AddEmailService(builder.Configuration); // IEmailService → driven by EmailProvider in appsettings
     builder.Services.AddSmsService();                        // ISmsService → Fast2SmsService
+    // v5.0 NEW: Marketing & Communication Center, Phase 0 — background job engine
+    builder.Services.AddHangfireBackgroundJobs(builder.Configuration);
     builder.Services.AddJwtAuthentication(builder.Configuration);
     builder.Services.AddSwaggerWithJwt();
     builder.Services.AddNgoConnectCors(builder.Configuration);
@@ -134,6 +137,14 @@ try
     {
         app.UseHttpsRedirection();
     }
+
+    // 6b. Hangfire dashboard — Marketing & Communication Center, Phase 0.
+    //     Gated by HangfireDashboardAuthFilter (Development always allowed; otherwise
+    //     requires Settings.COMMUNICATION.HANGFIRE_DASHBOARD_KEY, fails closed if unset).
+    app.UseHangfireDashboard("/hangfire", new Hangfire.DashboardOptions
+    {
+        Authorization = new[] { new HangfireDashboardAuthFilter() }
+    });
 
     // 7. Static files — serve uploaded media under /uploads/*
     //    UploadRootPath must exist; LocalFileService creates subdirectories on first upload.

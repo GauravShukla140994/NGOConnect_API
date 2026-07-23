@@ -236,5 +236,42 @@ namespace NGOConnect.Infrastructure.DAL
                 return [];
             }
         }
+
+        public async Task<FeedPostNotifData> BulkNotifyFeedPostAsync(int postId, int orgId, int authorUserId)
+        {
+            var result = new FeedPostNotifData();
+            try
+            {
+                // SP: saves Notifications rows + returns (UserId, Token, Platform, Title, Body)
+                var rows = await ExecuteReaderListAsync<(string Token, string Title, string Body)>(
+                    "Post_BulkNotifyOrgMembers",
+                    r => (
+                        Token: r["Token"]?.ToString()  ?? "",
+                        Title: r["Title"]?.ToString()  ?? "",
+                        Body:  r["Body"]?.ToString()   ?? ""
+                    ),
+                    cmd =>
+                    {
+                        _db.AddParameter(cmd, "p_PostId",       postId);
+                        _db.AddParameter(cmd, "p_OrgId",        orgId);
+                        _db.AddParameter(cmd, "p_AuthorUserId", authorUserId);
+                    });
+
+                if (rows.Count == 0) return result;
+
+                result.Title  = rows[0].Title;
+                result.Body   = rows[0].Body;
+                result.Tokens = rows
+                    .Select(r => r.Token)
+                    .Where(t => !string.IsNullOrWhiteSpace(t))
+                    .Distinct()
+                    .ToList();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "BulkNotifyFeedPostAsync failed PostId={PostId} OrgId={OrgId}", postId, orgId);
+            }
+            return result;
+        }
     }
 }

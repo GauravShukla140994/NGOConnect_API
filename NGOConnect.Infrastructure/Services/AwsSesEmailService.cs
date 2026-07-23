@@ -403,6 +403,49 @@ namespace NGOConnect.Infrastructure.Services
             </html>
             """;
 
+        // v5.0 NEW: Marketing & Communication Center, Phase 1 — arbitrary campaign email
+        public async Task<bool> SendCampaignEmailAsync(string toEmail, string subject, string htmlBody)
+        {
+            try
+            {
+                var region      = _config["AWS:Region"]          ?? "ap-south-1";
+                var accessKey   = _config["AWS:AccessKeyId"]     ?? throw new InvalidOperationException("AWS:AccessKeyId not configured");
+                var secretKey   = _config["AWS:SecretAccessKey"] ?? throw new InvalidOperationException("AWS:SecretAccessKey not configured");
+                var fromAddress = _config["Email:FromAddress"]   ?? "no-reply@ripplehub.app";
+                var fromName    = _config["Email:FromName"]      ?? "RippleHub";
+
+                var credentials = new BasicAWSCredentials(accessKey, secretKey);
+                var sesRegion   = RegionEndpoint.GetBySystemName(region);
+                using var client = new AmazonSimpleEmailServiceV2Client(credentials, sesRegion);
+
+                var request = new SendEmailRequest
+                {
+                    FromEmailAddress = $"{fromName} <{fromAddress}>",
+                    Destination = new Destination { ToAddresses = new List<string> { toEmail } },
+                    Content = new EmailContent
+                    {
+                        Simple = new Message
+                        {
+                            Subject = new Content { Data = subject, Charset = "UTF-8" },
+                            Body = new Body
+                            {
+                                Html = new Content { Data = htmlBody, Charset = "UTF-8" }
+                            }
+                        }
+                    }
+                };
+
+                await client.SendEmailAsync(request);
+                Log.Information("Campaign email sent via AWS SES to {Email}", MaskEmail(toEmail));
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "AwsSesEmailService failed to send campaign email to {Email}", MaskEmail(toEmail));
+                return false;
+            }
+        }
+
         private static string MaskEmail(string email)
         {
             var parts = email.Split('@');

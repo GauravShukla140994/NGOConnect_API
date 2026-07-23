@@ -6,6 +6,17 @@ namespace NGOConnect.Core.Models.Notification
         public string Platform { get; set; } = "ANDROID";  // ANDROID, IOS, WEB
     }
 
+    /// <summary>
+    /// Returned by NotificationDal.BulkNotifyFeedPostAsync.
+    /// Contains the FCM tokens to multicast and the notification text built by the SP.
+    /// </summary>
+    public class FeedPostNotifData
+    {
+        public string       Title  { get; set; } = string.Empty;
+        public string       Body   { get; set; } = string.Empty;
+        public List<string> Tokens { get; set; } = [];
+    }
+
     public class SendTestNotificationRequest
     {
         public string  Token     { get; set; } = string.Empty;  // FCM device token

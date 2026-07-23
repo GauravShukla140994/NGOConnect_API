@@ -1,4 +1,5 @@
 using System.Text;
+using Hangfire;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -68,6 +69,44 @@ namespace NGOConnect.API.Extensions
             services.AddSingleton<IUrlTokenService, UrlTokenService>();
             // v4.9 — Help & Support (Phase 1: logs to AuditLogs, sends email)
             services.AddScoped<ISupportDal, SupportDal>();
+            // v5.0 — Marketing & Communication Center (Phase 0 + Phase 1, Push + Email only)
+            services.AddScoped<ICampaignDal,               CampaignDal>();
+            services.AddScoped<ICommunicationPreferenceDal, CommunicationPreferenceDal>();
+            services.AddScoped<ICampaignDispatchService,    CampaignDispatchService>();
+            return services;
+        }
+
+        // ── Hangfire Background Jobs ─────────────────────────────
+        /// <summary>
+        /// v5.0 NEW: Marketing & Communication Center, Phase 0 foundation.
+        /// Reuses the same MySQL connection string as everything else (DefaultConnection) —
+        /// no second database. Storage schema is created/migrated automatically by
+        /// Hangfire.MySqlStorage itself on first run (PrepareSchemaIfNecessary), so it is
+        /// intentionally NOT part of NGOConnect_Complete_Setup_v4.9.sql.
+        /// </summary>
+        public static IServiceCollection AddHangfireBackgroundJobs(
+            this IServiceCollection services, IConfiguration configuration)
+        {
+            var connectionString = configuration.GetConnectionString("DefaultConnection")
+                ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found — required for Hangfire storage too.");
+
+            services.AddHangfire(config => config
+                .SetDataCompatibilityLevel(Hangfire.CompatibilityLevel.Version_180)
+                .UseSimpleAssemblyNameTypeSerializer()
+                .UseRecommendedSerializerSettings()
+                .UseStorage(new Hangfire.MySql.MySqlStorage(connectionString, new Hangfire.MySql.MySqlStorageOptions
+                {
+                    TablesPrefix           = "Hangfire",
+                    PrepareSchemaIfNecessary = true,
+                    QueuePollInterval      = TimeSpan.FromSeconds(15)
+                })));
+
+            services.AddHangfireServer(options =>
+            {
+                options.WorkerCount = Math.Max(1, Environment.ProcessorCount);
+                options.Queues      = new[] { "default" };
+            });
+
             return services;
         }
 
