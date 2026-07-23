@@ -53,7 +53,8 @@ namespace NGOConnect.API.Controllers
         public async Task<ApiResponse> SendTest([FromBody] SendTestNotificationRequest request)
         {
             var ok = await _fcm.SendAsync(request.Token, request.Title, request.Body,
-                request.NotifType ?? "TEST", request.RefId, request.RefType);
+                request.NotifType ?? "TEST", request.RefId, request.RefType,
+                request.ImageUrl, request.DeepLink, request.ActionLabel);
             return ok
                 ? ApiResponse.Ok("Test notification sent.")
                 : ApiResponse.Fail("Failed to send test notification. Check token and FCM config.", "FCM_ERROR");

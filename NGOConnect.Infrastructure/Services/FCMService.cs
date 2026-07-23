@@ -57,8 +57,11 @@ namespace NGOConnect.Infrastructure.Services
             string title,
             string body,
             string notifType,
-            int?   refId    = null,
-            string? refType = null)
+            int?    refId       = null,
+            string? refType     = null,
+            string? imageUrl    = null,
+            string? deepLink    = null,
+            string? actionLabel = null)
         {
             if (!_ready || string.IsNullOrWhiteSpace(token)) return false;
 
@@ -67,8 +70,8 @@ namespace NGOConnect.Infrastructure.Services
                 var message = new Message
                 {
                     Token        = token,
-                    Notification = new Notification { Title = title, Body = body },
-                    Data         = BuildData(notifType, refId, refType),
+                    Notification = new Notification { Title = title, Body = body, ImageUrl = string.IsNullOrWhiteSpace(imageUrl) ? null : imageUrl },
+                    Data         = BuildData(notifType, refId, refType, deepLink, actionLabel),
                     Android      = new AndroidConfig
                     {
                         Priority         = Priority.High,
@@ -107,8 +110,11 @@ namespace NGOConnect.Infrastructure.Services
             string title,
             string body,
             string notifType,
-            int?   refId    = null,
-            string? refType = null)
+            int?    refId       = null,
+            string? refType     = null,
+            string? imageUrl    = null,
+            string? deepLink    = null,
+            string? actionLabel = null)
         {
             if (!_ready) return false;
 
@@ -123,7 +129,7 @@ namespace NGOConnect.Infrastructure.Services
             {
                 // Firebase limits multicast to 500 tokens per call
                 const int batchSize = 500;
-                var data        = BuildData(notifType, refId, refType);
+                var data        = BuildData(notifType, refId, refType, deepLink, actionLabel);
                 var staleTokens = new List<string>();
 
                 for (int i = 0; i < tokenList.Count; i += batchSize)
@@ -132,7 +138,7 @@ namespace NGOConnect.Infrastructure.Services
                     var multicast = new MulticastMessage
                     {
                         Tokens       = batch,
-                        Notification = new Notification { Title = title, Body = body },
+                        Notification = new Notification { Title = title, Body = body, ImageUrl = string.IsNullOrWhiteSpace(imageUrl) ? null : imageUrl },
                         Data         = data,
                         Android      = new AndroidConfig
                         {
@@ -200,11 +206,18 @@ namespace NGOConnect.Infrastructure.Services
 
         // ── Helpers ──────────────────────────────────────────────────────────────
 
-        private static Dictionary<string, string> BuildData(string notifType, int? refId, string? refType)
+        // v5.0 NEW: deepLink/actionLabel are custom data keys (not part of the FCM
+        // "notification" payload) — the client app's notification tap-handler reads
+        // them from the data payload to navigate and render an in-app CTA. See
+        // Marketing & Communication Center BRD, mobile app notes.
+        private static Dictionary<string, string> BuildData(
+            string notifType, int? refId, string? refType, string? deepLink = null, string? actionLabel = null)
         {
             var data = new Dictionary<string, string> { ["notifType"] = notifType };
             if (refId.HasValue) data["refId"]   = refId.Value.ToString();
             if (refType != null) data["refType"] = refType;
+            if (!string.IsNullOrWhiteSpace(deepLink))    data["deepLink"]    = deepLink;
+            if (!string.IsNullOrWhiteSpace(actionLabel)) data["actionLabel"] = actionLabel;
             return data;
         }
 

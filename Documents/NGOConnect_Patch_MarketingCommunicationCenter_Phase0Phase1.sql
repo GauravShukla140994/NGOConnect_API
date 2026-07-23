@@ -14,14 +14,15 @@
 --
 -- SAFETY NOTES:
 --   - All 6 new tables use CREATE TABLE IF NOT EXISTS — safe to re-run.
---   - The two ALTER TABLE Users ADD INDEX statements are one-time; re-running
---     this file a second time will error on "Duplicate key name" for those
---     two lines specifically — that error is harmless and expected on a
---     second run (drop those two lines if you need to re-run this file).
---   - LookupTypes/LookupValues/Settings INSERTs will error with a duplicate-key
---     message if re-run — also harmless (nothing gets corrupted or duplicated),
---     just re-run only NGOConnect_Complete_Setup_v4.9.sql's fresh-DB path
---     instead if starting a brand new database.
+--   - The two Users indexes are added via a conditional helper procedure
+--     (checks information_schema.STATISTICS first) — also safe to re-run.
+--   - LookupTypes/LookupValues/Settings INSERTs use INSERT IGNORE (each table
+--     has a UNIQUE KEY covering the natural key — uq_lookuptype_code,
+--     uq_lookupval_type_code, uq_settings_key) — also safe to re-run, silently
+--     skips rows that already exist.
+--   - Net effect: this entire patch file is safe to run start-to-finish as
+--     many times as needed. Every statement either uses IF NOT EXISTS,
+--     IF EXISTS, INSERT IGNORE, or a DROP-then-CREATE PROCEDURE pattern.
 --   - Hangfire's own storage tables (HangfireXxx) are NOT part of this patch —
 --     Hangfire.MySqlStorage creates/migrates them automatically on first run
 --     (PrepareSchemaIfNecessary=true in ServiceCollectionExtensions.cs).
@@ -167,20 +168,45 @@ CREATE TABLE IF NOT EXISTS CampaignQueueJobs (
 
 -- Additive indexes supporting audience-segment resolution (Active/Inactive/New filters).
 -- Does not alter any existing column, default, or FK — safe add-on to a live table.
-ALTER TABLE Users ADD INDEX idx_users_lastlogin (IsDeleted, LastLoginAt);
-ALTER TABLE Users ADD INDEX idx_users_createdat (IsDeleted, CreatedAt);
+-- Wrapped in a conditional helper so this is genuinely safe to re-run on any
+-- MySQL 8.0.x version (plain ALTER TABLE ADD INDEX has no portable IF NOT
+-- EXISTS clause before 8.0.29) — checks information_schema.STATISTICS first.
+DROP PROCEDURE IF EXISTS _AddIndexIfNotExists;
+DELIMITER //
+CREATE PROCEDURE _AddIndexIfNotExists(
+    IN p_TableName VARCHAR(64),
+    IN p_IndexName VARCHAR(64),
+    IN p_IndexCols VARCHAR(255)
+)
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = p_TableName AND INDEX_NAME = p_IndexName
+    ) THEN
+        SET @ddl = CONCAT('ALTER TABLE ', p_TableName, ' ADD INDEX ', p_IndexName, ' (', p_IndexCols, ')');
+        PREPARE stmt FROM @ddl;
+        EXECUTE stmt;
+        DEALLOCATE PREPARE stmt;
+    END IF;
+END //
+DELIMITER ;
+
+CALL _AddIndexIfNotExists('Users', 'idx_users_lastlogin', 'IsDeleted, LastLoginAt');
+CALL _AddIndexIfNotExists('Users', 'idx_users_createdat', 'IsDeleted, CreatedAt');
+
+DROP PROCEDURE IF EXISTS _AddIndexIfNotExists;
 
 -- ── v5.0: Communication Center lookups ───────────────────────
 -- NOTE: prefixed MKTG_ to avoid colliding with the existing donation-fundraising
 -- lookups CAMPAIGN_TYPE / CAMPAIGN_STATUS (see DONATION_STATUS section above —
 -- those already use those exact TypeCodes for a completely different feature).
-INSERT INTO LookupTypes (TypeCode, TypeName, Description, IsSystemType, CreatedBy) VALUES
+INSERT IGNORE INTO LookupTypes (TypeCode, TypeName, Description, IsSystemType, CreatedBy) VALUES
 ('MKTG_CAMPAIGN_TYPE',     'Marketing Campaign Type',     'Category of a marketing/communication campaign', 1, 1),
 ('MKTG_CAMPAIGN_PRIORITY', 'Marketing Campaign Priority', 'Send priority for a marketing campaign',          1, 1),
 ('MKTG_CAMPAIGN_STATUS',   'Marketing Campaign Status',   'Lifecycle status of a marketing campaign',        1, 1),
 ('MKTG_CAMPAIGN_CHANNEL',  'Marketing Campaign Channel',  'Delivery channel for a marketing campaign',       1, 1);
 
-INSERT INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue, CreatedBy)
+INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue, CreatedBy)
 SELECT lt.LookupTypeId, v.ValueCode, v.ValueName, v.OrderNo, 1, 1
 FROM LookupTypes lt
 JOIN (
@@ -197,7 +223,7 @@ JOIN (
 ) v ON 1=1
 WHERE lt.TypeCode = 'MKTG_CAMPAIGN_TYPE';
 
-INSERT INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue, CreatedBy)
+INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue, CreatedBy)
 SELECT lt.LookupTypeId, v.ValueCode, v.ValueName, v.OrderNo, 1, 1
 FROM LookupTypes lt
 JOIN (
@@ -208,7 +234,7 @@ JOIN (
 ) v ON 1=1
 WHERE lt.TypeCode = 'MKTG_CAMPAIGN_PRIORITY';
 
-INSERT INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue, CreatedBy)
+INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue, CreatedBy)
 SELECT lt.LookupTypeId, v.ValueCode, v.ValueName, v.OrderNo, 1, 1
 FROM LookupTypes lt
 JOIN (
@@ -223,7 +249,7 @@ JOIN (
 WHERE lt.TypeCode = 'MKTG_CAMPAIGN_STATUS';
 
 -- WHATSAPP seeded now (inert) so Phase 4 activation is a feature-flag away, not a schema change
-INSERT INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue, CreatedBy)
+INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue, CreatedBy)
 SELECT lt.LookupTypeId, v.ValueCode, v.ValueName, v.OrderNo, 1, 1
 FROM LookupTypes lt
 JOIN (
@@ -234,41 +260,15 @@ JOIN (
 ) v ON 1=1
 WHERE lt.TypeCode = 'MKTG_CAMPAIGN_CHANNEL';
 
--- ============================================================
--- SECTION 4: SEED DATA — Settings + IdSequences
--- ============================================================
-
-INSERT INTO Settings (SettingGroup, SettingKey, SettingValue, DataType, Description, IsPublic) VALUES
-('OTP',        'OTP_EXPIRY_MINUTES',   '10',                     'NUMBER',  'OTP expiry in minutes',                  0),
-('OTP',        'OTP_MAX_ATTEMPTS',     '3',                      'NUMBER',  'Max OTP verification attempts',          0),
-('OTP',        'OTP_RATE_LIMIT',       '3',                      'NUMBER',  'Max OTPs per 10 min per recipient',      0),
-('AUTH',       'JWT_EXPIRY_MINUTES',   '15',                     'NUMBER',  'JWT access token expiry in minutes',     0),
-('AUTH',       'REFRESH_EXPIRY_DAYS',  '30',                     'NUMBER',  'Refresh token expiry in days',           0),
-('AUTH',       'MAX_SESSIONS',         '5',                      'NUMBER',  'Max concurrent sessions per user',       0),
-('PAGINATION', 'DEFAULT_PAGE_SIZE',    '20',                     'NUMBER',  'Default page size for list APIs',        1),
-('PAGINATION', 'MAX_PAGE_SIZE',        '100',                    'NUMBER',  'Maximum allowed page size',              1),
-('PLATFORM',   'APP_NAME',             'NGO Connect',            'STRING',  'Platform display name',                  1),
-('PLATFORM',   'SUPPORT_EMAIL',        'support@ngoconnect.app', 'STRING',  'Support email address',                  1),
-('FEATURE',    'SOS_ENABLED',          'true',                   'BOOLEAN', 'Toggle SOS feature on/off',              0),
-('FEATURE',    'DONATIONS_ENABLED',    'true',                   'BOOLEAN', 'Toggle donations feature on/off',        0),
-('DONATION',   'MIN_DONATION_AMOUNT',  '10',                     'NUMBER',  'Minimum donation amount in INR',         1),
-('DONATION',   'DEFAULT_PLATFORM_FEE', '1.00',                   'NUMBER',  'Default platform fee percentage',        0),
-('DONATION',   'RAZORPAY_KEY_ID',      'rzp_test_xxxx',          'STRING',  'Razorpay Key ID (public)',               1),
-('UPLOAD',     'MAX_FILE_SIZE_MB',     '10',                     'NUMBER',  'Maximum file upload size in MB',         1),
-('UPLOAD',     'ALLOWED_IMAGE_TYPES',  'jpg,jpeg,png,webp',      'STRING',  'Allowed image file extensions',          1),
-('UPLOAD',     'ALLOWED_DOC_TYPES',    'pdf,doc,docx',           'STRING',  'Allowed document file extensions',       1),
-('SOS',        'SOS_RADIUS_KM',        '5',                      'NUMBER',  'Default SOS alert radius in km',         0),
-('SMS',        'SMS_PROVIDER',         'MSG91',                  'STRING',  'SMS provider name',                      0),
-('SMS',        'SMS_TEMPLATE_OTP',     'Your OTP is {otp}',      'STRING',  'OTP SMS template',                       0),
--- v4.9: Org Member Invitations
-('INVITE',     'INVITE_BASE_URL',          'https://ripplehub.app/invite/', 'URL',     'Base URL for org member invitation deep links (swap per env)', 0),
-('INVITE',     'INVITE_TOKEN_EXPIRY_DAYS', '30',                            'NUMBER',  'Invitation link expiry in days',                              0),
-('INVITE',     'INVITE_SINGLE_USE',        'true',                          'BOOLEAN', 'Invitation token can only be consumed once',                  0),
-('SMS',        'SMS_TEMPLATE_INVITE',      '{inviter} invited you to join {orgName} on RippleHub. Join the community: {link}', 'STRING', 'SMS template for org invitations', 0),
-('EMAIL',      'EMAIL_TEMPLATE_INVITE',    'org_invitation',                'STRING',  'Email template key for org invitations',                      0);
+-- NOTE: the block that used to sit here (a full copy of every pre-v5.0 Settings
+-- row — OTP/AUTH/PAGINATION/PLATFORM/FEATURE/DONATION/UPLOAD/SOS/SMS/INVITE —
+-- was a bug in how this patch was extracted from the setup file: it's all
+-- already-existing data on any DB that's been through prior schema versions,
+-- and re-inserting it throws Error 1062 (Duplicate entry ... uq_settings_key).
+-- Removed. Only the genuinely new v5.0 Settings insert below belongs in a patch.
 
 -- v5.0 NEW: Marketing & Communication Center
-INSERT INTO Settings (SettingGroup, SettingKey, SettingValue, DataType, Description, IsPublic) VALUES
+INSERT IGNORE INTO Settings (SettingGroup, SettingKey, SettingValue, DataType, Description, IsPublic) VALUES
 ('COMMUNICATION', 'CAMPAIGN_BATCH_SIZE',            '500',   'NUMBER',  'Recipients per send batch, per channel',                                     0),
 ('COMMUNICATION', 'CAMPAIGN_RETRY_MAX_ATTEMPTS',    '3',     'NUMBER',  'Max retry attempts per failed batch',                                        0),
 ('COMMUNICATION', 'CAMPAIGN_RETRY_BACKOFF_MINUTES', '5',     'NUMBER',  'Base backoff delay between retries in minutes, doubles each attempt',       0),
@@ -747,7 +747,7 @@ CREATE PROCEDURE Campaign_GetQueuedRecipients(
 )
 BEGIN
     SELECT cr.CampaignRecipientId, cr.UserId, u.Email,
-           cc.PushTitle, cc.PushBody, cc.PushImageUrl, cc.PushDeepLink,
+           cc.PushTitle, cc.PushBody, cc.PushImageUrl, cc.PushDeepLink, cc.PushActionLabel,
            cc.EmailSubject, cc.EmailHtmlBody
     FROM CampaignRecipients cr
     JOIN LookupValues lv      ON lv.LookupValueId = cr.ChannelLkpId

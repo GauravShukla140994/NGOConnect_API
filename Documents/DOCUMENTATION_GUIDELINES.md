@@ -268,7 +268,39 @@ When there is a conflict between files, this priority order applies:
 
 ---
 
-**Marketing & Communication Center — Phase 0 + Phase 1 IMPLEMENTED (code + SQL written, not yet applied to any DB)** (2026-07-23)
+**Marketing & Communication Center — Mobile Phase 1 implemented** (2026-07-22)
+- Mobile-only changes (no backend changes, no SP changes, no DB changes):
+  - `index.js`: background/quit `displaySystemNotification()` now sets `showTimestamp: true` + `when: Date.now()` — fixes notifications showing a date instead of precise delivery time.
+  - `src/navigation/RootNavigator.tsx`: Extended `NotifData` type with `deepLink?` + `actionLabel?`; added `handleDeepLinkRef` (always-current ref pattern) so FCM/notifee tap effects can call `handleDeepLink` without stale-closure issues; foreground `notifee.displayNotification()` now sets `when: Date.now()` and reads `imageUrl` from FCM notification android payload for `largeIcon` (CAMPAIGN image support); all three tap handlers (foreground notifee press, background FCM, cold-start FCM) now check for `notifType === 'CAMPAIGN'` + `deepLink` before calling `resolveScreen`, routing through `handleDeepLink` instead; `resolveScreen()` has new `CAMPAIGN` fallback case → `{ screen: 'Notifications' }`.
+  - `src/screens/home/NotificationsScreen.tsx`: Added `NEW_FEED_POST` + `CAMPAIGN` to `notifMeta()` (📝 purple, 📣 violet); added `NEW_FEED_POST` case to `resolveScreen()` → Home; CAMPAIGN deepLink handling in `onPressNotif` via `Linking.openURL()`.
+  - `src/screens/home/FCMTestScreen.tsx`: Added CAMPAIGN to NOTIF_TYPES list.
+  - `src/types/api.types.ts`: Added `deepLink?: string` + `actionLabel?: string` to `Notification` interface (for in-app notification list).
+  - NEW `src/api/communication.api.ts`: `communicationApi.get()` + `communicationApi.update()` wired to `GET/PUT /api/v1/communication-preferences`.
+  - NEW `src/screens/profile/CommunicationPreferencesScreen.tsx`: 6-toggle screen (receivePushNotifications, receivePromotionalEmails, receivePromotionalSms, receiveNgoUpdates, receiveDonationAlerts, receiveVolunteerOpportunities); graceful fallback to all-enabled defaults if API not yet deployed.
+  - `src/navigation/AppNavigator.tsx`: Registered `CommunicationPreferences` screen.
+  - `src/screens/profile/ProfileScreen.tsx`: Added "📣 Communication Preferences" entry to SETTINGS_ITEMS (between Notifications and Terms of Service).
+- API documentation impact: `GET/PUT /api/v1/communication-preferences` endpoints already documented if the Phase 0+1 API doc was written — no new endpoints, this is the mobile client consuming them.
+- No DB/SP/C# changes this session.
+
+---
+
+**Marketing & Communication Center — push payload fix + local DB patch bugs fixed** (2026-07-24)
+- **Hangfire namespace collision (build-breaking, now fixed):** `NGOConnect.API/Hangfire/HangfireDashboardAuthFilter.cs`'s namespace was `NGOConnect.API.Hangfire` — a segment literally named "Hangfire" nested under `NGOConnect.API` shadowed the real `Hangfire` NuGet package namespace for any file elsewhere under `NGOConnect.API.*` referencing bare `Hangfire.Xxx` (caused CS0234 on `Hangfire.MySql.MySqlStorage`/`Hangfire.CompatibilityLevel` in `ServiceCollectionExtensions.cs`). Renamed namespace to `NGOConnect.API.HangfireSupport`; updated the one `using` in `Program.cs`. Also added a missing `using Hangfire;` to `Program.cs` (needed for the `UseHangfireDashboard` extension method — CS1061).
+- **Patch file bugs found while running `NGOConnect_Patch_MarketingCommunicationCenter_Phase0Phase1.sql` against the local dev DB, all now fixed in the patch file:**
+  1. The Settings section accidentally included a full duplicate copy of every pre-v5.0 Settings row (OTP/AUTH/PAGINATION/PLATFORM/FEATURE/DONATION/UPLOAD/SOS/SMS/INVITE) — Error 1062 duplicate entry. Removed; only the new `COMMUNICATION` group insert remains.
+  2. Made the whole patch genuinely idempotent (safe to run start-to-finish any number of times): the two `Users` index adds now go through a conditional helper procedure (checks `information_schema.STATISTICS`) instead of bare `ALTER TABLE`; `LookupTypes`/`LookupValues`/`Settings` inserts switched to `INSERT IGNORE`.
+- **Push payload gap found and fixed:** `IFCMService.SendAsync`/`SendMulticastAsync` had no parameters for image/deep-link/action-label at all — `CampaignChannels.PushImageUrl`/`PushDeepLink`/`PushActionLabel` were being saved to the DB but never actually reaching the FCM payload, contradicting the wizard UI's own caption. Fixed additively (new optional params, existing callers unaffected):
+  - `IFCMService.cs`: added optional `imageUrl`, `deepLink`, `actionLabel` params to both methods.
+  - `FCMService.cs`: `BuildData()` now packs `deepLink`/`actionLabel` into the FCM data payload; `imageUrl` is set on FCM's native `Notification.ImageUrl` (renders in the system tray automatically on Android/iOS with no app code, for background/quit-state notifications — foreground-state display still depends on the app's own local-notification renderer, if any).
+  - `Campaign_GetQueuedRecipients` SP: added `cc.PushActionLabel` to its SELECT (setup SQL + patch file both updated — it was already selecting `PushImageUrl`/`PushDeepLink`, just not `PushActionLabel`).
+  - `CampaignDispatchService.cs`: `SendPushAsync` and `TestSendAsync`'s `ChannelPreview` class + PUSH branch now read and pass through all three fields.
+  - Decision locked in with the user: "Action label" = **in-app CTA text** shown on the deep-linked screen after the user taps the notification (e.g., "Donate Now" button) — NOT a native notification action button (that would need per-platform notification-category registration, explicitly deferred as more mobile work than scoped here).
+  - `python3 scripts/validate_sp_params.py` re-run after these changes — all phases pass (196 SPs, no IN-param or `Col<T>` mismatches; the new SELECT column is read via `DynamicRow.Get<string>`, not a typed mapper, so it isn't in scope for that check anyway).
+- **Mobile app work still needed** (not started, no mobile repo connected this session — see chat for the full checklist given to the user): notification tap-handler needs a `notifType === "CAMPAIGN"` branch reading `refId`/`deepLink` from the FCM data payload to navigate, and reading `actionLabel` to render the in-app CTA text on the destination screen. No self-service Communication Preferences screen exists on mobile yet either (`GET`/`PUT /api/v1/communication-preferences` are live and unconsumed).
+
+---
+
+**Marketing & Communication Center — Phase 0 + Phase 1 IMPLEMENTED (applied to local dev DB 2026-07-24, see fixes entry above)** (2026-07-23)
 - BRD: `Documents/MarketingCommunicationCenter_BRD_v1.0.docx` (not one of the 4 maintained documents, no version-bump workflow applies to it).
 - Setup SQL (`NGOConnect_Complete_Setup_v4.9.sql`) updated directly, per the mandatory SP-first workflow:
   - New tables: `UserCommunicationPreferences`, `Campaigns`, `CampaignChannels`, `CampaignAudienceRules`, `CampaignRecipients` (BIGINT PK), `CampaignQueueJobs` (BIGINT PK).
@@ -289,9 +321,9 @@ When there is a conflict between files, this priority order applies:
 - Known simplifications/limitations, stated openly rather than silently shipped as "done":
   - Phase 1 supports exactly **one** audience rule per campaign (no composable combinations across rule types) — full reusable Segment Builder is Phase 2, per the BRD.
   - `Campaign_EstimateAudience` runs a live `COUNT()` when called (on wizard step transitions, not per keystroke) rather than the BRD's fuller pre-aggregated-cache proposal — a documented, deliberate simplification.
-  - Push notifications only send `title`+`body` via `IFCMService.SendMulticastAsync` — `PushImageUrl`/`PushDeepLink` are captured and stored in `CampaignChannels` but not yet transmitted in the FCM payload; the mobile app would need a tap-handler keyed on `notifType="CAMPAIGN"` + `refId`/`refType` (the same mechanism already used elsewhere) to actually deep-link on tap.
+  - ~~Push notifications only send `title`+`body`~~ — **fixed 2026-07-24**, see new entry below. `PushImageUrl`/`PushDeepLink`/`PushActionLabel` are now transmitted in the FCM payload.
   - Open/click tracking has a DB hook (`CampaignRecipient_MarkEngagement`) but no HTTP tracking-pixel/redirect endpoints wired yet — natural fit alongside Phase 2's richer HTML editor.
-  - **No Super Admin frontend UI was built this session** — this work was scoped and executed as backend/API only (DB, SPs, C#, Hangfire). The wizard, dashboard, and history table described in BRD Section 7 still need a frontend pass.
+  - ~~No Super Admin frontend UI was built this session~~ — **built 2026-07-23/24**: Dashboard, Campaigns list (doubles as history), Create/Edit wizard (4 steps) in the `Website` repo's admin panel (`src/admin/pages/communication/*`, `src/admin/api/communication.js`). Templates/Segments/Message Queue console/A-B testing UI intentionally not built — Phase 2/3 backend doesn't exist yet.
 - **Not yet done, must happen before this is usable anywhere:**
   1. Run `Documents/NGOConnect_Patch_MarketingCommunicationCenter_Phase0Phase1.sql` against the local dev DB.
   2. Run `dotnet restore` + `dotnet build` locally (or in CI) — package versions and full compilation were not verifiable in this session's sandbox (no .NET SDK, no NuGet network access). `python3 scripts/validate_sp_params.py` was run and passed cleanly (196 SPs, all IN-params and `Col<T>` reads matched) — that check doesn't require the SDK and is a strong signal, but it is not a substitute for an actual build.

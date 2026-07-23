@@ -9963,7 +9963,7 @@ CREATE PROCEDURE Campaign_GetQueuedRecipients(
 )
 BEGIN
     SELECT cr.CampaignRecipientId, cr.UserId, u.Email,
-           cc.PushTitle, cc.PushBody, cc.PushImageUrl, cc.PushDeepLink,
+           cc.PushTitle, cc.PushBody, cc.PushImageUrl, cc.PushDeepLink, cc.PushActionLabel,
            cc.EmailSubject, cc.EmailHtmlBody
     FROM CampaignRecipients cr
     JOIN LookupValues lv      ON lv.LookupValueId = cr.ChannelLkpId

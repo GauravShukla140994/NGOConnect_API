@@ -108,10 +108,14 @@ namespace NGOConnect.Infrastructure.Services
             var tokens = await _notifications.GetTokensByUserIdAsync(userId);
             if (tokens.Count == 0) return false;
 
-            var title = recipient.Get<string>("pushTitle") ?? "RippleHub";
-            var body  = recipient.Get<string>("pushBody")  ?? "";
+            var title       = recipient.Get<string>("pushTitle")       ?? "RippleHub";
+            var body        = recipient.Get<string>("pushBody")        ?? "";
+            var imageUrl    = recipient.Get<string>("pushImageUrl");
+            var deepLink    = recipient.Get<string>("pushDeepLink");
+            var actionLabel = recipient.Get<string>("pushActionLabel");
 
-            return await _fcm.SendMulticastAsync(tokens, title, body, "CAMPAIGN", refId: campaignId, refType: "Campaign");
+            return await _fcm.SendMulticastAsync(tokens, title, body, "CAMPAIGN", refId: campaignId, refType: "Campaign",
+                imageUrl: imageUrl, deepLink: deepLink, actionLabel: actionLabel);
         }
 
         private async Task<bool> SendEmailAsync(DynamicRow recipient)
@@ -167,7 +171,8 @@ namespace NGOConnect.Infrastructure.Services
                         if (tokens.Count == 0) continue;
                         anySent |= await _fcm.SendMulticastAsync(
                             tokens, $"[TEST] {channel.PushTitle ?? "RippleHub"}", channel.PushBody ?? "",
-                            "CAMPAIGN_TEST", refId: campaignId, refType: "Campaign");
+                            "CAMPAIGN_TEST", refId: campaignId, refType: "Campaign",
+                            imageUrl: channel.PushImageUrl, deepLink: channel.PushDeepLink, actionLabel: channel.PushActionLabel);
                     }
                     else if (channel.ChannelCode == "EMAIL")
                     {
@@ -186,11 +191,14 @@ namespace NGOConnect.Infrastructure.Services
 
         private class ChannelPreview
         {
-            [JsonPropertyName("channelCode")]    public string? ChannelCode    { get; set; }
-            [JsonPropertyName("pushTitle")]       public string? PushTitle      { get; set; }
-            [JsonPropertyName("pushBody")]        public string? PushBody       { get; set; }
-            [JsonPropertyName("emailSubject")]    public string? EmailSubject   { get; set; }
-            [JsonPropertyName("emailHtmlBody")]   public string? EmailHtmlBody  { get; set; }
+            [JsonPropertyName("channelCode")]     public string? ChannelCode     { get; set; }
+            [JsonPropertyName("pushTitle")]       public string? PushTitle       { get; set; }
+            [JsonPropertyName("pushBody")]        public string? PushBody        { get; set; }
+            [JsonPropertyName("pushImageUrl")]    public string? PushImageUrl    { get; set; }
+            [JsonPropertyName("pushDeepLink")]    public string? PushDeepLink    { get; set; }
+            [JsonPropertyName("pushActionLabel")] public string? PushActionLabel { get; set; }
+            [JsonPropertyName("emailSubject")]    public string? EmailSubject    { get; set; }
+            [JsonPropertyName("emailHtmlBody")]   public string? EmailHtmlBody   { get; set; }
         }
     }
 }

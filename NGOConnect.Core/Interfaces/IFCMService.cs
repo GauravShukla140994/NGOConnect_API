@@ -12,8 +12,11 @@ namespace NGOConnect.Core.Interfaces
             string title,
             string body,
             string notifType,
-            int?   refId    = null,
-            string? refType = null);
+            int?    refId       = null,
+            string? refType     = null,
+            string? imageUrl    = null,
+            string? deepLink    = null,
+            string? actionLabel = null);
 
         /// <summary>Send the same push to multiple FCM tokens (fan-out, max 500 per call).</summary>
         Task<bool> SendMulticastAsync(
@@ -21,7 +24,10 @@ namespace NGOConnect.Core.Interfaces
             string title,
             string body,
             string notifType,
-            int?   refId    = null,
-            string? refType = null);
+            int?    refId       = null,
+            string? refType     = null,
+            string? imageUrl    = null,
+            string? deepLink    = null,
+            string? actionLabel = null);
     }
 }
