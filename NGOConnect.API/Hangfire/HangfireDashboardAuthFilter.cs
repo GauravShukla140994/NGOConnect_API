@@ -1,7 +1,14 @@
 using Hangfire.Dashboard;
 using NGOConnect.Core.Interfaces;
 
-namespace NGOConnect.API.Hangfire
+// NOTE: deliberately NOT named "NGOConnect.API.Hangfire" — a namespace segment
+// literally called "Hangfire" nested under NGOConnect.API shadows the real
+// Hangfire NuGet package namespace for any file elsewhere under NGOConnect.API.*
+// that references bare `Hangfire.Xxx` (e.g. ServiceCollectionExtensions.cs's
+// `Hangfire.MySql.MySqlStorage` / `Hangfire.CompatibilityLevel` calls resolve to
+// this empty namespace instead of the package — CS0234). Keeping the folder
+// named "Hangfire" for discoverability; the C# namespace itself must differ.
+namespace NGOConnect.API.HangfireSupport
 {
     /// <summary>
     /// Gates access to the /hangfire dashboard (Marketing & Communication Center's

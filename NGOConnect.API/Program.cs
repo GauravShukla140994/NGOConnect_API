@@ -1,8 +1,9 @@
+using Hangfire;
 using Microsoft.Extensions.FileProviders;
 using Serilog;
 using Serilog.Events;
 using NGOConnect.API.Extensions;
-using NGOConnect.API.Hangfire;
+using NGOConnect.API.HangfireSupport;
 using NGOConnect.API.Hubs;
 using NGOConnect.API.Middleware;
 using NGOConnect.Core.Interfaces;
