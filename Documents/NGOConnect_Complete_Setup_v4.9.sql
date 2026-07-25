@@ -6173,6 +6173,7 @@ END //
 -- ── 3.05 Project_List ───────────────────────────────────────────────────────
 -- Updated: adds p_UserLat + p_UserLon optional; returns DistanceKm (Haversine)
 -- (Source: NGOConnect_Patch_Distance.sql)
+-- Updated: exclude EXPIRED projects from public volunteer browse (p_OrgId IS NULL)
 DROP PROCEDURE IF EXISTS Project_List //
 CREATE PROCEDURE Project_List(
     IN p_OrgId      INT UNSIGNED,
@@ -6186,9 +6187,10 @@ CREATE PROCEDURE Project_List(
     IN p_UserLon    DECIMAL(10,7)
 )
 BEGIN
-    DECLARE v_Offset       INT;
-    DECLARE v_StatusLkpId  INT UNSIGNED DEFAULT NULL;
-    DECLARE v_TypeLkpId    INT UNSIGNED DEFAULT NULL;
+    DECLARE v_Offset        INT;
+    DECLARE v_StatusLkpId   INT UNSIGNED DEFAULT NULL;
+    DECLARE v_TypeLkpId     INT UNSIGNED DEFAULT NULL;
+    DECLARE v_ExpiredLkpId  INT UNSIGNED DEFAULT NULL;
 
     SET v_Offset = (p_PageNumber - 1) * p_PageSize;
 
@@ -6203,6 +6205,11 @@ BEGIN
         FROM   LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
         WHERE  lt.TypeCode = 'PROJECT_TYPE' AND lv.ValueCode = p_TypeCode LIMIT 1;
     END IF;
+
+    -- Resolve EXPIRED LkpId once; used to hide expired projects from public volunteer browse
+    SELECT lv.LookupValueId INTO v_ExpiredLkpId
+    FROM   LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE  lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'EXPIRED' LIMIT 1;
 
     SELECT
         p.ProjectId,
@@ -6267,6 +6274,8 @@ BEGIN
       AND  (p_City       IS NULL OR p.City LIKE CONCAT('%', p_City, '%'))
       AND  (v_StatusLkpId IS NULL OR p.StatusLkpId      = v_StatusLkpId)
       AND  (v_TypeLkpId   IS NULL OR p.ProjectTypeLkpId = v_TypeLkpId)
+      -- Public browse only: hide EXPIRED projects; admin (p_OrgId set) sees all statuses
+      AND  (p_OrgId IS NOT NULL OR v_ExpiredLkpId IS NULL OR p.StatusLkpId != v_ExpiredLkpId)
     ORDER BY
         CASE WHEN p_UserLat IS NOT NULL AND p_UserLon IS NOT NULL THEN
             CASE WHEN p.Latitude IS NOT NULL AND p.Longitude IS NOT NULL THEN
@@ -6288,7 +6297,8 @@ BEGIN
       AND  (p_Category   IS NULL OR p.Category          = p_Category OR ptv.ValueCode = p_Category)
       AND  (p_City       IS NULL OR p.City LIKE CONCAT('%', p_City, '%'))
       AND  (v_StatusLkpId IS NULL OR p.StatusLkpId      = v_StatusLkpId)
-      AND  (v_TypeLkpId   IS NULL OR p.ProjectTypeLkpId = v_TypeLkpId);
+      AND  (v_TypeLkpId   IS NULL OR p.ProjectTypeLkpId = v_TypeLkpId)
+      AND  (p_OrgId IS NOT NULL OR v_ExpiredLkpId IS NULL OR p.StatusLkpId != v_ExpiredLkpId);
 END //
 
 
@@ -8590,6 +8600,76 @@ BEGIN
     ELSE
         SELECT 0 AS IsSuccess, 'Not saved.' AS Message;
     END IF;
+END //
+
+-- ── Post_GetSaved ─────────────────────────────────────────────────────────────
+-- Returns all posts saved by the given user, ordered most-recently-saved first.
+-- Columns match Feed_GetPersonalized so the same PostCard renders both feeds.
+DROP PROCEDURE IF EXISTS Post_GetSaved //
+CREATE PROCEDURE Post_GetSaved(
+    IN p_UserId     INT UNSIGNED,
+    IN p_PageNumber INT,
+    IN p_PageSize   INT
+)
+BEGIN
+    DECLARE v_Offset INT;
+    SET v_Offset = (p_PageNumber - 1) * p_PageSize;
+
+    SELECT
+        p.PostId,
+        p.Content,
+        p.IsPinned,
+        p.IsEmergency,
+        p.IsEvergreen,
+        p.LikeCount,
+        p.CommentCount,
+        p.ShareCount,
+        p.SaveCount,
+        lv_type.ValueCode  AS PostTypeCode,
+        lv_type.ValueName  AS PostType,
+        p.UserId,
+        CONCAT(up.FirstName, ' ', COALESCE(up.LastName, '')) AS AuthorName,
+        up.ProfilePhoto,
+        p.OrgId,
+        o.OrgName,
+        o.LogoUrl          AS OrgLogoUrl,
+        1                  AS IsSaved,
+        (SELECT COUNT(*) FROM PostLikes pl
+         WHERE pl.PostId = p.PostId AND pl.UserId = p_UserId) AS IsLiked,
+        GROUP_CONCAT(pm.FileUrl      ORDER BY pm.SortOrder SEPARATOR ',') AS MediaUrls,
+        GROUP_CONCAT(lv_mt.ValueCode ORDER BY pm.SortOrder SEPARATOR ',') AS MediaTypes,
+        p.CreatedAt,
+        ps.CreatedAt AS SavedAt,
+        CASE
+            WHEN TIMESTAMPDIFF(MINUTE, p.CreatedAt, NOW()) < 1   THEN 'Just now'
+            WHEN TIMESTAMPDIFF(MINUTE, p.CreatedAt, NOW()) < 60  THEN CONCAT(TIMESTAMPDIFF(MINUTE, p.CreatedAt, NOW()), 'm ago')
+            WHEN TIMESTAMPDIFF(HOUR,   p.CreatedAt, NOW()) < 24  THEN CONCAT(TIMESTAMPDIFF(HOUR,   p.CreatedAt, NOW()), 'h ago')
+            WHEN TIMESTAMPDIFF(DAY,    p.CreatedAt, NOW()) < 7   THEN CONCAT(TIMESTAMPDIFF(DAY,    p.CreatedAt, NOW()), 'd ago')
+            WHEN TIMESTAMPDIFF(DAY,    p.CreatedAt, NOW()) < 30  THEN CONCAT(FLOOR(TIMESTAMPDIFF(DAY, p.CreatedAt, NOW()) / 7), 'w ago')
+            ELSE DATE_FORMAT(p.CreatedAt, '%d %b %Y')
+        END AS TimeAgo
+    FROM   PostSaves     ps
+    JOIN   Posts         p      ON p.PostId          = ps.PostId AND p.IsDeleted = 0
+    JOIN   UserProfiles  up     ON up.UserId          = p.UserId
+    LEFT JOIN Organisations o   ON o.OrgId            = p.OrgId  AND o.IsDeleted = 0
+    LEFT JOIN LookupValues lv_type ON lv_type.LookupValueId = p.PostTypeLkpId
+    LEFT JOIN PostMedia pm      ON pm.PostId          = p.PostId
+    LEFT JOIN LookupValues lv_mt   ON lv_mt.LookupValueId  = pm.MediaTypeLkpId
+    WHERE  ps.UserId = p_UserId
+    GROUP BY
+        p.PostId,  p.Content,     p.IsPinned,   p.IsEmergency, p.IsEvergreen,
+        p.LikeCount, p.CommentCount, p.ShareCount, p.SaveCount,
+        lv_type.ValueCode, lv_type.ValueName,
+        p.UserId,  up.FirstName,  up.LastName,  up.ProfilePhoto,
+        p.OrgId,   o.OrgName,     o.LogoUrl,
+        p.CreatedAt, ps.CreatedAt
+    ORDER BY ps.CreatedAt DESC
+    LIMIT  p_PageSize OFFSET v_Offset;
+
+    SELECT COUNT(*) AS TotalCount
+    FROM   PostSaves ps
+    JOIN   Posts     p ON p.PostId = ps.PostId AND p.IsDeleted = 0
+    WHERE  ps.UserId = p_UserId;
 END //
 
 -- ── Feed_TrackInteraction ─────────────────────────────────────────────────────

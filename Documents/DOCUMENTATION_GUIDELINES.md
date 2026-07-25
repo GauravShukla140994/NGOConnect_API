@@ -268,6 +268,29 @@ When there is a conflict between files, this priority order applies:
 
 ---
 
+**Saved Posts feature — full stack** (2026-07-25)
+- `NGOConnect_Complete_Setup_v4.9.sql`: New SP `Post_GetSaved(p_UserId, p_PageNumber, p_PageSize)` — returns paginated saved posts for a user ordered by `ps.CreatedAt DESC` (most recently saved first). Joins PostSaves → Posts → UserProfiles → Organisations → LookupValues → PostMedia. Returns same columns as Feed_GetPersonalized (PostId, Content, AuthorName, PostTypeCode, MediaUrls, MediaTypes, IsLiked, IsSaved=1 constant, TimeAgo, SavedAt) plus `TotalCount` in second result set. Run patch against local DB and Railway staging.
+- `NGOConnect.Core/Interfaces/IFeedDal.cs`: Added `GetSavedPostsAsync(int userId, int pageNumber, int pageSize)` returning `ApiResponse<PagedResult<DynamicRow>>`.
+- `NGOConnect.Infrastructure/DAL/FeedDal.cs`: Implemented `GetSavedPostsAsync` using `ExecuteDynamicPagedListAsync("Post_GetSaved", ...)`.
+- `NGOConnect.API/Controllers/FeedController.cs`: New `GET /api/v1/feed/saved?pageNumber=1&pageSize=30` endpoint — returns paged saved posts.
+- `App/.../api/feed.api.ts`: Added `feedApi.getSavedPosts()` + named export `getSavedPosts`.
+- `App/.../types/api.types.ts`: Added `savedAt?: string` to `Post` interface (ISO datetime when saved — returned by Post_GetSaved only).
+- `App/.../screens/home/HomeScreen.tsx`: Fixed PostCard save toggle — was only updating local state; now calls `feedApi.savePost`/`feedApi.unsavePost` with optimistic update (reverts on error). Menu label also dynamically shows "Save" vs "Unsave".
+- NEW `App/.../screens/profile/SavedPostsScreen.tsx`: Read-only saved posts list. SavedPostCard shows author avatar, org name, post type badge, content (truncatable), media thumbnail grid (up to 3 with "+N more" overlay), like/comment counts, saved date. Pull-to-refresh + infinite scroll pagination. Unsave via alert confirmation with optimistic removal + revert on API failure.
+- `App/.../navigation/AppNavigator.tsx`: Imported and registered `SavedPostsScreen` as `Stack.Screen name="SavedPosts"`.
+- `App/.../screens/profile/ProfileScreen.tsx`: Added `{ icon: '🔖', label: 'Saved Posts', screen: 'SavedPosts' }` to `ACTIVITY_ITEMS` (MY ACTIVITY section).
+- Patch required: extract `Post_GetSaved` SP block and apply to Railway staging. No separate patch file created — use the setup SQL directly.
+
+---
+
+**Expired project filtering — Project_List SP** (2026-07-25)
+- `NGOConnect_Complete_Setup_v4.9.sql`: `Project_List` SP updated — added `v_ExpiredLkpId` variable (resolved from `LookupValues` where `TypeCode='PROJECT_STATUS'` and `ValueCode='EXPIRED'`) and added exclusion condition to both the main SELECT WHERE and the COUNT WHERE: `AND (p_OrgId IS NOT NULL OR v_ExpiredLkpId IS NULL OR p.StatusLkpId != v_ExpiredLkpId)`. This means EXPIRED projects are excluded from the public volunteer browse (All Opportunities screen) but remain visible via admin tabs (p_OrgId is always set for admin queries, so the condition is skipped). Dynamic — resolves LkpId from LookupValues, no hardcoded IDs.
+- No client-side changes needed: MyProjectsScreen and ImpactScreen already correctly route EXPIRED projects to the "Completed" tab via `isCompleted` filter, and exclude them from "Upcoming" via `isUpcoming` only matching APPROVED+UPCOMING/ACTIVE. AdminProjectsScreen always passes an explicit statusCode so EXPIRED naturally never appears in ACTIVE or UPCOMING admin tabs.
+- Patch file: `Documents/NGOConnect_Patch_ExcludeExpiredProjects.sql` — run against Railway staging before next deploy.
+- Document updates needed: `NGOConnect_Complete_Setup_v4.9.sql` (updated ✅), `Database_Documentation_v4.6.md` (note SP change in Project_List section).
+
+---
+
 **Marketing & Communication Center — Mobile Phase 1 implemented** (2026-07-22)
 - Mobile-only changes (no backend changes, no SP changes, no DB changes):
   - `index.js`: background/quit `displaySystemNotification()` now sets `showTimestamp: true` + `when: Date.now()` — fixes notifications showing a date instead of precise delivery time.

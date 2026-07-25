@@ -18,5 +18,10 @@ namespace NGOConnect.Core.Interfaces
         Task<ApiResponse> SavePostAsync(int userId, int postId);
         Task<ApiResponse> UnsavePostAsync(int userId, int postId);
         Task<ApiResponse> TrackInteractionAsync(int userId, int postId, string interactionType, int? durationMs);
+
+        /// <summary>
+        /// Returns the paginated list of posts the user has saved, most-recently-saved first.
+        /// </summary>
+        Task<ApiResponse<PagedResult<DynamicRow>>> GetSavedPostsAsync(int userId, int pageNumber, int pageSize);
     }
 }

@@ -102,6 +102,27 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
+        // ── GetSavedPostsAsync ────────────────────────────────────────────────
+        public async Task<ApiResponse<PagedResult<DynamicRow>>> GetSavedPostsAsync(
+            int userId, int pageNumber, int pageSize)
+        {
+            try
+            {
+                var result = await ExecuteDynamicPagedListAsync("Post_GetSaved", pageNumber, pageSize, cmd =>
+                {
+                    _db.AddParameter(cmd, "p_UserId",     userId);
+                    _db.AddParameter(cmd, "p_PageNumber", pageNumber);
+                    _db.AddParameter(cmd, "p_PageSize",   pageSize);
+                });
+                return ApiResponse<PagedResult<DynamicRow>>.Success(result);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetSavedPostsAsync failed UserId={UserId}", userId);
+                return ApiResponse<PagedResult<DynamicRow>>.Failure("Could not load saved posts.", "INTERNAL_ERROR");
+            }
+        }
+
         // ── Diversity Engine ──────────────────────────────────────────────────
         /// <summary>
         /// Post-processes the over-fetched candidate list to prevent monotonous feeds.

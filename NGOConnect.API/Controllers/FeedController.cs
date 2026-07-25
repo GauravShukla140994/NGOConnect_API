@@ -38,6 +38,13 @@ namespace NGOConnect.API.Controllers
         public async Task<ApiResponse> UnsavePost(int postId)
             => await _feed.UnsavePostAsync(GetUserId(), postId);
 
+        /// <summary>Get the current user's saved posts, most-recently-saved first.</summary>
+        [HttpGet("saved")] [Authorize]
+        public async Task<ApiResponse<PagedResult<DynamicRow>>> GetSaved(
+            [FromQuery] int pageNumber = 1,
+            [FromQuery] int pageSize   = 30)
+            => await _feed.GetSavedPostsAsync(GetUserId(), pageNumber, pageSize);
+
         /// <summary>
         /// Record a feed interaction for analytics (impression, view, click, etc.).
         /// Fire-and-forget from the mobile client; errors are logged but not surfaced.
