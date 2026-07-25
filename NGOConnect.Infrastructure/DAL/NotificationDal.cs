@@ -184,17 +184,26 @@ namespace NGOConnect.Infrastructure.DAL
 
         public async Task<List<string>> GetAdminTokensByOrgIdAsync(int orgId)
         {
+            var admins = await GetAdminsWithTokensAsync(orgId);
+            return admins.Select(a => a.Token).ToList();
+        }
+
+        public async Task<List<(int UserId, string Token)>> GetAdminsWithTokensAsync(int orgId)
+        {
             try
             {
-                var rows = await ExecuteReaderListAsync<string>(
+                var rows = await ExecuteReaderListAsync<(int UserId, string Token)>(
                     "Notification_GetAdminTokensByOrgId",
-                    r => r["Token"]?.ToString() ?? "",
+                    r => (
+                        r["UserId"] == DBNull.Value ? 0 : Convert.ToInt32(r["UserId"]),
+                        r["Token"]?.ToString() ?? ""
+                    ),
                     cmd => _db.AddParameter(cmd, "p_OrgId", orgId));
-                return rows.Where(t => !string.IsNullOrWhiteSpace(t)).ToList();
+                return rows.Where(m => m.UserId > 0 && !string.IsNullOrWhiteSpace(m.Token)).ToList();
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "GetAdminTokensByOrgIdAsync failed OrgId={OrgId}", orgId);
+                Log.Error(ex, "GetAdminsWithTokensAsync failed OrgId={OrgId}", orgId);
                 return [];
             }
         }

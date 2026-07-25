@@ -266,9 +266,13 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_Reason",           request.Reason);
                 });
                 if (result.Succeeded)
-                    _ = FireOrgAdminNotifAsync(request.OrgId, "NGO Registration Update",
-                        "Your organisation registration requires attention. Please check the details.",
-                        "ORG_REJECTED", request.OrgId, "ORG");
+                {
+                    var rejectBody = string.IsNullOrWhiteSpace(request.Reason)
+                        ? "Your organisation registration was not approved. Please review your details and resubmit."
+                        : $"Your organisation registration was not approved. Reason: {request.Reason}";
+                    _ = FireOrgAdminNotifAsync(request.OrgId, "NGO Registration Not Approved",
+                        rejectBody, "ORG_REJECTED", request.OrgId, "ORG");
+                }
                 return result.ToApiResponse();
             }
             catch (Exception ex)
@@ -289,9 +293,13 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_Reason",           request.Reason);
                 });
                 if (result.Succeeded)
+                {
+                    var suspendBody = string.IsNullOrWhiteSpace(request.Reason)
+                        ? "Your organisation has been suspended. Please contact support for details."
+                        : $"Your organisation has been suspended. Reason: {request.Reason}";
                     _ = FireOrgAdminNotifAsync(request.OrgId, "⚠️ NGO Suspended",
-                        "Your organisation has been suspended. Please contact support for details.",
-                        "ORG_SUSPENDED", request.OrgId, "ORG");
+                        suspendBody, "ORG_SUSPENDED", request.OrgId, "ORG");
+                }
                 return result.ToApiResponse();
             }
             catch (Exception ex)
@@ -739,10 +747,18 @@ namespace NGOConnect.Infrastructure.DAL
         {
             try
             {
-                var tokens = await _notif.GetAdminTokensByOrgIdAsync(orgId);
+                var admins = await _notif.GetAdminsWithTokensAsync(orgId);
+                if (admins.Count == 0) return;
+
+                // Persist to Notifications inbox for every FOUNDER/ADMIN — appears in bell icon + notification page
+                await Task.WhenAll(admins.Select(a =>
+                    _notif.CreateAsync(a.UserId, title, body, notifType, refId, refType, orgId)));
+
+                // FCM push
+                var tokens = admins.Select(a => a.Token).ToList();
                 await _fcm.SendMulticastAsync(tokens, title, body, notifType, refId, refType);
             }
-            catch (Exception ex) { Log.Error(ex, "SuperAdminDal.FireOrgAdminNotifAsync failed"); }
+            catch (Exception ex) { Log.Error(ex, "SuperAdminDal.FireOrgAdminNotifAsync failed OrgId={OrgId}", orgId); }
         }
     }
 }

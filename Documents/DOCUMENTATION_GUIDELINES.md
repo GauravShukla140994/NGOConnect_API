@@ -268,6 +268,27 @@ When there is a conflict between files, this priority order applies:
 
 ---
 
+**Super admin org notifications fix — backend-only** (2026-07-25)
+- No SP, table, or API endpoint changes. C# DAL fix only — no document updates required.
+- Root cause: `FireOrgAdminNotifAsync` in `SuperAdminDal` was only calling `_fcm.SendMulticastAsync` (push notification only). It never called `_notif.CreateAsync`, so no row was saved to the `Notifications` table. This meant the bell icon count and notification page never showed super admin org status notifications.
+- `INotificationDal.cs`: Added new method `GetAdminsWithTokensAsync(int orgId)` returning `List<(int UserId, string Token)>` — same shape as `GetMembersWithTokensAsync`. Reuses existing SP `Notification_GetAdminTokensByOrgId` (which already returns both `UserId` and `Token`).
+- `NotificationDal.cs`: Implemented `GetAdminsWithTokensAsync`. Simplified `GetAdminTokensByOrgIdAsync` to delegate to it.
+- `SuperAdminDal.cs`: Fixed `FireOrgAdminNotifAsync` to (1) call `GetAdminsWithTokensAsync`, (2) call `_notif.CreateAsync` per admin to persist to Notifications inbox, (3) then fire FCM push. Also improved notification bodies for `RejectOrgAsync` and `SuspendOrgAsync` to include the rejection/suspension reason if one was provided.
+- No document updates required (no SP/API/DB changes).
+
+---
+
+**Suspended org visibility fix — mobile-only** (2026-07-25)
+- Mobile-only changes, no SP/API/DB changes.
+- Root cause: `approvedOrgs` filter in CommunityScreen and ExploreScreen only checked `memberStatusCode === 'APPROVED'` but not `orgStatusCode === 'APPROVED'`. A suspended org where the user is an approved member incorrectly appeared in the header org-switcher list on both screens.
+- Note: `Org_List` and `Org_ListRecommended` SPs already filter by `StatusLkpId = v_ApprovedId`, so the public Explore browse was always correct server-side.
+- HomeScreen was already correct (`isFullyApproved` checks both fields).
+- `App/.../screens/community/CommunityScreen.tsx`: `approvedOrgs` filter — added `&& o.orgStatusCode === 'APPROVED'`; `activeOrg` derivation — added `&& o.orgStatusCode === 'APPROVED'` to both find calls; initial `setActiveOrgId` — added same check and removed `orgs[0]` fallback (a suspended-only user should get `null`, not a suspended org).
+- `App/.../screens/ngo/ExploreScreen.tsx`: same three fixes as CommunityScreen.
+- No document updates required (mobile-only, no SP/API changes).
+
+---
+
 **Saved Posts feature — full stack** (2026-07-25)
 - `NGOConnect_Complete_Setup_v4.9.sql`: New SP `Post_GetSaved(p_UserId, p_PageNumber, p_PageSize)` — returns paginated saved posts for a user ordered by `ps.CreatedAt DESC` (most recently saved first). Joins PostSaves → Posts → UserProfiles → Organisations → LookupValues → PostMedia. Returns same columns as Feed_GetPersonalized (PostId, Content, AuthorName, PostTypeCode, MediaUrls, MediaTypes, IsLiked, IsSaved=1 constant, TimeAgo, SavedAt) plus `TotalCount` in second result set. Run patch against local DB and Railway staging.
 - `NGOConnect.Core/Interfaces/IFeedDal.cs`: Added `GetSavedPostsAsync(int userId, int pageNumber, int pageSize)` returning `ApiResponse<PagedResult<DynamicRow>>`.
