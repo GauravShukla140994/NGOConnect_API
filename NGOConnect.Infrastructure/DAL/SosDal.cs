@@ -368,7 +368,11 @@ namespace NGOConnect.Infrastructure.DAL
         {
             try
             {
-                var tokens = await _notif.GetTokensByOrgIdAsync(orgId, excludeUserId);
+                var members = await _notif.GetMembersWithTokensAsync(orgId, excludeUserId);
+                if (members.Count == 0) return;
+                await Task.WhenAll(members.Select(m =>
+                    _notif.CreateAsync(m.UserId, title, body, notifType, refId, refType, orgId)));
+                var tokens = members.Select(m => m.Token).ToList();
                 await _fcm.SendMulticastAsync(tokens, title, body, notifType, refId, refType);
             }
             catch (Exception ex) { Log.Error(ex, "SosDal.FireOrgNotifAsync failed"); }
@@ -378,7 +382,11 @@ namespace NGOConnect.Infrastructure.DAL
         {
             try
             {
-                var tokens = await _notif.GetTokensBySosIncidentIdAsync(sosIncidentId);
+                var responders = await _notif.GetSosRespondersWithTokensAsync(sosIncidentId);
+                if (responders.Count == 0) return;
+                await Task.WhenAll(responders.Select(r =>
+                    _notif.CreateAsync(r.UserId, title, body, notifType, sosIncidentId, "SOS")));
+                var tokens = responders.Select(r => r.Token).ToList();
                 await _fcm.SendMulticastAsync(tokens, title, body, notifType, sosIncidentId, "SOS");
             }
             catch (Exception ex) { Log.Error(ex, "SosDal.FireSosResponderNotifAsync failed"); }

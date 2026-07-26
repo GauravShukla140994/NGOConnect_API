@@ -711,3 +711,18 @@ _Mobile (React Native):_
 - `FCMTestScreen.tsx` → `NOTIF_TYPES`: added `📝 New Feed Post (→ home)` entry with `refType: 'POST'`
 
 ---
+
+**Full FCM + CreateAsync audit fixes — backend + mobile** (2026-07-26)
+- Backend-only + mobile navigation. No SP, table, or API endpoint changes — no document version bump required.
+- Root cause: multiple `FireAdminNotifAsync` / `FireOrgNotifAsync` / `FireSosResponderNotifAsync` helpers across DAL files were only calling `_fcm.SendMulticastAsync` (push notification only), never `_notif.CreateAsync`. This meant the bell icon count and notification page (inbox) never showed those notifications for recipients.
+- **`INotificationDal.cs`**: Added new method `GetSosRespondersWithTokensAsync(int sosIncidentId)` returning `List<(int UserId, string Token)>` — reads from SP `Notification_GetTokensBySosIncidentId` which already returns both columns.
+- **`NotificationDal.cs`**: Implemented `GetSosRespondersWithTokensAsync`. Refactored `GetTokensBySosIncidentIdAsync` to delegate to it (same pattern as `GetTokensByOrgIdAsync` → `GetMembersWithTokensAsync`).
+- **`ApplicationDal.cs`**: `FireAdminNotifAsync` — now uses `GetAdminsWithTokensAsync` + `CreateAsync` per admin before FCM multicast. Removed incorrect comment "no DB record saved for admin notifications".
+- **`OrgDal.cs`**: `FireAdminNotifAsync` — same fix (affects `MEMBERSHIP_REQUEST` notifications).
+- **`WithdrawalDal.cs`**: `FireAdminNotifAsync` — same fix (affects `WITHDRAWAL_APPROVED`/`WITHDRAWAL_REJECTED` notifications).
+- **`DonationDal.cs`**: `ConfirmPaymentAsync` admin block — now uses `GetAdminsWithTokensAsync` + `CreateAsync` per admin before FCM (affects `DONATION_RECEIVED_ADMIN` notifications).
+- **`SosDal.cs`**: `FireOrgNotifAsync` — now uses `GetMembersWithTokensAsync` + `CreateAsync` per member before FCM (affects `SOS_TRIGGERED`). `FireSosResponderNotifAsync` — now uses `GetSosRespondersWithTokensAsync` + `CreateAsync` per responder before FCM (affects `SOS_RESOLVED`).
+- **`RootNavigator.tsx`** → `resolveScreen`: Added all previously missing notifType cases — `NO_SHOW_EXCUSED` → `MyProjects`; `NEW_APPLICATION` → `AdminProjects` (was incorrectly `MyProjects`); `MEMBER_ROLE_CHANGED`, `ORG_REACTIVATED`, `ORG_PROFILE_VERIFIED`, `ORG_PROFILE_REJECTED`, `INVITE_ACCEPTED`, `INVITE_DECLINED` → `MyOrgs`; `SOS_RESPONDER_INCOMING` → `SosActive` with `sosIncidentId`; `DONATION_RECEIVED_ADMIN` → `AdminDonations`; `WITHDRAWAL_APPROVED`, `WITHDRAWAL_REJECTED` → `AdminWithdrawal`; `PROFILE_UPDATE_REQUIRED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_REACTIVATED` → `Profile`.
+- No document updates required (no SP/API/DB changes).
+
+---

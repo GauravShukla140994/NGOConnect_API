@@ -160,10 +160,18 @@ namespace NGOConnect.Infrastructure.DAL
 
                             if (orgId > 0)
                             {
-                                var adminTokens = await _notif.GetAdminTokensByOrgIdAsync(orgId);
-                                await _fcm.SendMulticastAsync(adminTokens, "New Donation Received 💰",
-                                    "Your NGO has received a new donation.",
-                                    "DONATION_RECEIVED_ADMIN", campaignId, "CAMPAIGN");
+                                var admins = await _notif.GetAdminsWithTokensAsync(orgId);
+                                if (admins.Count > 0)
+                                {
+                                    await Task.WhenAll(admins.Select(a =>
+                                        _notif.CreateAsync(a.UserId, "New Donation Received 💰",
+                                            "Your NGO has received a new donation.",
+                                            "DONATION_RECEIVED_ADMIN", campaignId, "CAMPAIGN", orgId)));
+                                    var adminTokens = admins.Select(a => a.Token).ToList();
+                                    await _fcm.SendMulticastAsync(adminTokens, "New Donation Received 💰",
+                                        "Your NGO has received a new donation.",
+                                        "DONATION_RECEIVED_ADMIN", campaignId, "CAMPAIGN");
+                                }
                             }
                         }
                         catch (Exception ex) { Log.Error(ex, "DonationDal.ConfirmPaymentAsync notify failed"); }

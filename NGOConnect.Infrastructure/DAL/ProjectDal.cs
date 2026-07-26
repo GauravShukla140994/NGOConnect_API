@@ -472,10 +472,18 @@ namespace NGOConnect.Infrastructure.DAL
         {
             try
             {
-                var tokens = await _notif.GetTokensByOrgIdAsync(orgId, excludeUserId);
+                var members = await _notif.GetMembersWithTokensAsync(orgId, excludeUserId);
+                if (members.Count == 0) return;
+
+                // Persist to Notifications inbox per member — appears in bell icon + notification page
+                await Task.WhenAll(members.Select(m =>
+                    _notif.CreateAsync(m.UserId, title, body, notifType, refId, refType, orgId)));
+
+                // FCM push
+                var tokens = members.Select(m => m.Token).ToList();
                 await _fcm.SendMulticastAsync(tokens, title, body, notifType, refId, refType);
             }
-            catch (Exception ex) { Log.Error(ex, "ProjectDal.FireOrgNotifAsync failed"); }
+            catch (Exception ex) { Log.Error(ex, "ProjectDal.FireOrgNotifAsync failed OrgId={OrgId}", orgId); }
         }
 
         private async Task FireProjectNotifAsync(int projectId, string statusCode, string title, string body,

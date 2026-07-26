@@ -44,6 +44,10 @@ namespace NGOConnect.Core.Interfaces
         /// <summary>Get FCM tokens for all APPROVED responders on a SOS incident (for resolve/cancel fan-out).</summary>
         Task<List<string>> GetTokensBySosIncidentIdAsync(int sosIncidentId);
 
+        /// <summary>Get UserId + Token pairs for all APPROVED responders on a SOS incident — use this
+        /// when you need to write a Notifications inbox row per responder AND send FCM in the same fan-out.</summary>
+        Task<List<(int UserId, string Token)>> GetSosRespondersWithTokensAsync(int sosIncidentId);
+
         /// <summary>
         /// Feed post fan-out: bulk-saves one Notifications inbox row per approved org member
         /// (excluding the author), then returns their FCM tokens + the notification text.

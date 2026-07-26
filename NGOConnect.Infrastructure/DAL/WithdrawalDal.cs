@@ -110,7 +110,11 @@ namespace NGOConnect.Infrastructure.DAL
         {
             try
             {
-                var tokens = await _notif.GetAdminTokensByOrgIdAsync(orgId);
+                var admins = await _notif.GetAdminsWithTokensAsync(orgId);
+                if (admins.Count == 0) return;
+                await Task.WhenAll(admins.Select(a =>
+                    _notif.CreateAsync(a.UserId, title, body, notifType, refId, refType, orgId)));
+                var tokens = admins.Select(a => a.Token).ToList();
                 await _fcm.SendMulticastAsync(tokens, title, body, notifType, refId, refType);
             }
             catch (Exception ex) { Log.Error(ex, "WithdrawalDal.FireAdminNotifAsync failed"); }

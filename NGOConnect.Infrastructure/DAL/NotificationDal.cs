@@ -231,17 +231,26 @@ namespace NGOConnect.Infrastructure.DAL
 
         public async Task<List<string>> GetTokensBySosIncidentIdAsync(int sosIncidentId)
         {
+            var responders = await GetSosRespondersWithTokensAsync(sosIncidentId);
+            return responders.Select(r => r.Token).ToList();
+        }
+
+        public async Task<List<(int UserId, string Token)>> GetSosRespondersWithTokensAsync(int sosIncidentId)
+        {
             try
             {
-                var rows = await ExecuteReaderListAsync<string>(
+                var rows = await ExecuteReaderListAsync<(int UserId, string Token)>(
                     "Notification_GetTokensBySosIncidentId",
-                    r => r["Token"]?.ToString() ?? "",
+                    r => (
+                        r["UserId"] == DBNull.Value ? 0 : Convert.ToInt32(r["UserId"]),
+                        r["Token"]?.ToString() ?? ""
+                    ),
                     cmd => _db.AddParameter(cmd, "p_SosIncidentId", sosIncidentId));
-                return rows.Where(t => !string.IsNullOrWhiteSpace(t)).ToList();
+                return rows.Where(m => m.UserId > 0 && !string.IsNullOrWhiteSpace(m.Token)).ToList();
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "GetTokensBySosIncidentIdAsync failed SosIncidentId={Id}", sosIncidentId);
+                Log.Error(ex, "GetSosRespondersWithTokensAsync failed SosIncidentId={Id}", sosIncidentId);
                 return [];
             }
         }
