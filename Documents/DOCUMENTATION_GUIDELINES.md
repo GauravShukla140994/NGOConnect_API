@@ -726,3 +726,44 @@ _Mobile (React Native):_
 - No document updates required (no SP/API/DB changes).
 
 ---
+
+**Nearby Feed — exclude capacity-full projects** (2026-07-24)
+- `NGOConnect_Complete_Setup_v4.9.sql`: `Project_GetNearbyFeed` SP updated — added capacity-full exclusion to both the main SELECT WHERE clause and the TotalCount WHERE clause:
+  `AND (p.MaxVolunteers = 0 OR (SELECT COUNT(*) FROM ProjectApplications pa2 JOIN LookupValues alv2 ON pa2.StatusLkpId = alv2.LookupValueId WHERE pa2.ProjectId = p.ProjectId AND alv2.ValueCode = 'APPROVED' AND pa2.IsDeleted = 0) < p.MaxVolunteers)`
+  `MaxVolunteers = 0` = unlimited slots (never excluded). Cancelled projects were already excluded (status filter: ACTIVE/UPCOMING only).
+- Patch file: `Documents/NGOConnect_Patch_NearbyFeed_ExcludeCapacityFull.sql` — run against Railway staging before next deploy.
+- Document updates needed: `Database_Documentation_v4.9.md` (update `Project_GetNearbyFeed` SP description).
+
+---
+
+**Nearby ordering + All Opportunities project list fixes** (2026-07-24)
+
+_Database (`NGOConnect_Complete_Setup_v4.9.sql`):_
+- `Project_List` SP: added `p_Keyword VARCHAR(200)` param — LIKE search on `ProjectName` and `Description`; public volunteer browse (p_OrgId IS NULL) now restricted to ACTIVE + UPCOMING only (whitelist replaces old EXPIRED blacklist — also hides DRAFT/CANCELLED/COMPLETED from volunteer browse); TotalCount query now has `JOIN Organisations` to match main SELECT (was missing, causing count mismatch for deleted-org projects); removed erroneous `OR ptv.ValueCode = p_Category` in category filter (ptv is schedule type, not category).
+- `Project_GetNearbyFeed` SP: ORDER BY changed from 10km-band+relevance to pure distance (nearest first); `RelevanceScore` subquery removed from SELECT (was 4 correlated subqueries per row; no longer needed).
+- Patch file: `Documents/NGOConnect_Patch_NearbyOrdering_ProjectListFix.sql` — run against Railway staging before next deploy.
+
+_Backend:_
+- `IProjectDal.cs`: `ListAsync` signature — added `string? keyword = null` param.
+- `ProjectDal.cs`: `ListAsync` — added `keyword` param; added `_db.AddParameter(cmd, "p_Keyword", keyword)`.
+- `ProjectController.cs`: `List` action — added `[FromQuery] string? keyword = null`; passes to `ListAsync`.
+
+_Mobile (`AllOpportunitiesScreen.tsx`):_
+- `fetchData`: added `TYPE_CODE_MAP` to convert `activeType` chip labels → SP codes (`Recurring`→`RECURRING`, `One-time`→`ONE_TIME`, `Flexible`→`FLEXIBLE`); passes `typeCode` to `listProjects` (was in `useCallback` deps but never sent to API — schedule type filter was silently broken).
+- `useEffect`: added `activeType` to dependency array so schedule type chip changes trigger a refetch.
+
+_Note on "missing projects":_ If projects from an org don't appear on All Opportunities, the most likely cause is `IsPublic = false` on those projects. Volunteer browse hard-filters `IsPublic = 1`. Admin can toggle this on the project visibility step (Create/Edit project wizard) or via the admin project detail screen.
+
+---
+
+**Nearby Opportunities — schedule type filter chip fix** (2026-07-26)
+
+_Mobile (`App/NGOConnectApp/src/screens/opportunities/AllOpportunitiesScreen.tsx` — the "View All" screen reached from HomeScreen Nearby Opportunities):_
+- Root cause: the client-side `typeMatch` filter used a fragile chain of `includes()` string checks against `typeCode`. `Project_GetNearbyFeed` SP returns `ptv.ValueCode AS ProjectTypeCode` (→ `projectTypeCode` after DynamicRow camelCase) but the `Project` TypeScript interface only defines `scheduleType` — so `p.scheduleType` is always `undefined` and code fell back to `p.projectTypeCode`. The `includes()` checks could match incorrectly across type codes.
+- Added `TYPE_CODE_MAP` constant mapping chip labels → SP ValueCodes: `One-time → ONE_TIME`, `Recurring → RECURRING`, `Flexible → FLEXIBLE`.
+- Replaced `typeMatch` with exact `toUpperCase()` comparison: `typeCode === TYPE_CODE_MAP[activeType]`.
+- Fixed type pill display in `OppCard`: was `item.scheduleType ?? item.projectTypeCode ?? 'One-time'` (showed raw code like `ONE_TIME`). Changed to `(item as any).projectType ?? item.scheduleType ?? 'One-time'` to use `ptv.ValueName AS ProjectType` (human-readable: 'One-time', 'Recurring', 'Flexible').
+- Updated subtitle copy: "Sorted by distance · relevance" → "Sorted nearest first" (relevance scoring was removed from SP last session).
+- No SP, backend, or DB changes — client-side only.
+
+---

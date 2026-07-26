@@ -6172,8 +6172,11 @@ END //
 
 -- ── 3.05 Project_List ───────────────────────────────────────────────────────
 -- Updated: adds p_UserLat + p_UserLon optional; returns DistanceKm (Haversine)
--- (Source: NGOConnect_Patch_Distance.sql)
--- Updated: exclude EXPIRED projects from public volunteer browse (p_OrgId IS NULL)
+-- Updated: public browse (p_OrgId IS NULL) restricted to ACTIVE + UPCOMING only
+--          (replaces EXPIRED blacklist with positive whitelist — cleaner + hides
+--           DRAFT, CANCELLED, COMPLETED from volunteer browse)
+-- Updated: adds p_Keyword for name/description search
+-- Updated: COUNT query now has same JOINs as main SELECT (was missing org JOIN)
 DROP PROCEDURE IF EXISTS Project_List //
 CREATE PROCEDURE Project_List(
     IN p_OrgId      INT UNSIGNED,
@@ -6181,16 +6184,18 @@ CREATE PROCEDURE Project_List(
     IN p_City       VARCHAR(100),
     IN p_StatusCode VARCHAR(50),
     IN p_TypeCode   VARCHAR(50),
+    IN p_Keyword    VARCHAR(200),
     IN p_PageNumber INT,
     IN p_PageSize   INT,
     IN p_UserLat    DECIMAL(10,7),
     IN p_UserLon    DECIMAL(10,7)
 )
 BEGIN
-    DECLARE v_Offset        INT;
-    DECLARE v_StatusLkpId   INT UNSIGNED DEFAULT NULL;
-    DECLARE v_TypeLkpId     INT UNSIGNED DEFAULT NULL;
-    DECLARE v_ExpiredLkpId  INT UNSIGNED DEFAULT NULL;
+    DECLARE v_Offset          INT;
+    DECLARE v_StatusLkpId     INT UNSIGNED DEFAULT NULL;
+    DECLARE v_TypeLkpId       INT UNSIGNED DEFAULT NULL;
+    DECLARE v_ActiveLkpId     INT UNSIGNED DEFAULT NULL;
+    DECLARE v_UpcomingLkpId   INT UNSIGNED DEFAULT NULL;
 
     SET v_Offset = (p_PageNumber - 1) * p_PageSize;
 
@@ -6206,10 +6211,14 @@ BEGIN
         WHERE  lt.TypeCode = 'PROJECT_TYPE' AND lv.ValueCode = p_TypeCode LIMIT 1;
     END IF;
 
-    -- Resolve EXPIRED LkpId once; used to hide expired projects from public volunteer browse
-    SELECT lv.LookupValueId INTO v_ExpiredLkpId
+    -- Resolve ACTIVE + UPCOMING LkpIds for public volunteer browse whitelist
+    SELECT lv.LookupValueId INTO v_ActiveLkpId
     FROM   LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
-    WHERE  lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'EXPIRED' LIMIT 1;
+    WHERE  lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'ACTIVE' LIMIT 1;
+
+    SELECT lv.LookupValueId INTO v_UpcomingLkpId
+    FROM   LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE  lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'UPCOMING' LIMIT 1;
 
     SELECT
         p.ProjectId,
@@ -6270,12 +6279,15 @@ BEGIN
     WHERE  p.IsDeleted = 0
       AND  (p_OrgId IS NOT NULL OR p.IsPublic = 1)
       AND  (p_OrgId      IS NULL OR p.OrgId             = p_OrgId)
-      AND  (p_Category   IS NULL OR p.Category          = p_Category OR ptv.ValueCode = p_Category)
+      AND  (p_Category   IS NULL OR p.Category          = p_Category)
       AND  (p_City       IS NULL OR p.City LIKE CONCAT('%', p_City, '%'))
       AND  (v_StatusLkpId IS NULL OR p.StatusLkpId      = v_StatusLkpId)
       AND  (v_TypeLkpId   IS NULL OR p.ProjectTypeLkpId = v_TypeLkpId)
-      -- Public browse only: hide EXPIRED projects; admin (p_OrgId set) sees all statuses
-      AND  (p_OrgId IS NOT NULL OR v_ExpiredLkpId IS NULL OR p.StatusLkpId != v_ExpiredLkpId)
+      AND  (p_Keyword     IS NULL
+            OR p.ProjectName  LIKE CONCAT('%', p_Keyword, '%')
+            OR p.Description  LIKE CONCAT('%', p_Keyword, '%'))
+      -- Public volunteer browse: only ACTIVE + UPCOMING (admin with p_OrgId sees all)
+      AND  (p_OrgId IS NOT NULL OR p.StatusLkpId IN (v_ActiveLkpId, v_UpcomingLkpId))
     ORDER BY
         CASE WHEN p_UserLat IS NOT NULL AND p_UserLon IS NOT NULL THEN
             CASE WHEN p.Latitude IS NOT NULL AND p.Longitude IS NOT NULL THEN
@@ -6288,35 +6300,35 @@ BEGIN
         p.CreatedAt DESC
     LIMIT  p_PageSize OFFSET v_Offset;
 
+    -- TotalCount — same JOINs and WHERE as main SELECT (was missing org JOIN before)
     SELECT COUNT(*) AS TotalCount
     FROM   Projects p
-    LEFT JOIN LookupValues ptv ON p.ProjectTypeLkpId = ptv.LookupValueId
+    JOIN   Organisations o       ON p.OrgId             = o.OrgId AND o.IsDeleted = 0
+    LEFT JOIN LookupValues ptv   ON p.ProjectTypeLkpId  = ptv.LookupValueId
+    LEFT JOIN LookupValues sv    ON p.StatusLkpId       = sv.LookupValueId
     WHERE  p.IsDeleted = 0
       AND  (p_OrgId IS NOT NULL OR p.IsPublic = 1)
       AND  (p_OrgId      IS NULL OR p.OrgId             = p_OrgId)
-      AND  (p_Category   IS NULL OR p.Category          = p_Category OR ptv.ValueCode = p_Category)
+      AND  (p_Category   IS NULL OR p.Category          = p_Category)
       AND  (p_City       IS NULL OR p.City LIKE CONCAT('%', p_City, '%'))
       AND  (v_StatusLkpId IS NULL OR p.StatusLkpId      = v_StatusLkpId)
       AND  (v_TypeLkpId   IS NULL OR p.ProjectTypeLkpId = v_TypeLkpId)
-      AND  (p_OrgId IS NOT NULL OR v_ExpiredLkpId IS NULL OR p.StatusLkpId != v_ExpiredLkpId);
+      AND  (p_Keyword     IS NULL
+            OR p.ProjectName  LIKE CONCAT('%', p_Keyword, '%')
+            OR p.Description  LIKE CONCAT('%', p_Keyword, '%'))
+      AND  (p_OrgId IS NOT NULL OR p.StatusLkpId IN (v_ActiveLkpId, v_UpcomingLkpId));
 END //
 
 
 -- ── 3.06 Project_GetNearbyFeed ───────────────────────────────────────────────
--- Personalised home-screen feed: distance-banded + relevance-scored.
+-- Home-screen nearby feed: pure distance ordering (nearest to farthest).
 -- Algorithm (sort key):
---   1. FLOOR(DistanceKm / 10) ASC  — 10 km bands (0-9km, 10-19km, …)
---   2. RelevanceScore DESC          — within band, most relevant first
---   3. DistanceKm ASC               — exact distance tie-break
---   4. CreatedAt DESC               — newest tie-break
--- RelevanceScore breakdown:
---   +5  approved member of the project's NGO
---   +3  actively following the project's NGO
---   +2  per matching skill (UserSkills ↔ ProjectSkills), capped at 3 = max +6
---   +3  any UserInterest name matches the project's Category (partial LIKE)
+--   1. DistanceKm ASC  — nearest project first (NULL distance = no GPS, sorts last)
+--   2. CreatedAt DESC  — tie-break by newest
 -- Filters: ACTIVE or UPCOMING status, IsPublic=1, user has NOT already
--- applied with PENDING or APPROVED status, DistanceKm ≤ 1000 km.
--- Projects with no GPS coordinates rank last (pseudo-distance 999999).
+-- applied (any status), DistanceKm ≤ 1000 km,
+-- capacity not full (MaxVolunteers = 0 means unlimited).
+-- Projects with no GPS coordinates are excluded (WHERE Latitude IS NOT NULL).
 DROP PROCEDURE IF EXISTS Project_GetNearbyFeed //
 CREATE PROCEDURE Project_GetNearbyFeed(
     IN p_UserId     INT UNSIGNED,
@@ -6384,44 +6396,7 @@ BEGIN
                     + SIN(RADIANS(p_UserLat)) * SIN(RADIANS(p.Latitude))
                  )), 2)
             ELSE NULL
-        END AS DistanceKm,
-        -- Personalisation relevance score
-        (
-            -- +5: user is an approved member of this NGO (strongest signal)
-            CASE WHEN EXISTS(
-                SELECT 1 FROM OrgMembers om
-                JOIN LookupValues lvm ON om.StatusLkpId = lvm.LookupValueId
-                WHERE om.OrgId     = p.OrgId
-                  AND om.UserId    = p_UserId
-                  AND om.IsDeleted = 0
-                  AND lvm.ValueCode = 'APPROVED'
-            ) THEN 5 ELSE 0 END
-            -- +3: user is actively following this NGO
-            + CASE WHEN EXISTS(
-                SELECT 1 FROM OrgFollowers of2
-                WHERE of2.OrgId      = p.OrgId
-                  AND of2.UserId     = p_UserId
-                  AND of2.IsFollowing = 1
-            ) THEN 3 ELSE 0 END
-            -- +2 per skill match (case-insensitive), capped at 3 matches
-            + LEAST(
-                (SELECT COUNT(*)
-                 FROM ProjectSkills ps
-                 JOIN UserSkills us
-                   ON LOWER(TRIM(ps.SkillName)) = LOWER(TRIM(us.SkillName))
-                 WHERE ps.ProjectId = p.ProjectId
-                   AND us.UserId    = p_UserId
-                   AND us.IsDeleted = 0)
-              , 3) * 2
-            -- +3: any user interest name matches the project category (partial)
-            + CASE WHEN EXISTS(
-                SELECT 1 FROM UserInterests ui
-                JOIN LookupValues lvi ON ui.InterestLkpId = lvi.LookupValueId
-                WHERE ui.UserId = p_UserId
-                  AND (LOWER(lvi.ValueName) LIKE CONCAT('%', LOWER(p.Category), '%')
-                    OR LOWER(p.Category)    LIKE CONCAT('%', LOWER(lvi.ValueName), '%'))
-            ) THEN 3 ELSE 0 END
-        ) AS RelevanceScore
+        END AS DistanceKm
     FROM   Projects p
     JOIN   Organisations o       ON o.OrgId               = p.OrgId AND o.IsDeleted = 0
     JOIN   LookupValues  sv      ON sv.LookupValueId       = p.StatusLkpId
@@ -6450,20 +6425,18 @@ BEGIN
                    + SIN(RADIANS(p_UserLat)) * SIN(RADIANS(p.Latitude))
                )) <= 1000
           )
+      -- Exclude capacity-full projects (MaxVolunteers = 0 means unlimited)
+      AND (
+            p.MaxVolunteers = 0
+            OR (SELECT COUNT(*) FROM ProjectApplications pa2
+                JOIN LookupValues alv2 ON pa2.StatusLkpId = alv2.LookupValueId
+                WHERE pa2.ProjectId    = p.ProjectId
+                  AND alv2.ValueCode   = 'APPROVED'
+                  AND pa2.IsDeleted    = 0
+               ) < p.MaxVolunteers
+          )
     ORDER BY
-        -- Band (10 km slices); when user has no GPS all share band 0 → sort by relevance
-        CASE
-            WHEN p_UserLat IS NOT NULL AND p_UserLon IS NOT NULL
-            THEN FLOOR(6371 * ACOS(LEAST(1.0,
-                    COS(RADIANS(p_UserLat)) * COS(RADIANS(p.Latitude))
-                    * COS(RADIANS(p.Longitude) - RADIANS(p_UserLon))
-                    + SIN(RADIANS(p_UserLat)) * SIN(RADIANS(p.Latitude))
-                 )) / 10)
-            ELSE 0
-        END ASC,
-        -- Within each band: most relevant first
-        RelevanceScore DESC,
-        -- Same relevance: nearest first
+        -- Nearest first; NULL distance (no GPS) sorts last
         CASE
             WHEN p_UserLat IS NOT NULL AND p_UserLon IS NOT NULL
             THEN 6371 * ACOS(LEAST(1.0,
@@ -6499,6 +6472,15 @@ BEGIN
                    * COS(RADIANS(p.Longitude) - RADIANS(p_UserLon))
                    + SIN(RADIANS(p_UserLat)) * SIN(RADIANS(p.Latitude))
                )) <= 1000
+          )
+      AND (
+            p.MaxVolunteers = 0
+            OR (SELECT COUNT(*) FROM ProjectApplications pa2
+                JOIN LookupValues alv2 ON pa2.StatusLkpId = alv2.LookupValueId
+                WHERE pa2.ProjectId    = p.ProjectId
+                  AND alv2.ValueCode   = 'APPROVED'
+                  AND pa2.IsDeleted    = 0
+               ) < p.MaxVolunteers
           );
 END //
 
