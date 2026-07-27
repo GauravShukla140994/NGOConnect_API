@@ -756,6 +756,25 @@ _Note on "missing projects":_ If projects from an org don't appear on All Opport
 
 ---
 
+**Project_GetNearbyFeed SP — NULL MaxVolunteers excluded all projects** (2026-07-26)
+- Root cause: `MaxVolunteers INT UNSIGNED NULL` — the column is nullable. The capacity-full exclusion added in the previous session only checked `p.MaxVolunteers = 0` as the "unlimited" guard. In MySQL `NULL = 0` evaluates to UNKNOWN (not TRUE), so `FALSE OR (count < NULL)` → UNKNOWN → row excluded. Every project with `MaxVolunteers IS NULL` (no seat limit set) was silently filtered out of the nearby feed, resulting in zero results on the Home screen.
+- Fix: added `p.MaxVolunteers IS NULL` as the first OR branch in both the main SELECT WHERE clause and the TotalCount WHERE clause in `Project_GetNearbyFeed`.
+- Same fix applied to `NGOConnect_Patch_NearbyOrdering_ProjectListFix.sql` (both WHERE clauses) and `NGOConnect_Patch_NearbyFeed_ExcludeCapacityFull.sql`.
+- No mobile or C# changes needed.
+
+---
+
+**Project_GetById SP — capacity-full block + application status fix** (2026-07-26)
+
+_Database (`NGOConnect_Complete_Setup_v4.9.sql`):_
+- `Project_GetById` SP: two column alias bugs fixed:
+  1. `ApprovedVolunteers` → renamed to `ApprovedCount` (matches `Project_GetNearbyFeed` and the mobile `Project` TypeScript type field `approvedCount`). Bug: mobile `isFull` calculation used `project.approvedCount` which was always `undefined` → `curr = 0` → `isFull = false` → "Apply" button showed on capacity-full projects even after SP-level capacity filter on the list view excluded them.
+  2. `MyApplicationStatusId` (raw `LookupValueId` integer subquery) → replaced with a JOIN returning `lv2.ValueCode AS ApplicationStatusCode` (string like `'APPROVED'`/`'PENDING'`). Bug: mobile checked `project.applicationStatusCode === 'APPROVED'` which was always `undefined` → Pending/Approved states never rendered on Project Detail screen.
+- Patch file: `Documents/NGOConnect_Patch_ProjectGetById_CapacityAndStatus.sql` — run against local dev DB, Railway staging, and Railway production.
+- No mobile or C# changes needed — `Project` TypeScript type already has `approvedCount?: number` and `applicationStatusCode?: string`; DynamicRow camelCase converts `ApprovedCount → approvedCount` and `ApplicationStatusCode → applicationStatusCode` automatically.
+
+---
+
 **Nearby Opportunities — schedule type filter chip fix** (2026-07-26)
 
 _Mobile (`App/NGOConnectApp/src/screens/opportunities/AllOpportunitiesScreen.tsx` — the "View All" screen reached from HomeScreen Nearby Opportunities):_
@@ -765,5 +784,52 @@ _Mobile (`App/NGOConnectApp/src/screens/opportunities/AllOpportunitiesScreen.tsx
 - Fixed type pill display in `OppCard`: was `item.scheduleType ?? item.projectTypeCode ?? 'One-time'` (showed raw code like `ONE_TIME`). Changed to `(item as any).projectType ?? item.scheduleType ?? 'One-time'` to use `ptv.ValueName AS ProjectType` (human-readable: 'One-time', 'Recurring', 'Flexible').
 - Updated subtitle copy: "Sorted by distance · relevance" → "Sorted nearest first" (relevance scoring was removed from SP last session).
 - No SP, backend, or DB changes — client-side only.
+
+---
+
+**Project_List SP — patch file missing p_Keyword, p_UserLat, p_UserLon** (2026-07-26)
+- Root cause: `NGOConnect_Patch_NearbyOrdering_ProjectListFix.sql` contained the OLD `Project_List` SP (7 params, no `p_Keyword`/`p_UserLat`/`p_UserLon`). The setup SQL at line 6183 already had the correct 10-param version (added `p_Keyword`, `p_UserLat`, `p_UserLon`, ACTIVE+UPCOMING whitelist for public browse, keyword LIKE filter in both SELECT and COUNT WHEREs, DistanceKm Haversine in SELECT, ORDER BY distance ASC / CreatedAt DESC). MySQL error 1318 (wrong number of arguments) was silently swallowed by the DAL — old unfiltered results remained visible, making keyword search appear broken.
+- Fix: replaced `Project_List` DROP+CREATE block in `NGOConnect_Patch_NearbyOrdering_ProjectListFix.sql` with the correct 10-param version matching setup SQL line 6183.
+- `NGOConnect.Infrastructure/DAL/ProjectDal.cs` `ListAsync` was already correct — passes all 10 params in the right order (`p_Keyword` at line 163, `p_UserLat`/`p_UserLon` at 166-167). No C# changes needed.
+- **OrgName added to keyword search** (same session): both WHERE clauses in patch and setup SQL now include `OR o.OrgName LIKE CONCAT('%', p_Keyword, '%')`.
+- **Location fields added to keyword search** (2026-07-27): keyword LIKE filter now also searches `City`, `State`, `Landmark`, `AddressLine` — so typing "Mumbai" or an address finds matching projects. Both WHERE clauses (SELECT + TotalCount) updated in setup SQL and patch file.
+- New patch file: `NGOConnect_Patch_ProjectList_KeywordLocationSearch.sql` — run against Railway staging and production.
+
+---
+
+**Org_RequestMembership SP — re-join blocked by historical APPROVED request + duplicate key on INSERT** (2026-07-28)
+- **Bug 1 — "Request already submitted":** after a member is deactivated (`OrgMembers.IsDeleted = 1`), their old `OrgMembershipRequests` row is not deleted — it stays with `IsDeleted = 0` and status `APPROVED`. The duplicate-check in `Org_RequestMembership` was `WHERE IsDeleted = 0` with no status filter, so it matched the old APPROVED row and returned "Request already submitted." Same bug affected users who were previously REJECTED — they also could never re-apply.
+- **Fix 1:** Changed duplicate-check to JOIN `LookupValues`/`LookupTypes` and filter by `ValueCode = 'PENDING'` only. APPROVED and REJECTED rows no longer block re-joining.
+- **Bug 2 — "An error occurred" after Fix 1:** `OrgMembershipRequests` has `UNIQUE KEY uq_memreq_org_user (OrgId, UserId, IsDeleted)`. After Fix 1 passes the duplicate-check, the plain INSERT tries to create a new row with `IsDeleted=0` — which collides with the existing APPROVED row that also has `IsDeleted=0`. MySQL throws a duplicate-key error → DAL catch block → "An error occurred."
+- **Fix 2:** Replaced the plain INSERT with an UPDATE-first pattern. First tries to UPDATE the existing non-deleted row back to PENDING (re-join case). Only INSERTs if no such row exists (first-time join). Both fixes applied to `NGOConnect_Complete_Setup_v4.9.sql`.
+- Patch file `NGOConnect_Patch_RejoinMembership.sql` updated to v2 with both fixes — re-apply to Railway staging and production (the original v1 patch only had Fix 1 and will cause "An error occurred" on re-join).
+- No C# or mobile changes needed.
+
+---
+
+**Org_UpdateMemberRole SP — wrong version on Railway (Save Role fix)** (2026-07-28)
+- "An error occurred" on Save Role after Save Permissions was fixed. Static analysis (validate_sp_params.py) confirmed local code is clean. Root cause: Railway still has the v4.1 version of `Org_UpdateMemberRole` using `p_RoleLkpId INT` — the DAL passes `p_RoleCode VARCHAR(50)`. MySqlConnector throws a parameter name mismatch MySqlException → caught by DAL catch block → "An error occurred."
+- New patch file: `NGOConnect_Patch_UpdateMemberRole_Latest.sql` — DROP + CREATE with the latest correct version (p_RoleCode, returns UserId for FCM notification). Apply to Railway staging and production.
+- No C# or mobile changes needed.
+
+---
+
+**Org_UpdateMemberPermissions SP — missing from Railway (Save Permissions fix)** (2026-07-28)
+- Root cause of "An error occurred" on Save Permissions button: `Org_UpdateMemberPermissions` has NEVER appeared in any standalone patch file — only in complete setup SQL files. Railway staging may have a missing or outdated version if DB was not rebuilt from a recent complete setup SQL.
+- `Org_UpdateMemberRole` is confirmed correct on Railway (patched twice: v4.1 → RoleCode, FCM patch → returns UserId). Save Role error is likely the same root cause (SP may be erroring internally) OR the same general DB state issue — the FCM patch file is the authoritative version.
+- New patch file: `NGOConnect_Patch_MemberUpdateSPs.sql` — contains DROP+CREATE for `Org_UpdateMemberPermissions` only. Apply to Railway staging to fix the Save Permissions button. Does NOT touch `Org_UpdateMemberRole` (already correct from FCM patch).
+- No C# or mobile changes — DAL params and mobile call chain are correct. SP-only fix.
+- `Database_Documentation_v4.9.md`: Update `Org_UpdateMemberPermissions` SP entry to confirm it is now patched to Railway.
+
+---
+
+**Org_RemoveMember SP — admin check + founder protection** (2026-07-28)
+- Security fix: the previous setup SQL version had **no access control** — any authenticated user could call `DELETE /api/v1/orgs/{orgId}/members/{userId}` directly and the SP would blindly soft-delete the target member. No requester role check, no founder protection.
+- Additionally, `Database/04_SP_All_New_Modules.sql` had a different version of the SP using params `p_RequestedBy` + `p_OrgMemberId` which did NOT match the DAL params (`p_UserId`, `p_RemovedBy`) — parameter name mismatch would cause errors if that version was ever applied.
+- **Fixed in both files**: `NGOConnect_Complete_Setup_v4.9.sql` (line ~2660) and `Database/04_SP_All_New_Modules.sql` (line ~383). Both now use matching params (`p_OrgId`, `p_UserId`, `p_RemovedBy`) and include:
+  1. Requester check: `p_RemovedBy` must be ADMIN or FOUNDER of the org — returns `IsSuccess=0` with "Access denied" message if not.
+  2. Target founder protection: if `p_UserId` is a FOUNDER, returns `IsSuccess=0` with "Founder cannot be removed" — blocks bypass even via direct API call.
+- New patch file: `NGOConnect_Patch_OrgRemoveMember_FounderProtection.sql` — apply to Railway staging and production.
+- `Database_Documentation_v4.9.md`: Update `Org_RemoveMember` SP entry — new param descriptions, add requester role check and founder protection notes.
 
 ---

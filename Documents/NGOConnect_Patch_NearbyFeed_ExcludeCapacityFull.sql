@@ -107,9 +107,10 @@ BEGIN
                    + SIN(RADIANS(p_UserLat)) * SIN(RADIANS(p.Latitude))
                )) <= 1000
           )
-      -- Exclude capacity-full projects (MaxVolunteers = 0 means unlimited)
+      -- Exclude capacity-full projects (NULL or 0 = unlimited seats)
       AND (
-            p.MaxVolunteers = 0
+            p.MaxVolunteers IS NULL
+            OR p.MaxVolunteers = 0
             OR (SELECT COUNT(*) FROM ProjectApplications pa2
                 JOIN LookupValues alv2 ON pa2.StatusLkpId = alv2.LookupValueId
                 WHERE pa2.ProjectId    = p.ProjectId

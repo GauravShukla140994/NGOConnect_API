@@ -382,29 +382,44 @@ END //
 
 DROP PROCEDURE IF EXISTS Org_RemoveMember //
 CREATE PROCEDURE Org_RemoveMember(
-    IN p_OrgId        INT UNSIGNED,
-    IN p_RequestedBy  INT UNSIGNED,
-    IN p_OrgMemberId  INT UNSIGNED
+    IN p_OrgId      INT UNSIGNED,
+    IN p_UserId     INT UNSIGNED,    -- Target member's UserId (to be removed)
+    IN p_RemovedBy  INT UNSIGNED     -- Admin/Founder making the request
 )
 BEGIN
-    DECLARE v_IsAdmin INT DEFAULT 0;
+    DECLARE v_IsAdmin         INT DEFAULT 0;
+    DECLARE v_TargetIsFounder INT DEFAULT 0;
 
+    -- Check requester is ADMIN or FOUNDER of the org
     SELECT COUNT(*) INTO v_IsAdmin
     FROM   OrgMembers om
     JOIN   LookupValues lv ON lv.LookupValueId = om.RoleLkpId
     JOIN   LookupTypes  lt ON lt.LookupTypeId  = lv.LookupTypeId
-    WHERE  om.OrgId = p_OrgId AND om.UserId = p_RequestedBy
+    WHERE  om.OrgId = p_OrgId AND om.UserId = p_RemovedBy
       AND  lt.TypeCode = 'MEMBER_ROLE' AND lv.ValueCode IN ('ADMIN','FOUNDER')
       AND  om.IsDeleted = 0;
 
     IF v_IsAdmin = 0 THEN
-        SELECT 0 AS IsSuccess, 'Access denied. Only org admin/founder can remove members.' AS Message;
+        SELECT 0 AS IsSuccess, 'Access denied. Only org admin or founder can remove members.' AS Message;
     ELSE
-        UPDATE OrgMembers
-        SET    IsDeleted = 1, DeletedAt = NOW(), DeletedBy = p_RequestedBy
-        WHERE  OrgMemberId = p_OrgMemberId AND OrgId = p_OrgId AND IsDeleted = 0;
+        -- Founders cannot be removed — protect org ownership
+        SELECT COUNT(*) INTO v_TargetIsFounder
+        FROM   OrgMembers om
+        JOIN   LookupValues lv ON lv.LookupValueId = om.RoleLkpId
+        JOIN   LookupTypes  lt ON lt.LookupTypeId  = lv.LookupTypeId
+        WHERE  om.OrgId = p_OrgId AND om.UserId = p_UserId
+          AND  lt.TypeCode = 'MEMBER_ROLE' AND lv.ValueCode = 'FOUNDER'
+          AND  om.IsDeleted = 0;
 
-        SELECT 1 AS IsSuccess, 'Member removed successfully.' AS Message;
+        IF v_TargetIsFounder > 0 THEN
+            SELECT 0 AS IsSuccess, 'Founder cannot be removed from the organisation.' AS Message;
+        ELSE
+            UPDATE OrgMembers
+            SET    IsDeleted = 1, DeletedAt = NOW(), DeletedBy = p_RemovedBy
+            WHERE  OrgId = p_OrgId AND UserId = p_UserId AND IsDeleted = 0;
+
+            SELECT 1 AS IsSuccess, 'Member removed successfully.' AS Message;
+        END IF;
     END IF;
 END //
 

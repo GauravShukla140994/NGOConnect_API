@@ -2657,11 +2657,46 @@ BEGIN
     SELECT 1 AS IsSuccess, 'Member added.' AS Message;
 END //
 
-CREATE PROCEDURE Org_RemoveMember(IN p_OrgId INT UNSIGNED, IN p_UserId INT UNSIGNED, IN p_RemovedBy INT UNSIGNED)
+CREATE PROCEDURE Org_RemoveMember(
+    IN p_OrgId      INT UNSIGNED,
+    IN p_UserId     INT UNSIGNED,    -- Target member's UserId (to be removed)
+    IN p_RemovedBy  INT UNSIGNED     -- Admin/Founder making the request
+)
 BEGIN
-    UPDATE OrgMembers SET IsDeleted = 1, DeletedAt = NOW(), DeletedBy = p_RemovedBy
-    WHERE OrgId = p_OrgId AND UserId = p_UserId AND IsDeleted = 0;
-    SELECT 1 AS IsSuccess, 'Member removed.' AS Message;
+    DECLARE v_IsAdmin         INT DEFAULT 0;
+    DECLARE v_TargetIsFounder INT DEFAULT 0;
+
+    -- Check requester is ADMIN or FOUNDER of the org
+    SELECT COUNT(*) INTO v_IsAdmin
+    FROM   OrgMembers om
+    JOIN   LookupValues lv ON lv.LookupValueId = om.RoleLkpId
+    JOIN   LookupTypes  lt ON lt.LookupTypeId  = lv.LookupTypeId
+    WHERE  om.OrgId = p_OrgId AND om.UserId = p_RemovedBy
+      AND  lt.TypeCode = 'MEMBER_ROLE' AND lv.ValueCode IN ('ADMIN','FOUNDER')
+      AND  om.IsDeleted = 0;
+
+    IF v_IsAdmin = 0 THEN
+        SELECT 0 AS IsSuccess, 'Access denied. Only org admin or founder can remove members.' AS Message;
+    ELSE
+        -- Founders cannot be removed — protect org ownership
+        SELECT COUNT(*) INTO v_TargetIsFounder
+        FROM   OrgMembers om
+        JOIN   LookupValues lv ON lv.LookupValueId = om.RoleLkpId
+        JOIN   LookupTypes  lt ON lt.LookupTypeId  = lv.LookupTypeId
+        WHERE  om.OrgId = p_OrgId AND om.UserId = p_UserId
+          AND  lt.TypeCode = 'MEMBER_ROLE' AND lv.ValueCode = 'FOUNDER'
+          AND  om.IsDeleted = 0;
+
+        IF v_TargetIsFounder > 0 THEN
+            SELECT 0 AS IsSuccess, 'Founder cannot be removed from the organisation.' AS Message;
+        ELSE
+            UPDATE OrgMembers
+            SET    IsDeleted = 1, DeletedAt = NOW(), DeletedBy = p_RemovedBy
+            WHERE  OrgId = p_OrgId AND UserId = p_UserId AND IsDeleted = 0;
+
+            SELECT 1 AS IsSuccess, 'Member removed successfully.' AS Message;
+        END IF;
+    END IF;
 END //
 
 -- v4.0 NEW: Submit join request with full params stored in DB
@@ -2686,19 +2721,51 @@ BEGIN
     IF v_IsMember > 0 THEN
         SELECT 0 AS IsSuccess, 'Already a member of this organisation.' AS Message, NULL AS RequestId;
     ELSE
-        SELECT COUNT(*) INTO v_Exists FROM OrgMembershipRequests
-        WHERE OrgId = p_OrgId AND UserId = p_UserId AND IsDeleted = 0;
+        -- Only block on an active PENDING request.
+        -- APPROVED / REJECTED rows are historical — a user who was a member
+        -- and later deactivated (or was rejected) must be allowed to re-apply.
+        SELECT COUNT(*) INTO v_Exists
+        FROM   OrgMembershipRequests omr
+        JOIN   LookupValues lv ON lv.LookupValueId = omr.StatusLkpId
+        JOIN   LookupTypes  lt ON lt.LookupTypeId  = lv.LookupTypeId
+        WHERE  omr.OrgId = p_OrgId AND omr.UserId = p_UserId
+          AND  omr.IsDeleted = 0
+          AND  lt.TypeCode = 'MEMBER_STATUS' AND lv.ValueCode = 'PENDING';
         IF v_Exists > 0 THEN
             SELECT 0 AS IsSuccess, 'Request already submitted.' AS Message, NULL AS RequestId;
         ELSE
             SELECT LookupValueId INTO v_StatusLkpId FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
             WHERE lt.TypeCode = 'MEMBER_STATUS' AND lv.ValueCode = 'PENDING' LIMIT 1;
 
-            INSERT INTO OrgMembershipRequests
-                (OrgId, UserId, PrevNgoExperience, VolunteerSkills, AreasOfInterest, WhyJoin, StatusLkpId)
-            VALUES
-                (p_OrgId, p_UserId, p_PrevNgoExperience, p_VolunteerSkills, p_AreasOfInterest, p_WhyJoin, v_StatusLkpId);
-            SELECT 1 AS IsSuccess, 'Membership request submitted.' AS Message, LAST_INSERT_ID() AS RequestId;
+            -- OrgMembershipRequests has UNIQUE KEY (OrgId, UserId, IsDeleted).
+            -- A re-joining user may have an old APPROVED/REJECTED row with IsDeleted=0
+            -- that would cause a duplicate-key error on INSERT.
+            -- Fix: UPDATE the existing non-deleted row to PENDING (re-use it with
+            --      fresh form data). Only INSERT if no such row exists.
+            UPDATE OrgMembershipRequests
+            SET    StatusLkpId       = v_StatusLkpId,
+                   PrevNgoExperience = p_PrevNgoExperience,
+                   VolunteerSkills   = p_VolunteerSkills,
+                   AreasOfInterest   = p_AreasOfInterest,
+                   WhyJoin           = p_WhyJoin,
+                   ReviewedBy        = NULL,
+                   ReviewedAt        = NULL,
+                   ReviewNote        = NULL
+            WHERE  OrgId = p_OrgId AND UserId = p_UserId AND IsDeleted = 0;
+
+            IF ROW_COUNT() > 0 THEN
+                -- Re-join: existing APPROVED/REJECTED row reset to PENDING
+                SELECT 1 AS IsSuccess, 'Membership request submitted.' AS Message,
+                       (SELECT RequestId FROM OrgMembershipRequests
+                        WHERE OrgId = p_OrgId AND UserId = p_UserId AND IsDeleted = 0 LIMIT 1) AS RequestId;
+            ELSE
+                -- First-time join: no existing row, safe to INSERT
+                INSERT INTO OrgMembershipRequests
+                    (OrgId, UserId, PrevNgoExperience, VolunteerSkills, AreasOfInterest, WhyJoin, StatusLkpId)
+                VALUES
+                    (p_OrgId, p_UserId, p_PrevNgoExperience, p_VolunteerSkills, p_AreasOfInterest, p_WhyJoin, v_StatusLkpId);
+                SELECT 1 AS IsSuccess, 'Membership request submitted.' AS Message, LAST_INSERT_ID() AS RequestId;
+            END IF;
 
             -- ── Auto-follow on join request ────────────────────────────────────
             -- Joining an NGO implies following it. The follow persists even if the
@@ -2916,8 +2983,11 @@ BEGIN
         p.CompletedAt, p.CreatedAt,
         (SELECT COUNT(*) FROM ProjectApplications WHERE ProjectId = p.ProjectId
             AND StatusLkpId = (SELECT LookupValueId FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId=lt.LookupTypeId WHERE lt.TypeCode='APPLICATION_STATUS' AND lv.ValueCode='APPROVED')
-            AND IsDeleted = 0) AS ApprovedVolunteers,
-        (SELECT StatusLkpId FROM ProjectApplications WHERE ProjectId = p.ProjectId AND UserId = p_UserId AND IsDeleted = 0 LIMIT 1) AS MyApplicationStatusId
+            AND IsDeleted = 0) AS ApprovedCount,
+        (SELECT lv2.ValueCode FROM ProjectApplications pa2
+            JOIN LookupValues lv2 ON pa2.StatusLkpId = lv2.LookupValueId
+            WHERE pa2.ProjectId = p.ProjectId AND pa2.UserId = p_UserId AND pa2.IsDeleted = 0
+            LIMIT 1) AS ApplicationStatusCode
     FROM Projects p
     JOIN Organisations o ON p.OrgId = o.OrgId
     LEFT JOIN LookupValues ptv ON p.ProjectTypeLkpId  = ptv.LookupValueId
@@ -6285,7 +6355,12 @@ BEGIN
       AND  (v_TypeLkpId   IS NULL OR p.ProjectTypeLkpId = v_TypeLkpId)
       AND  (p_Keyword     IS NULL
             OR p.ProjectName  LIKE CONCAT('%', p_Keyword, '%')
-            OR p.Description  LIKE CONCAT('%', p_Keyword, '%'))
+            OR p.Description  LIKE CONCAT('%', p_Keyword, '%')
+            OR o.OrgName      LIKE CONCAT('%', p_Keyword, '%')
+            OR p.City         LIKE CONCAT('%', p_Keyword, '%')
+            OR p.State        LIKE CONCAT('%', p_Keyword, '%')
+            OR p.Landmark     LIKE CONCAT('%', p_Keyword, '%')
+            OR p.AddressLine  LIKE CONCAT('%', p_Keyword, '%'))
       -- Public volunteer browse: only ACTIVE + UPCOMING (admin with p_OrgId sees all)
       AND  (p_OrgId IS NOT NULL OR p.StatusLkpId IN (v_ActiveLkpId, v_UpcomingLkpId))
     ORDER BY
@@ -6315,7 +6390,12 @@ BEGIN
       AND  (v_TypeLkpId   IS NULL OR p.ProjectTypeLkpId = v_TypeLkpId)
       AND  (p_Keyword     IS NULL
             OR p.ProjectName  LIKE CONCAT('%', p_Keyword, '%')
-            OR p.Description  LIKE CONCAT('%', p_Keyword, '%'))
+            OR p.Description  LIKE CONCAT('%', p_Keyword, '%')
+            OR o.OrgName      LIKE CONCAT('%', p_Keyword, '%')
+            OR p.City         LIKE CONCAT('%', p_Keyword, '%')
+            OR p.State        LIKE CONCAT('%', p_Keyword, '%')
+            OR p.Landmark     LIKE CONCAT('%', p_Keyword, '%')
+            OR p.AddressLine  LIKE CONCAT('%', p_Keyword, '%'))
       AND  (p_OrgId IS NOT NULL OR p.StatusLkpId IN (v_ActiveLkpId, v_UpcomingLkpId));
 END //
 
@@ -6327,7 +6407,7 @@ END //
 --   2. CreatedAt DESC  — tie-break by newest
 -- Filters: ACTIVE or UPCOMING status, IsPublic=1, user has NOT already
 -- applied (any status), DistanceKm ≤ 1000 km,
--- capacity not full (MaxVolunteers = 0 means unlimited).
+-- capacity not full (MaxVolunteers NULL or 0 = unlimited).
 -- Projects with no GPS coordinates are excluded (WHERE Latitude IS NOT NULL).
 DROP PROCEDURE IF EXISTS Project_GetNearbyFeed //
 CREATE PROCEDURE Project_GetNearbyFeed(
@@ -6425,9 +6505,10 @@ BEGIN
                    + SIN(RADIANS(p_UserLat)) * SIN(RADIANS(p.Latitude))
                )) <= 1000
           )
-      -- Exclude capacity-full projects (MaxVolunteers = 0 means unlimited)
+      -- Exclude capacity-full projects (NULL or 0 = unlimited seats)
       AND (
-            p.MaxVolunteers = 0
+            p.MaxVolunteers IS NULL
+            OR p.MaxVolunteers = 0
             OR (SELECT COUNT(*) FROM ProjectApplications pa2
                 JOIN LookupValues alv2 ON pa2.StatusLkpId = alv2.LookupValueId
                 WHERE pa2.ProjectId    = p.ProjectId
@@ -6474,7 +6555,8 @@ BEGIN
                )) <= 1000
           )
       AND (
-            p.MaxVolunteers = 0
+            p.MaxVolunteers IS NULL
+            OR p.MaxVolunteers = 0
             OR (SELECT COUNT(*) FROM ProjectApplications pa2
                 JOIN LookupValues alv2 ON pa2.StatusLkpId = alv2.LookupValueId
                 WHERE pa2.ProjectId    = p.ProjectId

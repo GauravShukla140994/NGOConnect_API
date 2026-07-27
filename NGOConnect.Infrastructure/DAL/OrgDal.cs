@@ -532,9 +532,9 @@ namespace NGOConnect.Infrastructure.DAL
                 });
                 if (result.Succeeded)
                 {
-                    var userId = Col<int?>(result.Row!, "UserId");
+                    var userId = Col<uint?>(result.Row!, "UserId");
                     if (userId.HasValue)
-                        _ = FireUserNotifAsync(userId.Value, "🔄 Role Updated",
+                        _ = FireUserNotifAsync((int)userId.Value, "🔄 Role Updated",
                             $"Your role in the organisation has been updated to {request.RoleCode.ToLower().Replace("_", " ")}.",
                             "MEMBER_ROLE_CHANGED", orgId, "ORG", orgId);
                 }
