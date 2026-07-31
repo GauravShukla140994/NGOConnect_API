@@ -171,6 +171,7 @@ namespace NGOConnect.Core.Models.User
         public int      MemberCount       { get; set; }
         public DateTime JoinedAt          { get; set; }
         public string?  RejectionReason   { get; set; }   // populated when OrgStatusCode = REJECTED
+        public DateTime? SuspendedAt      { get; set; }   // populated when OrgStatusCode = SUSPENDED
     }
 
     // ── Badges — GET response ───────────────────────────────────────────────────

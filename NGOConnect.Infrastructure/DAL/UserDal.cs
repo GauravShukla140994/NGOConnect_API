@@ -315,6 +315,7 @@ namespace NGOConnect.Infrastructure.DAL
                         MemberCount      = Col<int>(r,      "MemberCount"),
                         JoinedAt         = Col<DateTime>(r, "JoinedAt"),
                         RejectionReason  = Col<string>(r,   "RejectionReason"),
+                        SuspendedAt      = Col<DateTime?>(r, "SuspendedAt"),
                     },
                     cmd => _db.AddParameter(cmd, "p_UserId", userId));
                 return ApiResponse<List<UserOrgModel>>.Success(rows);
