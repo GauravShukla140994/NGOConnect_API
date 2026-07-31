@@ -129,8 +129,9 @@ namespace NGOConnect.Infrastructure.Services
             {
                 // Firebase limits multicast to 500 tokens per call
                 const int batchSize = 500;
-                var data        = BuildData(notifType, refId, refType, deepLink, actionLabel);
-                var staleTokens = new List<string>();
+                var data          = BuildData(notifType, refId, refType, deepLink, actionLabel);
+                var staleTokens   = new List<string>();
+                var totalSuccess  = 0;
 
                 for (int i = 0; i < tokenList.Count; i += batchSize)
                 {
@@ -156,6 +157,8 @@ namespace NGOConnect.Infrastructure.Services
                     };
 
                     var result = await FirebaseMessaging.DefaultInstance.SendEachForMulticastAsync(multicast);
+                    totalSuccess += result.SuccessCount;
+
                     if (result.FailureCount > 0)
                     {
                         Log.Warning("FCMService multicast: {Failed}/{Total} failed", result.FailureCount, batch.Count);
@@ -195,7 +198,13 @@ namespace NGOConnect.Infrastructure.Services
                         }
                     });
 
-                return true;
+                // v5.0 FIX: this used to unconditionally `return true` here regardless of
+                // per-token delivery outcome — meaning a fully-failed multicast (every
+                // token invalid/stale/mismatched) still reported success as long as the
+                // Firebase Admin SDK call itself didn't throw. That made "Test send
+                // completed" lie whenever every token failed silently. Now reflects
+                // whether at least one message actually succeeded.
+                return totalSuccess > 0;
             }
             catch (Exception ex)
             {
