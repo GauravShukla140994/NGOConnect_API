@@ -69,21 +69,26 @@ namespace NGOConnect.Infrastructure.Services
             {
                 var message = new Message
                 {
-                    Token        = token,
-                    Notification = new Notification { Title = title, Body = body, ImageUrl = string.IsNullOrWhiteSpace(imageUrl) ? null : imageUrl },
-                    Data         = BuildData(notifType, refId, refType, deepLink, actionLabel),
-                    Android      = new AndroidConfig
+                    Token = token,
+                    // Android: data-only (no Notification object) so FCM does NOT auto-display.
+                    // Our JS background/foreground handler calls notifee with Date.now() as
+                    // the timestamp — this is what was showing a frozen wrong date when FCM
+                    // auto-displayed using its own (often wrong) event_time default.
+                    // iOS: APNS alert handles display natively (no JS involvement for background).
+                    Data  = BuildData(notifType, refId, refType, deepLink, actionLabel, title, body, imageUrl),
+                    Android = new AndroidConfig
                     {
-                        Priority         = Priority.High,
-                        Notification     = new AndroidNotification
-                        {
-                            Sound        = "default",
-                            ChannelId    = "ripplehub_default"
-                        }
+                        Priority = Priority.High,
+                        // No AndroidConfig.Notification — keeps Android data-only
                     },
                     Apns = new ApnsConfig
                     {
-                        Aps = new Aps { Sound = "default", Badge = 1 }
+                        Aps = new Aps
+                        {
+                            Alert = new ApsAlert { Title = title, Body = body },
+                            Sound = "default",
+                            Badge = 1,
+                        }
                     }
                 };
 
@@ -129,7 +134,7 @@ namespace NGOConnect.Infrastructure.Services
             {
                 // Firebase limits multicast to 500 tokens per call
                 const int batchSize = 500;
-                var data          = BuildData(notifType, refId, refType, deepLink, actionLabel);
+                var data          = BuildData(notifType, refId, refType, deepLink, actionLabel, title, body, imageUrl);
                 var staleTokens   = new List<string>();
                 var totalSuccess  = 0;
 
@@ -138,21 +143,23 @@ namespace NGOConnect.Infrastructure.Services
                     var batch = tokenList.Skip(i).Take(batchSize).ToList();
                     var multicast = new MulticastMessage
                     {
-                        Tokens       = batch,
-                        Notification = new Notification { Title = title, Body = body, ImageUrl = string.IsNullOrWhiteSpace(imageUrl) ? null : imageUrl },
-                        Data         = data,
-                        Android      = new AndroidConfig
+                        Tokens  = batch,
+                        // Android: data-only — same as SendAsync; see comment there.
+                        // iOS: APNS alert for native background display.
+                        Data    = data,
+                        Android = new AndroidConfig
                         {
-                            Priority     = Priority.High,
-                            Notification = new AndroidNotification
-                            {
-                                Sound     = "default",
-                                ChannelId = "ripplehub_default"
-                            }
+                            Priority = Priority.High,
+                            // No AndroidConfig.Notification — keeps Android data-only
                         },
                         Apns = new ApnsConfig
                         {
-                            Aps = new Aps { Sound = "default", Badge = 1 }
+                            Aps = new Aps
+                            {
+                                Alert = new ApsAlert { Title = title, Body = body },
+                                Sound = "default",
+                                Badge = 1,
+                            }
                         }
                     };
 
@@ -215,18 +222,28 @@ namespace NGOConnect.Infrastructure.Services
 
         // ── Helpers ──────────────────────────────────────────────────────────────
 
-        // v5.0 NEW: deepLink/actionLabel are custom data keys (not part of the FCM
-        // "notification" payload) — the client app's notification tap-handler reads
-        // them from the data payload to navigate and render an in-app CTA. See
-        // Marketing & Communication Center BRD, mobile app notes.
+        // All display fields go into Data so our JS notifee handler controls the timestamp
+        // (Date.now()) instead of FCM auto-displaying with a wrong/frozen event_time.
+        // title/body/imageUrl are included so the JS handler can render the notification
+        // identically to what we previously put in Message.Notification.
         private static Dictionary<string, string> BuildData(
-            string notifType, int? refId, string? refType, string? deepLink = null, string? actionLabel = null)
+            string  notifType,
+            int?    refId       = null,
+            string? refType     = null,
+            string? deepLink    = null,
+            string? actionLabel = null,
+            string? title       = null,
+            string? body        = null,
+            string? imageUrl    = null)
         {
             var data = new Dictionary<string, string> { ["notifType"] = notifType };
-            if (refId.HasValue) data["refId"]   = refId.Value.ToString();
-            if (refType != null) data["refType"] = refType;
+            if (refId.HasValue)                          data["refId"]       = refId.Value.ToString();
+            if (refType       != null)                   data["refType"]     = refType;
             if (!string.IsNullOrWhiteSpace(deepLink))    data["deepLink"]    = deepLink;
             if (!string.IsNullOrWhiteSpace(actionLabel)) data["actionLabel"] = actionLabel;
+            if (!string.IsNullOrWhiteSpace(title))       data["title"]       = title;
+            if (!string.IsNullOrWhiteSpace(body))        data["body"]        = body;
+            if (!string.IsNullOrWhiteSpace(imageUrl))    data["imageUrl"]    = imageUrl;
             return data;
         }
 
