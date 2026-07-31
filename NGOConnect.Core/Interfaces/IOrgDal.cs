@@ -24,6 +24,7 @@ namespace NGOConnect.Core.Interfaces
         Task<ApiResponse>                                  AddMemberAsync(int orgId, int requestedBy, AddMemberRequest request);
         Task<ApiResponse>                                  RemoveMemberAsync(int orgId, int userId, int requestedBy);
         Task<ApiResponse>                                  RequestMembershipAsync(int orgId, int userId, RequestMembershipRequest request);
+        Task<ApiResponse>                                  CancelMembershipRequestAsync(int orgId, int userId);
         Task<ApiResponse>                                  ReviewMembershipAsync(int reviewedBy, ReviewMembershipRequest request);
         Task<ApiResponse<List<DynamicRow>>>                GetPendingMembersAsync(int orgId);
         Task<ApiResponse>                                  UpdateMemberPermissionsAsync(int orgId, int updatedBy, UpdateMemberPermissionsRequest request);

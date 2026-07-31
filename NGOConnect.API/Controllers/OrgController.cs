@@ -83,6 +83,10 @@ namespace NGOConnect.API.Controllers
         public async Task<ApiResponse> RequestMembership(int orgId, [FromBody] RequestMembershipRequest request)
             => await _org.RequestMembershipAsync(orgId, GetUserId(), request);
 
+        [HttpDelete("{orgId:int}/membership-request")] [Authorize]
+        public async Task<ApiResponse> CancelMembershipRequest(int orgId)
+            => await _org.CancelMembershipRequestAsync(orgId, GetUserId());
+
         [HttpPut("{orgId:int}/membership-request/review")] [Authorize]
         public async Task<ApiResponse> ReviewMembership(int orgId, [FromBody] ReviewMembershipRequest request)
             => await _org.ReviewMembershipAsync(GetUserId(), request);

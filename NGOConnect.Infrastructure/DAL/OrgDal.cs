@@ -643,6 +643,24 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
+        public async Task<ApiResponse> CancelMembershipRequestAsync(int orgId, int userId)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("Org_CancelMembershipRequest", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_OrgId",  orgId);
+                    _db.AddParameter(cmd, "p_UserId", userId);
+                });
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "CancelMembershipRequestAsync failed OrgId={OrgId} UserId={UserId}", orgId, userId);
+                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
         public async Task<ApiResponse> ReviewMembershipAsync(int reviewedBy, ReviewMembershipRequest request)
         {
             try
