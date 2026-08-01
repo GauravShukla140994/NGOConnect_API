@@ -105,6 +105,7 @@ BEGIN
         si.Longitude,
         si.CancelReason,
         si.ResolvedAt,
+        si.CancelledAt,
         si.CreatedAt,
         si.OrgId,
         o.OrgName

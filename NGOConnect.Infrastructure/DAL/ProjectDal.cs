@@ -215,6 +215,39 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
+        public async Task<ApiResponse<List<DynamicRow>>> GetSkillsAsync(int projectId)
+        {
+            try
+            {
+                var rows = await ExecuteDynamicListAsync("Project_GetSkills",
+                    cmd => _db.AddParameter(cmd, "p_ProjectId", projectId));
+                return ApiResponse<List<DynamicRow>>.Success(rows);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetSkillsAsync failed ProjectId={ProjectId}", projectId);
+                return ApiResponse<List<DynamicRow>>.Failure("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        public async Task<ApiResponse<List<DynamicRow>>> GetSkillRatingsAsync(int projectId, int userId)
+        {
+            try
+            {
+                var rows = await ExecuteDynamicListAsync("Project_GetSkillRatings", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_ProjectId", projectId);
+                    _db.AddParameter(cmd, "p_UserId",    userId);
+                });
+                return ApiResponse<List<DynamicRow>>.Success(rows);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetSkillRatingsAsync failed ProjectId={ProjectId} UserId={UserId}", projectId, userId);
+                return ApiResponse<List<DynamicRow>>.Failure("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
         public async Task<ApiResponse<DynamicRow>> AddSessionAsync(int projectId, int userId, CreateSessionRequest request)
         {
             try

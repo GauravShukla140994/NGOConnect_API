@@ -186,16 +186,22 @@ CREATE TABLE UserSkills (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE UserSkillRatings (
-    SkillRatingId  INT UNSIGNED  NOT NULL AUTO_INCREMENT,
-    UserSkillId    INT UNSIGNED  NOT NULL,
-    RatedByUserId  INT UNSIGNED  NOT NULL,
-    SessionId      INT UNSIGNED  NULL,
-    Rating         TINYINT       NOT NULL,
-    RatedAt        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    SkillRatingId  INT UNSIGNED   NOT NULL AUTO_INCREMENT,
+    UserId         INT UNSIGNED   NOT NULL,              -- volunteer being rated
+    OrgId          INT UNSIGNED   NULL,                  -- org context
+    ProjectId      INT UNSIGNED   NULL,                  -- project context
+    SkillId        INT UNSIGNED   NOT NULL,              -- ProjectSkills.ProjectSkillId
+    Rating         DECIMAL(3,2)   NOT NULL,              -- 1.0 – 5.0
+    RatedBy        INT UNSIGNED   NOT NULL,              -- admin who rated
+    Notes          TEXT           NULL,
+    CreatedAt      DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UpdatedAt      DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (SkillRatingId),
-    UNIQUE KEY uq_rating_skill_rater (UserSkillId, RatedByUserId, SessionId),
-    CONSTRAINT fk_skillrating_skill FOREIGN KEY (UserSkillId)   REFERENCES UserSkills(UserSkillId),
-    CONSTRAINT fk_skillrating_rater FOREIGN KEY (RatedByUserId) REFERENCES Users(UserId)
+    UNIQUE KEY uq_rating (UserId, ProjectId, SkillId),  -- one rating per skill per project per volunteer
+    INDEX idx_rating_user    (UserId),
+    INDEX idx_rating_project (ProjectId),
+    CONSTRAINT fk_skillrating_user    FOREIGN KEY (UserId)   REFERENCES Users(UserId),
+    CONSTRAINT fk_skillrating_ratedby FOREIGN KEY (RatedBy)  REFERENCES Users(UserId)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE UserBadges (
@@ -570,17 +576,23 @@ CREATE TABLE ProjectAttendance (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE VolunteerCertificates (
-    CertificateId  INT UNSIGNED  NOT NULL AUTO_INCREMENT,
-    ProjectId      INT UNSIGNED  NOT NULL,
-    UserId         INT UNSIGNED  NOT NULL,
-    CertificateUrl VARCHAR(500)  NOT NULL,
-    IssuedAt       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    IssuedBy       INT UNSIGNED  NULL,
+    CertificateId  INT UNSIGNED   NOT NULL AUTO_INCREMENT,
+    CertCode       VARCHAR(20)    NOT NULL,              -- e.g. CERT-2026-000001 (used in verify URL)
+    ProjectId      INT UNSIGNED   NOT NULL,
+    UserId         INT UNSIGNED   NOT NULL,
+    OrgId          INT UNSIGNED   NOT NULL,
+    TotalHours     DECIMAL(6,2)   NULL,
+    CertificateUrl VARCHAR(500)   NULL,                 -- Azure Blob URL to PDF (future)
+    IssuedAt       DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    IssuedBy       INT UNSIGNED   NULL,
+    IsDeleted      TINYINT(1)     NOT NULL DEFAULT 0,
     PRIMARY KEY (CertificateId),
+    UNIQUE KEY uq_cert_code         (CertCode),
     UNIQUE KEY uq_cert_project_user (ProjectId, UserId),
     INDEX idx_cert_user (UserId),
     CONSTRAINT fk_cert_project FOREIGN KEY (ProjectId) REFERENCES Projects(ProjectId),
-    CONSTRAINT fk_cert_user    FOREIGN KEY (UserId)    REFERENCES Users(UserId)
+    CONSTRAINT fk_cert_user    FOREIGN KEY (UserId)    REFERENCES Users(UserId),
+    CONSTRAINT fk_cert_org     FOREIGN KEY (OrgId)     REFERENCES Organisations(OrgId)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ── GROUP 5: CONTENT & COMMUNITY (10 tables) ──────────────────
@@ -1816,9 +1828,12 @@ INSERT INTO Settings (SettingGroup, SettingKey, SettingValue, DataType, Descript
 ('COMMUNICATION', 'HANGFIRE_DASHBOARD_KEY',          '',      'STRING',  'Shared key for /hangfire dashboard access outside Development (query ?key= or X-Hangfire-Key header). Empty = fail-closed — set a real value before relying on the dashboard in Staging/Production.', 0);
 
 INSERT INTO IdSequences (SequenceName, CurrentYear, LastValue) VALUES
-('DON', YEAR(CURDATE()), 0),
-('WDR', YEAR(CURDATE()), 0),
-('REC', YEAR(CURDATE()), 0);
+('DON',  YEAR(CURDATE()), 0),
+('WDR',  YEAR(CURDATE()), 0),
+('REC',  YEAR(CURDATE()), 0),
+('CERT', YEAR(CURDATE()), 0);
+-- Note: Railway DB actual columns are SequenceName/CurrentYear/LastValue
+-- (DON/WDR SPs incorrectly reference Prefix/SeqYear/LastNumber — pre-existing bug, separate fix needed)
 
 -- ============================================================
 -- SECTION 5: DUMMY TEST DATA
@@ -3285,26 +3300,89 @@ BEGIN
     END IF;
 END //
 
-CREATE PROCEDURE Application_GetByProject(IN p_ProjectId INT UNSIGNED, IN p_StatusCode VARCHAR(50), IN p_PageNumber INT, IN p_PageSize INT)
+CREATE PROCEDURE Application_GetByProject(
+    IN p_ProjectId  INT UNSIGNED,
+    IN p_StatusCode VARCHAR(50),
+    IN p_PageNumber INT,
+    IN p_PageSize   INT
+)
 BEGIN
-    DECLARE v_Offset INT; DECLARE v_StatusLkpId INT UNSIGNED DEFAULT NULL;
+    DECLARE v_Offset      INT;
+    DECLARE v_FilterLkpId INT UNSIGNED DEFAULT NULL;
+
     SET v_Offset = (p_PageNumber - 1) * p_PageSize;
+
     IF p_StatusCode IS NOT NULL THEN
-        SELECT LookupValueId INTO v_StatusLkpId FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
-        WHERE lt.TypeCode = 'APPLICATION_STATUS' AND lv.ValueCode = p_StatusCode LIMIT 1;
+        SELECT lv.LookupValueId INTO v_FilterLkpId
+        FROM   LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+        WHERE  lt.TypeCode = 'APPLICATION_STATUS' AND lv.ValueCode = p_StatusCode LIMIT 1;
+        -- Also try ATTENDANCE_STATUS (ATTENDED, NO_SHOW)
+        IF v_FilterLkpId IS NULL THEN
+            SELECT lv.LookupValueId INTO v_FilterLkpId
+            FROM   LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+            WHERE  lt.TypeCode = 'ATTENDANCE_STATUS' AND lv.ValueCode = p_StatusCode LIMIT 1;
+        END IF;
     END IF;
-    SELECT pa.ApplicationId, pa.UserId, CONCAT(up.FirstName,' ',up.LastName) AS ApplicantName,
-           up.ProfilePhoto, up.City, pa.Motivation, pa.RequestedSessions,
-           sv.ValueCode AS StatusCode, sv.ValueName AS Status, pa.CreatedAt
-    FROM ProjectApplications pa
-    JOIN UserProfiles up ON pa.UserId = up.UserId AND up.IsDeleted = 0
-    LEFT JOIN LookupValues sv ON pa.StatusLkpId = sv.LookupValueId
-    WHERE pa.ProjectId = p_ProjectId AND pa.IsDeleted = 0
-      AND (v_StatusLkpId IS NULL OR pa.StatusLkpId = v_StatusLkpId)
-    ORDER BY pa.CreatedAt DESC LIMIT p_PageSize OFFSET v_Offset;
-    SELECT COUNT(*) AS TotalCount FROM ProjectApplications pa
-    WHERE pa.ProjectId = p_ProjectId AND pa.IsDeleted = 0
-      AND (v_StatusLkpId IS NULL OR pa.StatusLkpId = v_StatusLkpId);
+
+    SELECT
+        pa.ApplicationId,
+        pa.UserId,
+        CONCAT(up.FirstName, ' ', up.LastName)     AS ApplicantName,
+        up.ProfilePhoto,
+        up.City,
+        up.Occupation                               AS Profession,
+        pa.Motivation,
+        pa.RequestedSessions,
+        COALESCE(attSv.ValueCode, appSv.ValueCode)  AS StatusCode,
+        COALESCE(attSv.ValueName, appSv.ValueName)  AS Status,
+        pa.StatusUpdatedAt,
+        pa.CreatedAt,
+        -- Check-in time converted to IST (Railway MySQL server = UTC)
+        DATE_FORMAT(CONVERT_TZ(att.CheckInTime, '+00:00', '+05:30'), '%Y-%m-%dT%H:%i:%s') AS CheckedInAt,
+        att.HoursLogged,
+        att.IsNoShowExcused                         AS IsExcused,
+        att.QrScannedAt,
+        att.AdminNote,
+        ps.SessionDate,
+        ps.StartTime   AS SessionStartTime,
+        ps.EndTime     AS SessionEndTime,
+        -- Badges already awarded to this volunteer on this project (comma-separated ValueCodes)
+        (SELECT GROUP_CONCAT(lv2.ValueCode ORDER BY ub.CreatedAt SEPARATOR ',')
+         FROM   UserBadges ub
+         JOIN   LookupValues lv2 ON ub.BadgeLkpId = lv2.LookupValueId
+         WHERE  ub.UserId     = pa.UserId
+           AND  ub.ProjectId  = pa.ProjectId
+           AND  ub.IsDeleted  = 0
+        )                                           AS AwardedBadgeCodes
+    FROM   ProjectApplications pa
+    JOIN   UserProfiles up   ON pa.UserId        = up.UserId AND up.IsDeleted = 0
+    LEFT JOIN LookupValues appSv ON pa.StatusLkpId = appSv.LookupValueId
+    -- Most-recent attendance record for this user on this project
+    LEFT JOIN ProjectAttendance att ON att.AttendanceId = (
+        SELECT att2.AttendanceId
+        FROM   ProjectAttendance att2
+        JOIN   ProjectSessions   ps2 ON att2.SessionId = ps2.SessionId
+        WHERE  att2.UserId     = pa.UserId
+          AND  ps2.ProjectId   = pa.ProjectId
+          AND  ps2.IsDeleted   = 0
+        ORDER BY ps2.SessionDate DESC, att2.CreatedAt DESC
+        LIMIT  1
+    )
+    LEFT JOIN LookupValues   attSv ON att.AttendStatusLkpId = attSv.LookupValueId
+    LEFT JOIN ProjectSessions ps   ON ps.SessionId          = att.SessionId
+    WHERE  pa.ProjectId = p_ProjectId
+      AND  pa.IsDeleted = 0
+      AND  (
+            v_FilterLkpId IS NULL
+            OR pa.StatusLkpId        = v_FilterLkpId
+            OR att.AttendStatusLkpId = v_FilterLkpId
+           )
+    ORDER BY pa.CreatedAt DESC
+    LIMIT  p_PageSize OFFSET v_Offset;
+
+    SELECT COUNT(*) AS TotalCount
+    FROM   ProjectApplications
+    WHERE  ProjectId = p_ProjectId AND IsDeleted = 0;
 END //
 
 CREATE PROCEDURE Application_Review(IN p_ApplicationId INT UNSIGNED, IN p_ReviewedBy INT UNSIGNED, IN p_StatusCode VARCHAR(50), IN p_RejectionReason TEXT)
@@ -3863,7 +3941,7 @@ BEGIN
            CONCAT(up.FirstName,' ',up.LastName) AS UserName, up.ProfilePhoto, up.Mobile,
            atv.ValueCode AS AlertType, sv.ValueCode AS Status,
            si.Description, si.ApproxLocation, si.Latitude, si.Longitude,
-           si.CancelReason, si.ResolvedAt, si.CreatedAt,
+           si.CancelReason, si.ResolvedAt, si.CancelledAt, si.CreatedAt,
            si.OrgId, o.OrgName
     FROM SosIncidents si
     JOIN UserProfiles up ON si.UserId = up.UserId AND up.IsDeleted = 0
@@ -4153,14 +4231,99 @@ END //
 -- v4.0 NEW: Get all certificates for a user
 CREATE PROCEDURE Certificate_GetByUser(IN p_UserId INT UNSIGNED)
 BEGIN
-    SELECT vc.CertificateId, vc.ProjectId, p.ProjectName AS ProjectTitle,
+    SELECT vc.CertificateId, vc.CertCode,
+           vc.ProjectId, p.ProjectName AS ProjectTitle,
            vc.OrgId, o.OrgName, o.LogoUrl AS OrgLogoUrl,
-           vc.CertificateUrl, vc.IssuedAt, vc.TotalHours
+           vc.TotalHours, vc.CertificateUrl, vc.IssuedAt
     FROM VolunteerCertificates vc
-    JOIN Projects p ON vc.ProjectId = p.ProjectId
-    JOIN Organisations o ON vc.OrgId = o.OrgId
+    JOIN Projects p      ON vc.ProjectId = p.ProjectId
+    JOIN Organisations o ON vc.OrgId     = o.OrgId
     WHERE vc.UserId = p_UserId AND vc.IsDeleted = 0
     ORDER BY vc.IssuedAt DESC;
+END //
+
+-- Returns all data needed to render a certificate (used by verify page and app)
+CREATE PROCEDURE Certificate_GetData(IN p_CertCode VARCHAR(20))
+BEGIN
+    SELECT
+        vc.CertificateId, vc.CertCode, vc.IssuedAt, vc.TotalHours,
+        -- Volunteer
+        u.UserId,
+        CONCAT(up.FirstName, ' ', up.LastName) AS VolunteerName,
+        up.ProfilePhoto,
+        -- Project
+        p.ProjectId, p.ProjectName,
+        -- Organisation
+        o.OrgId, o.OrgName, o.LogoUrl AS OrgLogoUrl,
+        -- Impact score
+        up.ImpactScore,
+        -- Skill ratings for this project (pipe-separated SkillName:Rating pairs)
+        (SELECT GROUP_CONCAT(ps.SkillName, ':', ROUND(usr.Rating, 1)
+                             ORDER BY ps.SkillName SEPARATOR '|')
+         FROM   ProjectSkills ps
+         JOIN   UserSkillRatings usr
+                ON  usr.SkillId    = ps.ProjectSkillId
+                AND usr.UserId     = vc.UserId
+                AND usr.ProjectId  = vc.ProjectId
+         WHERE  ps.ProjectId = vc.ProjectId) AS SkillRatings,
+        vc.IsDeleted
+    FROM  VolunteerCertificates vc
+    JOIN  Projects      p  ON vc.ProjectId = p.ProjectId
+    JOIN  Organisations o  ON vc.OrgId     = o.OrgId
+    JOIN  Users         u  ON vc.UserId    = u.UserId
+    JOIN  UserProfiles  up ON vc.UserId    = up.UserId
+    WHERE vc.CertCode = p_CertCode;
+END //
+
+-- Issues (or returns existing) certificate for a volunteer on a project
+CREATE PROCEDURE Certificate_Issue(
+    IN p_ProjectId  INT UNSIGNED,
+    IN p_UserId     INT UNSIGNED,
+    IN p_OrgId      INT UNSIGNED,
+    IN p_IssuedBy   INT UNSIGNED,
+    IN p_TotalHours DECIMAL(6,2)
+)
+BEGIN
+    DECLARE v_CertCode VARCHAR(20);
+
+    -- Return existing cert if already issued
+    SELECT CertCode INTO v_CertCode
+    FROM   VolunteerCertificates
+    WHERE  ProjectId = p_ProjectId AND UserId = p_UserId AND IsDeleted = 0
+    LIMIT  1;
+
+    IF v_CertCode IS NOT NULL THEN
+        SELECT 1 AS IsSuccess, 'Certificate already issued.' AS Message, v_CertCode AS CertCode;
+    ELSE
+        -- Generate CERT-YYYY-NNNNNN
+        UPDATE IdSequences SET LastValue = LastValue + 1
+        WHERE  SequenceName = 'CERT' AND CurrentYear = YEAR(NOW());
+
+        SELECT CONCAT('CERT-', CurrentYear, '-', LPAD(LastValue, 6, '0')) INTO v_CertCode
+        FROM   IdSequences WHERE SequenceName = 'CERT' AND CurrentYear = YEAR(NOW());
+
+        INSERT INTO VolunteerCertificates (CertCode, ProjectId, UserId, OrgId, TotalHours, IssuedBy)
+        VALUES (v_CertCode, p_ProjectId, p_UserId, p_OrgId, p_TotalHours, p_IssuedBy);
+
+        SELECT 1 AS IsSuccess, 'Certificate issued successfully.' AS Message, v_CertCode AS CertCode;
+    END IF;
+END //
+
+-- Returns project skills + existing rating for a specific volunteer (for admin skill rating UI)
+CREATE PROCEDURE Project_GetSkillRatings(IN p_ProjectId INT UNSIGNED, IN p_UserId INT UNSIGNED)
+BEGIN
+    SELECT
+        ps.ProjectSkillId,
+        ps.SkillName,
+        COALESCE(usr.Rating, 0)  AS Rating,
+        usr.Notes
+    FROM  ProjectSkills ps
+    LEFT JOIN UserSkillRatings usr
+          ON  usr.SkillId    = ps.ProjectSkillId
+          AND usr.UserId     = p_UserId
+          AND usr.ProjectId  = p_ProjectId
+    WHERE ps.ProjectId = p_ProjectId
+    ORDER BY ps.SkillName;
 END //
 
 -- ── SKILL RATING & BADGE SPs ────────────────────────────────────
@@ -4174,12 +4337,47 @@ BEGIN
     SELECT 1 AS IsSuccess, 'Skill rating saved.' AS Message;
 END //
 
--- v4.0 NEW: Award a badge to a volunteer
-CREATE PROCEDURE UserBadge_Award(IN p_UserId INT UNSIGNED, IN p_BadgeLkpId INT UNSIGNED, IN p_AwardedBy INT UNSIGNED, IN p_OrgId INT UNSIGNED, IN p_ProjectId INT UNSIGNED)
+-- Award a badge to a volunteer (with duplicate guard + BadgeName for notification)
+CREATE PROCEDURE UserBadge_Award(
+    IN p_UserId     INT UNSIGNED,
+    IN p_BadgeLkpId INT UNSIGNED,
+    IN p_AwardedBy  INT UNSIGNED,
+    IN p_OrgId      INT UNSIGNED,
+    IN p_ProjectId  INT UNSIGNED
+)
 BEGIN
-    INSERT INTO UserBadges (UserId, BadgeLkpId, AwardedBy, AwardedByOrgId, ProjectId, IsDeleted, CreatedAt)
-    VALUES (p_UserId, p_BadgeLkpId, p_AwardedBy, p_OrgId, p_ProjectId, 0, NOW());
-    SELECT 1 AS IsSuccess, 'Badge awarded successfully.' AS Message, LAST_INSERT_ID() AS BadgeId;
+    DECLARE v_BadgeName VARCHAR(100) DEFAULT 'Badge';
+    DECLARE v_Exists    INT DEFAULT 0;
+
+    -- Prevent double-awarding the same badge on the same project
+    SELECT COUNT(*) INTO v_Exists
+    FROM   UserBadges
+    WHERE  UserId      = p_UserId
+      AND  BadgeLkpId  = p_BadgeLkpId
+      AND  (p_ProjectId IS NULL OR ProjectId = p_ProjectId)
+      AND  IsDeleted   = 0;
+
+    IF v_Exists > 0 THEN
+        SELECT 0    AS IsSuccess,
+               'This badge has already been awarded to this volunteer.' AS Message,
+               NULL AS BadgeId,
+               NULL AS BadgeName,
+               NULL AS UserId;
+    ELSE
+        SELECT ValueName INTO v_BadgeName
+        FROM   LookupValues WHERE LookupValueId = p_BadgeLkpId LIMIT 1;
+
+        INSERT INTO UserBadges
+            (UserId, BadgeLkpId, AwardedBy, AwardedByOrgId, ProjectId, IsDeleted, CreatedAt)
+        VALUES
+            (p_UserId, p_BadgeLkpId, p_AwardedBy, p_OrgId, p_ProjectId, 0, NOW());
+
+        SELECT 1                   AS IsSuccess,
+               'Badge awarded successfully.' AS Message,
+               LAST_INSERT_ID()   AS BadgeId,
+               v_BadgeName        AS BadgeName,
+               p_UserId           AS UserId;
+    END IF;
 END //
 
 -- ── NOTIFICATION SPs ────────────────────────────────────────────
@@ -5702,6 +5900,7 @@ BEGIN
         si.Longitude,
         si.CancelReason,
         si.ResolvedAt,
+        si.CancelledAt,
         si.CreatedAt,
         si.OrgId,
         o.OrgName
@@ -5861,6 +6060,7 @@ BEGIN
         si.Longitude,
         si.CancelReason,
         si.ResolvedAt,
+        si.CancelledAt,
         si.CreatedAt,
         arv.ValueCode  AS MyApprovalStatus
     FROM   SosIncidents si
@@ -6276,13 +6476,19 @@ BEGIN
         p.City,
         projSv.ValueCode AS ProjectStatusCode,
         projSv.ValueName AS ProjectStatus,
-        p.RequiresApproval
+        IF(jtv.ValueCode = 'APPROVE_REQ', 1, 0) AS RequiresApproval,
+        IF(EXISTS(
+            SELECT 1 FROM ProjectAttendance ata
+            JOIN   ProjectSessions pss ON ata.SessionId = pss.SessionId
+            WHERE  pss.ProjectId = p.ProjectId AND ata.UserId = p_UserId
+        ), 1, 0) AS IsCheckedIn
     FROM   ProjectApplications pa
     JOIN   Projects      p     ON pa.ProjectId   = p.ProjectId
     JOIN   Organisations o     ON p.OrgId        = o.OrgId
     LEFT JOIN LookupValues appSv  ON pa.StatusLkpId        = appSv.LookupValueId
     LEFT JOIN LookupValues projSv ON p.StatusLkpId         = projSv.LookupValueId
     LEFT JOIN LookupValues ptv    ON p.ProjectTypeLkpId    = ptv.LookupValueId
+    LEFT JOIN LookupValues jtv    ON p.JoinTypeLkpId       = jtv.LookupValueId
     WHERE  pa.UserId    = p_UserId
       AND  pa.IsDeleted = 0
     ORDER BY pa.CreatedAt DESC
@@ -7368,7 +7574,7 @@ BEGIN
         COALESCE(attSv.ValueCode, appSv.ValueCode) AS StatusCode,
         COALESCE(attSv.ValueName, appSv.ValueName) AS Status,
         pa.StatusUpdatedAt, pa.CreatedAt,
-        att.CheckInTime  AS CheckedInAt,
+        DATE_FORMAT(CONVERT_TZ(att.CheckInTime, '+00:00', '+05:30'), '%Y-%m-%dT%H:%i:%s') AS CheckedInAt,
         att.HoursLogged,
         att.IsNoShowExcused AS IsExcused,
         att.QrScannedAt, att.AdminNote,

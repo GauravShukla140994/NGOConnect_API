@@ -476,12 +476,26 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var result = await ExecuteWriteAsync("UserBadge_Award", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_UserId",    request.UserId);
+                    _db.AddParameter(cmd, "p_UserId",     request.UserId);
                     _db.AddParameter(cmd, "p_BadgeLkpId", request.BadgeLkpId);
-                    _db.AddParameter(cmd, "p_AwardedBy", awardedBy);
-                    _db.AddParameter(cmd, "p_OrgId",     orgId);
-                    _db.AddParameter(cmd, "p_ProjectId", request.ProjectId);
+                    _db.AddParameter(cmd, "p_AwardedBy",  awardedBy);
+                    _db.AddParameter(cmd, "p_OrgId",      orgId);
+                    _db.AddParameter(cmd, "p_ProjectId",  request.ProjectId);
                 });
+
+                if (result.Succeeded)
+                {
+                    var badgeName = Col<string>(result.Row!, "BadgeName") ?? "a badge";
+                    _ = FireUserNotifAsync(
+                        request.UserId,
+                        "🏅 Badge Awarded!",
+                        $"Congratulations! You've earned the \"{badgeName}\" badge for your contribution.",
+                        "BADGE_AWARDED",
+                        request.ProjectId,
+                        "PROJECT"
+                    );
+                }
+
                 return result.ToApiResponse();
             }
             catch (Exception ex)

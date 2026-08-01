@@ -268,6 +268,51 @@ When there is a conflict between files, this priority order applies:
 
 ---
 
+**Public certificate verify page — Website-only, built from existing spec** (2026-08-01)
+- No SP/API/DB changes — `GET /api/v1/certificates/{certCode}` (`CertificateController.GetCertificate`, `[AllowAnonymous]`) already existed and already had a comment referencing this exact page (`Documents/ripplehub_verify_page_spec.md`), so this was purely a Website-side build against a spec that was already fully written.
+- New route `Website/src/pages/VerifyCertificatePage.jsx` at `/verify/:certCode` (registered in `main.jsx`), unauthenticated, no app-redirect (unlike `/invite`, `/ngo`, `/opportunity` which use `useDeepLinkLanding` and auto-open the app — this page is meant to stay in-browser for any visitor).
+- States implemented per spec: loading, valid (renders certificate + trust badge strip: "Issued by RippleHub / {orgName} / Verified {date}"), not found, revoked (`isDeleted = 1`), and a network-error state the spec didn't explicitly call out but `Implementation Notes` required ("Always handle network errors").
+- Certificate rendering: `Documents/ripplehub_volunteer_certificate_template.html`'s `renderCertificate(data)` function is reused as-is via a same-origin `<iframe src="/certificate-template.html">` (copy placed in `Website/public/`, demo auto-render call stripped, everything else identical — **keep both files in sync if the template markup/CSS/placeholders ever change**). Iframe height is dynamic via `postMessage`, not a fixed guess. Print button calls `iframe.contentWindow.print()`, using the template's existing `@media print` styles.
+- Data mapping API→template implemented exactly per the spec's table, including parsing the pipe-delimited `skillRatings` string. One field, `coordinatorName`, has no real source in the API response at all — spec's own mapping table already says to fall back to a generic label, so it's hardcoded to `"NGO Coordinator"` always, not actually mapped from any field.
+- **Known limitation, same as the other landing pages**: this is a client-rendered SPA with no SSR, so the per-certificate `og:title`/`og:description` set via `document.title`/meta tag mutation in `useEffect` only helps crawlers that execute JS. WhatsApp/Facebook link previews will still show the site's generic OG image/description, not the volunteer's name — would need SSR or a prerender step to fix properly. Not attempted — flagging as a known gap, not a bug in this page.
+- Spec also references `og:image` = `https://ripplehub.app/og-certificate.png` — this asset does not exist; not created, since per the SSR limitation above it wouldn't be picked up by real crawlers anyway without further work. Low priority.
+- Build verified (`npm run build` — clean, 519 modules) and both `/verify/CERT-2026-000042` (SPA route) and `/certificate-template.html` (static asset) confirmed serving HTTP 200 via `vite preview`. Could not do a full headless-browser render check (no puppeteer/playwright in this sandbox) — worth a quick manual check (`npm run dev` → open `/verify/{a real certCode}`) before relying on this in production.
+- Unrelated, noticed while building this: the spec's example API URL says `api.ngoconnect.in` — actual code everywhere else uses `VITE_API_BASE_URL`/the `.app` domain. Used the existing env var as the codebase already does; the `.in` in the spec doc looks like a typo, not an instruction to follow.
+
+---
+
+**Badge award — full wiring (admin → volunteer Impact screen + FCM notification)** (2026-08-01)
+
+- **SP `UserBadge_Award`** — updated in setup SQL v4.9 + patch `NGOConnect_Patch_BadgeAward_AwardedCodes.sql`:
+  - Added duplicate guard: prevents re-awarding same badge (same UserId + BadgeLkpId + ProjectId)
+  - Added `BadgeName` (from LookupValues) + `UserId` to result set — used by OrgDal for personalised FCM notification body
+- **SP `Application_GetByProject`** — updated in setup SQL v4.9 + same patch (supersedes `NGOConnect_Patch_QR_Attendance_Fixes.sql`):
+  - Added `AwardedBadgeCodes` — `GROUP_CONCAT` of badge ValueCodes already awarded to each volunteer for this project
+  - Already includes: `CheckedInAt` (IST ISO datetime), `Profession`, `StatusUpdatedAt`, `HoursLogged`, `IsExcused`, attendance join
+- **`OrgDal.AwardBadgeAsync`** — added `FireUserNotifAsync` after successful award (personalized message with badge name + FCM push)
+- **React Native `ParticipantsScreen`** — wired badge buttons to `POST /org/{orgId}/badges` API; fixed `TOP_PERFORMER` → `TOP_PERFORM` ValueCode; pre-populates awarded badges from `awardedBadgeCodes` on load; loading spinner per badge during API call
+- **Patch file**: `Documents/NGOConnect_Patch_BadgeAward_AwardedCodes.sql` — apply to Railway staging then production
+- Documents to update when "update documents" is called:
+  - `NGOConnect_Complete_Setup_v4.9.sql` ✅ already updated
+  - `Database_Documentation_v4.9.md` → `UserBadge_Award` SP signature (params unchanged, result set changed); `Application_GetByProject` SP (new `AwardedBadgeCodes` column)
+  - `API_Documentation_v4.9.docx` → `POST /org/{orgId}/badges` — note that badge is only available for ATTENDED volunteers; response now returns error if already awarded
+  - `NGOConnect_Postman_Collection_v4.9.json` → update `POST /org/{orgId}/badges` sample request
+
+---
+
+**Push notifications silently not displaying — mobile-only, root cause + fix** (2026-08-01)
+- Mobile-only changes, no SP/API/DB changes.
+- **Root cause**: both `notifee.displayNotification()` call sites (`index.js` background/killed handler, `RootNavigator.tsx` foreground handler) set `smallIcon: 'ic_notification'`, but that drawable did not exist anywhere in `android/app/src/main/res/` — no density folder had it. Android/notifee has no fallback to the launcher icon when a named smallIcon resource is missing; the call throws instead. The background handler's throw was swallowed by a `try/catch` that only did `console.error(...)` (invisible outside Metro/adb logcat), so **every** notification type, in every app state (foreground/background/killed), silently failed to display. This affected all notification types, not just Marketing Campaign pushes — it was surfaced via campaign testing but is a platform-wide notification bug.
+- Fix: generated `ic_notification.png` (white silhouette derived from the RippleHub ribbon mark, transparent background) at all 5 Android density buckets — `drawable-mdpi` (24px) / `-hdpi` (36px) / `-xhdpi` (48px) / `-xxhdpi` (72px) / `-xxxhdpi` (96px). Corrected the inaccurate "falls back to app icon if not found" comments at both call sites. Added a `try/catch` around the foreground `displayNotification()` call (background handler already had one) so any future failure here logs visibly instead of disappearing.
+- **Separate, previously-unimplemented gap fixed in the same pass**: campaign/notification images were only ever set as `largeIcon` (small thumbnail, visible collapsed and expanded) — there was no `AndroidStyle.BIGPICTURE`, so the full-width banner image on expand (the behavior originally expected) never existed in code at all, independent of the icon crash. Added `style: { type: AndroidStyle.BIGPICTURE, picture: imageUrl }` alongside `largeIcon` at both call sites (`index.js`, `RootNavigator.tsx`).
+- Verified via `notificationApi.sendTest` → `NotificationController.SendTest` → `FCMService.SendAsync` (existing endpoint, `ImageUrl` param already supported end-to-end) and the FCMTestScreen dev tool — user confirmed both status-bar icon and expanded banner image now render correctly on-device.
+- `src/screens/home/FCMTestScreen.tsx` (dev-only QA screen): added an Image URL field (defaults + quick-fill presets for `https://ripplehub.app/og-image.png` and a third-party `fastly.picsum.photos` URL, to test both an own-domain asset and an external CDN/redirect/query-string case) wired into the existing Send Test Push flow, plus a new "Test Image Locally (no FCM)" button that exercises smallIcon/largeIcon/BigPicture via notifee directly, bypassing the backend entirely — isolates on-device rendering bugs from backend/FCM delivery bugs.
+- `src/screens/profile/ProfileScreen.tsx`: temporarily uncommented the "🧪 Test Push Notification" menu item (routes to the already-registered `FCMTest` stack screen) so the user could reach the tester from the Profile menu. **User has stated they'll ask for this to be disabled again once testing is done — remember to re-comment it out when asked, before any Play Store submission.**
+- Noted but not fixed (not this bug, not mobile-code related): `https://ripplehub.app/og-image.png` — file confirmed present and committed to the Website repo (`public/og-image.png`, part of commit `1b38bd2 Logo updated`, already pushed to `origin/main`) but the user reports the live URL doesn't load. Likely a Railway deployment/serving issue, not a code issue — worth checking the Railway dashboard for that service's latest deploy and confirming static assets under `public/` are actually being served, next time Website/Railway is being worked on.
+- No document updates required (mobile-only, no SP/API/DB changes) — logged here per this repo's change-tracking convention.
+
+---
+
 **Marketing & Communication Center — real delivery acknowledgment + per-recipient drill-down** (2026-07-24)
 - **Root issue**: "Delivered" in the dashboard/list/history has only ever meant `QueueStatus IN ('SENT','DELIVERED')` — i.e. "Firebase accepted the send request" — because `CampaignDispatchService` never actually set `QueueStatus = 'DELIVERED'` anywhere. A campaign could show "completed, delivered" while the device never displayed anything. User confirmed hitting exactly this. Decision made with user: build real device-side acknowledgment rather than just relabeling.
 - New SP `CampaignRecipient_AckDelivered(p_CampaignRecipientId, p_UserId)` — updates `QueueStatus` to `DELIVERED` + sets `DeliveredAt`, ownership-checked (`UserId` must match), always reports success regardless of match (best-effort beacon from an untrusted client, no oracle leak). Won't downgrade a terminal FAILED/SKIPPED row.
@@ -1008,3 +1053,45 @@ Backend-side delivery tracking, CAMPAIGN image + timestamp, and in-app CTA banne
   2. `setBackgroundMessageHandler`: after displaying notification, calls `notificationApi.acknowledgeDelivery(data.campaignRecipientId)` for CAMPAIGN type (fire-and-forget). Added import `import { notificationApi } from './src/api/notification.api'`.
 - `App/NGOConnectApp/src/screens/home/NotificationsScreen.tsx` — CTA banner: added `useRoute` import; reads `route.params?.actionLabel` on mount into `ctaLabel` state; renders a dismissible purple banner (`backgroundColor: '#7C3AED'`) showing `📣 {ctaLabel}` with a ✕ dismiss button when `ctaLabel` is set. Only shown when a CAMPAIGN notification with `actionLabel` (no `deepLink`) navigates to this screen. No changes to existing notification list behavior.
 - No new endpoints, SP changes, or DB changes. All additive.
+
+---
+
+**Skill Rating + Certificate Flow** (2026-08-01)
+
+DB schema fixes + new SPs + new API endpoints + React Native UI. Patch file: `patch_skill_rating_and_certificate.sql`.
+
+**DB — Schema fixes (setup SQL + patch):**
+- `UserSkillRatings` table — completely rebuilt. Old columns (`UserSkillId, RatedByUserId, SessionId, Rating TINYINT, RatedAt`) replaced with correct schema: `(SkillRatingId, UserId, OrgId, ProjectId, SkillId, Rating DECIMAL(3,2), RatedBy, Notes, CreatedAt, UpdatedAt)`. UNIQUE KEY on `(UserId, ProjectId, SkillId)` for upsert. `SkillId` references `ProjectSkills.ProjectSkillId`.
+- `VolunteerCertificates` table — rebuilt with new columns: `CertCode VARCHAR(20) UNIQUE` (CERT-YYYY-NNNNNN), `OrgId` (FK Organisations), `TotalHours DECIMAL(6,2)`, `IsDeleted`. `CertificateUrl` now nullable (reserved for future PDF upload).
+- `IdSequences` — added `('CERT', YEAR(CURDATE()), 0)` seed row.
+
+**DB — New / updated SPs (setup SQL + patch):**
+- `Certificate_GetByUser` — fixed; now references correct `vc.CertCode, vc.OrgId, vc.TotalHours, vc.IsDeleted` columns (old SP used non-existent columns).
+- `Certificate_GetData(p_CertCode)` — NEW; returns full certificate data (volunteer, NGO, project, skills+ratings, impact score) for verify page and app. AllowAnonymous endpoint.
+- `Certificate_Issue(p_ProjectId, p_UserId, p_OrgId, p_IssuedBy, p_TotalHours)` — NEW; generates CERT-YYYY-NNNNNN, inserts into `VolunteerCertificates`, returns `CertCode`.
+- `Project_GetSkillRatings(p_ProjectId, p_UserId)` — NEW; returns all `ProjectSkills` for a project with the volunteer's existing rating (LEFT JOIN to `UserSkillRatings`). Used by admin skill rating UI to show already-saved stars on screen open.
+
+**Backend C# changes:**
+- `SkillModels.cs` — `AddSkillRatingRequest`: renamed `UserSkillId` → `ProjectSkillId` (clarify it's `ProjectSkills.ProjectSkillId`), `Review` → `Notes`, `Rating` type `int` → `decimal`, added `OrgId?`. Added new `IssueCertificateRequest` model `(ProjectId, UserId, OrgId, TotalHours?)`.
+- `SkillRatingDal.cs` — updated params to match renamed model fields: `p_SkillId ← request.ProjectSkillId`, `p_Notes ← request.Notes`, `p_OrgId ← request.OrgId`.
+- `IProjectDal.cs` — added `GetSkillsAsync(projectId)` and `GetSkillRatingsAsync(projectId, userId)`.
+- `ProjectDal.cs` — implemented `GetSkillsAsync` (calls `Project_GetSkills`) and `GetSkillRatingsAsync` (calls `Project_GetSkillRatings`).
+- `ICertificateDal.cs` — added `GetDataAsync(certCode)` and `IssueAsync(issuedBy, request)`.
+- `CertificateDal.cs` — implemented `GetDataAsync` (calls `Certificate_GetData`) and `IssueAsync` (calls `Certificate_Issue`, returns cert data via second SP call).
+- `ProjectController.cs` — new endpoints: `GET /project/{projectId}/skills`, `GET /project/{projectId}/skill-ratings/{userId}`.
+- `CertificateController.cs` — new endpoints: `GET /certificates/{certCode}` (AllowAnonymous, for verify page), `POST /certificates/issue`.
+
+**Frontend (React Native) changes:**
+- `project.api.ts` — added `getSkills(projectId)`, `getSkillRatings(projectId, userId)`, `rateSkill(data)` methods + named exports.
+- `ParticipantsScreen.tsx`:
+  - `projectSkills` type changed from `string[]` → `{id: number, name: string}[]`.
+  - Load function now calls `projectApi.getSkills(projectId)` (dedicated endpoint) instead of reading `skills` from the project get response (which never returned them).
+  - `skillRatings` state key changed from skill name string to `projectSkillId` number.
+  - Added `submittingRatings` and `submittedRatings` per-app state.
+  - Added `handleSubmitRatings(app)` — loops through rated skills and calls `projectApi.rateSkill()` for each; marks card as submitted on success.
+  - `AttendedCard` — new "Save Ratings" button appears when any star is tapped; shows spinner while saving; shows "✓ Ratings saved" confirmation; stars become non-interactive after submit.
+  - New styles: `skillRatingSection`, `saveRatingsBtn`, `saveRatingsBtnText`, `ratingsSubmittedRow`, `ratingsSubmittedText`.
+
+**New documents:**
+- `Documents/patch_skill_rating_and_certificate.sql` — apply to Railway staging then production.
+- `Documents/ripplehub_verify_page_spec.md` — full spec for `ripplehub.app/verify/{certCode}` web page (API contract, data mapping, page states, implementation notes).

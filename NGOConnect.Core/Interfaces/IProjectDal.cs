@@ -11,6 +11,8 @@ namespace NGOConnect.Core.Interfaces
         Task<ApiResponse<PagedResult<DynamicRow>>> ListAsync(int pageNumber, int pageSize, int? orgId = null, string? category = null, string? city = null, string? statusCode = null, string? typeCode = null, string? keyword = null, decimal? userLat = null, decimal? userLon = null);
         Task<ApiResponse<PagedResult<DynamicRow>>> GetNearbyFeedAsync(int userId, decimal? userLat, decimal? userLon, int pageNumber, int pageSize);
         Task<ApiResponse>                          AddSkillAsync(int projectId, int userId, AddProjectSkillRequest request);
+        Task<ApiResponse<List<DynamicRow>>>        GetSkillsAsync(int projectId);
+        Task<ApiResponse<List<DynamicRow>>>        GetSkillRatingsAsync(int projectId, int userId);
 
         // Sessions
         Task<ApiResponse<DynamicRow>>              AddSessionAsync(int projectId, int userId, CreateSessionRequest request);

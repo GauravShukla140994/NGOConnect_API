@@ -35,6 +35,17 @@ namespace NGOConnect.API.Controllers
         public async Task<ApiResponse<List<DynamicRow>>> GetUserCertificates(int userId)
             => await _certificate.GetByUserAsync(userId);
 
+        /// <summary>Used by ripplehub.app/verify/{certCode} — no auth required.</summary>
+        [HttpGet("certificates/{certCode}")]
+        [AllowAnonymous]
+        public async Task<ApiResponse<DynamicRow>> GetCertificate(string certCode)
+            => await _certificate.GetDataAsync(certCode);
+
+        /// <summary>Admin issues a certificate after a project is completed.</summary>
+        [HttpPost("certificates/issue")]
+        public async Task<ApiResponse<DynamicRow>> IssueCertificate([FromBody] IssueCertificateRequest request)
+            => await _certificate.IssueAsync(GetUserId(), request);
+
         [HttpPost("skills/rate")]
         public async Task<ApiResponse> RateSkill([FromBody] AddSkillRatingRequest request)
             => await _skillRating.AddRatingAsync(GetUserId(), request);

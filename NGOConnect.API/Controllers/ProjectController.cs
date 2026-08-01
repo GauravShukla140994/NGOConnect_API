@@ -53,6 +53,14 @@ namespace NGOConnect.API.Controllers
         public async Task<ApiResponse> AddSkill(int projectId, [FromBody] AddProjectSkillRequest request)
             => await _project.AddSkillAsync(projectId, GetUserId(), request);
 
+        [HttpGet("{projectId:int}/skills")]
+        public async Task<ApiResponse<List<DynamicRow>>> GetSkills(int projectId)
+            => await _project.GetSkillsAsync(projectId);
+
+        [HttpGet("{projectId:int}/skill-ratings/{userId:int}")] [Authorize]
+        public async Task<ApiResponse<List<DynamicRow>>> GetSkillRatings(int projectId, int userId)
+            => await _project.GetSkillRatingsAsync(projectId, userId);
+
         // Sessions
         [HttpPost("{projectId:int}/sessions")] [Authorize]
         public async Task<ApiResponse<DynamicRow>> AddSession(int projectId, [FromBody] CreateSessionRequest request)

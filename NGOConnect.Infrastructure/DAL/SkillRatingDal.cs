@@ -20,12 +20,12 @@ namespace NGOConnect.Infrastructure.DAL
                 var result = await ExecuteWriteAsync("UserSkillRating_Add", cmd =>
                 {
                     _db.AddParameter(cmd, "p_UserId",    request.RatedUserId);
-                    _db.AddParameter(cmd, "p_OrgId",     (object?)null);
+                    _db.AddParameter(cmd, "p_OrgId",     (object?)request.OrgId);
                     _db.AddParameter(cmd, "p_ProjectId", request.ProjectId);
-                    _db.AddParameter(cmd, "p_SkillId",   request.UserSkillId);
+                    _db.AddParameter(cmd, "p_SkillId",   request.ProjectSkillId);
                     _db.AddParameter(cmd, "p_Rating",    request.Rating);
                     _db.AddParameter(cmd, "p_RatedBy",   raterUserId);
-                    _db.AddParameter(cmd, "p_Notes",     request.Review);
+                    _db.AddParameter(cmd, "p_Notes",     request.Notes);
                 });
 
                 if (result.Succeeded)

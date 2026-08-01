@@ -43,13 +43,19 @@ BEGIN
         p.City,
         projSv.ValueCode AS ProjectStatusCode,
         projSv.ValueName AS ProjectStatus,
-        p.RequiresApproval
+        IF(jtv.ValueCode = 'APPROVE_REQ', 1, 0) AS RequiresApproval,
+        IF(EXISTS(
+            SELECT 1 FROM ProjectAttendance ata
+            JOIN   ProjectSessions pss ON ata.SessionId = pss.SessionId
+            WHERE  pss.ProjectId = p.ProjectId AND ata.UserId = p_UserId
+        ), 1, 0) AS IsCheckedIn
     FROM   ProjectApplications pa
     JOIN   Projects      p     ON pa.ProjectId   = p.ProjectId
     JOIN   Organisations o     ON p.OrgId        = o.OrgId
     LEFT JOIN LookupValues appSv  ON pa.StatusLkpId        = appSv.LookupValueId
     LEFT JOIN LookupValues projSv ON p.StatusLkpId         = projSv.LookupValueId
     LEFT JOIN LookupValues ptv    ON p.ProjectTypeLkpId    = ptv.LookupValueId
+    LEFT JOIN LookupValues jtv    ON p.JoinTypeLkpId       = jtv.LookupValueId
     WHERE  pa.UserId    = p_UserId
       AND  pa.IsDeleted = 0
     ORDER BY pa.CreatedAt DESC
