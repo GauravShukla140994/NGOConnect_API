@@ -6275,7 +6275,8 @@ BEGIN
         p.Landmark       AS LocationName,
         p.City,
         projSv.ValueCode AS ProjectStatusCode,
-        projSv.ValueName AS ProjectStatus
+        projSv.ValueName AS ProjectStatus,
+        p.RequiresApproval
     FROM   ProjectApplications pa
     JOIN   Projects      p     ON pa.ProjectId   = p.ProjectId
     JOIN   Organisations o     ON p.OrgId        = o.OrgId

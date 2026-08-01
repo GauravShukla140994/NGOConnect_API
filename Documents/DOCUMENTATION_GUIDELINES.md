@@ -991,3 +991,20 @@ Changes:
 - **Note**: iOS notifications always use the app icon in system notifications — no per-notification override possible; since the app icon was already updated to RippleHub, iOS notifications automatically show the correct logo.
 
 ---
+
+---
+
+**Marketing & Communication Center — Mobile App Phase 1 (Addendum)** (2026-08-01)
+
+Backend-side delivery tracking, CAMPAIGN image + timestamp, and in-app CTA banner. No SP/DB/API contract changes.
+
+- `App/NGOConnectApp/src/api/notification.api.ts` — new method `acknowledgeDelivery(campaignRecipientId: string)`: fires `POST /api/v1/campaign-recipients/{campaignRecipientId}/delivered` fire-and-forget. Called the moment notifee renders a CAMPAIGN notification (foreground and background/killed state).
+- `App/NGOConnectApp/src/navigation/RootNavigator.tsx` — three changes:
+  1. `NotifData` type: added `campaignRecipientId?: string` field.
+  2. Foreground `onMessage` handler: after `notifee.displayNotification()`, calls `notificationApi.acknowledgeDelivery(data.campaignRecipientId)` for CAMPAIGN type (fire-and-forget, `.catch(() => {})`).
+  3. All three tap handlers (foreground notifee press, background FCM `onNotificationOpenedApp`, cold-start `getInitialNotification`): for CAMPAIGN with no `deepLink`, spreads `{ actionLabel: data.actionLabel }` into the navigate call params so the destination screen (Notifications fallback) can render a CTA banner.
+- `App/NGOConnectApp/index.js` — two changes:
+  1. `displaySystemNotification(title, body, channelId, imageUrl)` now accepts `imageUrl` and uses it as `largeIcon` (falls back to `'logo'` brand icon). Previously always used brand logo even for campaign image pushes.
+  2. `setBackgroundMessageHandler`: after displaying notification, calls `notificationApi.acknowledgeDelivery(data.campaignRecipientId)` for CAMPAIGN type (fire-and-forget). Added import `import { notificationApi } from './src/api/notification.api'`.
+- `App/NGOConnectApp/src/screens/home/NotificationsScreen.tsx` — CTA banner: added `useRoute` import; reads `route.params?.actionLabel` on mount into `ctaLabel` state; renders a dismissible purple banner (`backgroundColor: '#7C3AED'`) showing `📣 {ctaLabel}` with a ✕ dismiss button when `ctaLabel` is set. Only shown when a CAMPAIGN notification with `actionLabel` (no `deepLink`) navigates to this screen. No changes to existing notification list behavior.
+- No new endpoints, SP changes, or DB changes. All additive.

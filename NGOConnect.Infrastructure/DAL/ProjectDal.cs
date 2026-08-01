@@ -298,7 +298,10 @@ namespace NGOConnect.Infrastructure.DAL
                 // #21 — confirm attendance to the volunteer who just scanned
                 if (result.Succeeded)
                 {
-                    var projectId = Col<int?>(result.Row!, "ProjectId");
+                    // Col<int?> cannot cast MySQL INT UNSIGNED (UInt32) to Nullable<Int32> via Convert.ChangeType.
+                    // Read the raw value and convert explicitly instead.
+                    var rawId     = result.Row!["ProjectId"];
+                    var projectId = rawId == DBNull.Value ? (int?)null : (int)Convert.ToUInt32(rawId);
                     _ = FireUserNotifAsync(userId,
                         "Attendance Confirmed",
                         "Your attendance has been recorded. Thank you for showing up!",
