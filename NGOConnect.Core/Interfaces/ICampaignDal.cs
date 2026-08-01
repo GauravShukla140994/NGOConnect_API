@@ -29,6 +29,18 @@ namespace NGOConnect.Core.Interfaces
         Task<ApiResponse<DynamicRow>> GetHistoryDetailAsync(int campaignId);
         Task<ApiResponse<DynamicRow>> GetDashboardStatsAsync();
 
+        /// <summary>Per-recipient drill-down (phone/email/name + individual status) — Super Admin only.</summary>
+        Task<ApiResponse<PagedResult<DynamicRow>>> GetRecipientListAsync(int campaignId, string? statusCode, int pageNumber, int pageSize);
+
+        /// <summary>
+        /// Real device-side delivery acknowledgment — called by the mobile app itself
+        /// the moment it actually renders a campaign push. Ownership-checked in the SP
+        /// (userId must match the recipient row's UserId); always reports success to
+        /// the caller regardless of match, so this never leaks whether a given
+        /// campaignRecipientId exists or belongs to someone else.
+        /// </summary>
+        Task<ApiResponse> AckDeliveredAsync(long campaignRecipientId, int userId);
+
         // ── Dispatch support (called by ICampaignDispatchService, not controllers) ──
         Task<List<DynamicRow>> GetQueuedRecipientsAsync(int campaignId, string channelCode, int batchSize);
         Task MarkRecipientStatusAsync(long campaignRecipientId, string statusCode, string? providerMessageId, string? failReason);

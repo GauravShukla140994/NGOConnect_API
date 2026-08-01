@@ -108,14 +108,20 @@ namespace NGOConnect.Infrastructure.Services
             var tokens = await _notifications.GetTokensByUserIdAsync(userId);
             if (tokens.Count == 0) return false;
 
-            var title       = recipient.Get<string>("pushTitle")       ?? "RippleHub";
-            var body        = recipient.Get<string>("pushBody")        ?? "";
-            var imageUrl    = recipient.Get<string>("pushImageUrl");
-            var deepLink    = recipient.Get<string>("pushDeepLink");
-            var actionLabel = recipient.Get<string>("pushActionLabel");
+            var title        = recipient.Get<string>("pushTitle")       ?? "RippleHub";
+            var body         = recipient.Get<string>("pushBody")        ?? "";
+            var imageUrl     = recipient.Get<string>("pushImageUrl");
+            var deepLink     = recipient.Get<string>("pushDeepLink");
+            var actionLabel  = recipient.Get<string>("pushActionLabel");
+            var recipientId  = recipient.Get<long>("campaignRecipientId");
+
+            // campaignRecipientId lets the device ack real delivery back to
+            // CampaignRecipient_AckDelivered the moment it actually renders this push —
+            // that's what makes "Delivered" mean something more than "FCM accepted it".
+            var extraData = new Dictionary<string, string> { ["campaignRecipientId"] = recipientId.ToString() };
 
             return await _fcm.SendMulticastAsync(tokens, title, body, "CAMPAIGN", refId: campaignId, refType: "Campaign",
-                imageUrl: imageUrl, deepLink: deepLink, actionLabel: actionLabel);
+                imageUrl: imageUrl, deepLink: deepLink, actionLabel: actionLabel, extraData: extraData);
         }
 
         private async Task<bool> SendEmailAsync(DynamicRow recipient)

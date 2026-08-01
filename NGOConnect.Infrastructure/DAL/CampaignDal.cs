@@ -259,6 +259,47 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
+        public async Task<ApiResponse<PagedResult<DynamicRow>>> GetRecipientListAsync(int campaignId, string? statusCode, int pageNumber, int pageSize)
+        {
+            try
+            {
+                var paged = await ExecuteDynamicPagedListAsync("Campaign_GetRecipientList", pageNumber, pageSize, cmd =>
+                {
+                    _db.AddParameter(cmd, "p_CampaignId", campaignId);
+                    _db.AddParameter(cmd, "p_StatusCode", (object?)statusCode ?? DBNull.Value);
+                    _db.AddParameter(cmd, "p_PageNumber", pageNumber);
+                    _db.AddParameter(cmd, "p_PageSize",   pageSize);
+                });
+                return ApiResponse<PagedResult<DynamicRow>>.Success(paged);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Campaign.GetRecipientListAsync failed CampaignId={CampaignId}", campaignId);
+                return ApiResponse<PagedResult<DynamicRow>>.Failure("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        public async Task<ApiResponse> AckDeliveredAsync(long campaignRecipientId, int userId)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("CampaignRecipient_AckDelivered", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_CampaignRecipientId", campaignRecipientId);
+                    _db.AddParameter(cmd, "p_UserId",              userId);
+                });
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                // Deliberately swallow and still report success to the caller — this is a
+                // best-effort beacon from a mobile device; a transient DB error here should
+                // never surface as an app-visible failure or retry storm.
+                Log.Error(ex, "Campaign.AckDeliveredAsync failed RecipientId={RecipientId}", campaignRecipientId);
+                return ApiResponse.Ok("Acknowledged.");
+            }
+        }
+
         // ── Dispatch support ──────────────────────────────────────
 
         public async Task<List<DynamicRow>> GetQueuedRecipientsAsync(int campaignId, string channelCode, int batchSize)

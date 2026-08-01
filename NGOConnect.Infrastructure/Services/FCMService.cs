@@ -61,7 +61,8 @@ namespace NGOConnect.Infrastructure.Services
             string? refType     = null,
             string? imageUrl    = null,
             string? deepLink    = null,
-            string? actionLabel = null)
+            string? actionLabel = null,
+            IReadOnlyDictionary<string, string>? extraData = null)
         {
             if (!_ready || string.IsNullOrWhiteSpace(token)) return false;
 
@@ -75,7 +76,7 @@ namespace NGOConnect.Infrastructure.Services
                     // the timestamp — this is what was showing a frozen wrong date when FCM
                     // auto-displayed using its own (often wrong) event_time default.
                     // iOS: APNS alert handles display natively (no JS involvement for background).
-                    Data  = BuildData(notifType, refId, refType, deepLink, actionLabel, title, body, imageUrl),
+                    Data  = BuildData(notifType, refId, refType, deepLink, actionLabel, title, body, imageUrl, extraData),
                     Android = new AndroidConfig
                     {
                         Priority = Priority.High,
@@ -119,7 +120,8 @@ namespace NGOConnect.Infrastructure.Services
             string? refType     = null,
             string? imageUrl    = null,
             string? deepLink    = null,
-            string? actionLabel = null)
+            string? actionLabel = null,
+            IReadOnlyDictionary<string, string>? extraData = null)
         {
             if (!_ready) return false;
 
@@ -134,7 +136,7 @@ namespace NGOConnect.Infrastructure.Services
             {
                 // Firebase limits multicast to 500 tokens per call
                 const int batchSize = 500;
-                var data          = BuildData(notifType, refId, refType, deepLink, actionLabel, title, body, imageUrl);
+                var data          = BuildData(notifType, refId, refType, deepLink, actionLabel, title, body, imageUrl, extraData);
                 var staleTokens   = new List<string>();
                 var totalSuccess  = 0;
 
@@ -234,7 +236,8 @@ namespace NGOConnect.Infrastructure.Services
             string? actionLabel = null,
             string? title       = null,
             string? body        = null,
-            string? imageUrl    = null)
+            string? imageUrl    = null,
+            IReadOnlyDictionary<string, string>? extraData = null)
         {
             var data = new Dictionary<string, string> { ["notifType"] = notifType };
             if (refId.HasValue)                          data["refId"]       = refId.Value.ToString();
@@ -244,6 +247,13 @@ namespace NGOConnect.Infrastructure.Services
             if (!string.IsNullOrWhiteSpace(title))       data["title"]       = title;
             if (!string.IsNullOrWhiteSpace(body))        data["body"]        = body;
             if (!string.IsNullOrWhiteSpace(imageUrl))    data["imageUrl"]    = imageUrl;
+            // v5.0 NEW: lets a specific caller (e.g. campaign dispatch) attach its own
+            // extra keys — e.g. campaignRecipientId, so the device can ack real delivery
+            // back to CampaignRecipient_AckDelivered — without hardcoding that concept
+            // into this shared, domain-agnostic FCM service.
+            if (extraData != null)
+                foreach (var kv in extraData)
+                    data[kv.Key] = kv.Value;
             return data;
         }
 

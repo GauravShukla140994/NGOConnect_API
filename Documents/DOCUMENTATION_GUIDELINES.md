@@ -268,6 +268,20 @@ When there is a conflict between files, this priority order applies:
 
 ---
 
+**Marketing & Communication Center — real delivery acknowledgment + per-recipient drill-down** (2026-07-24)
+- **Root issue**: "Delivered" in the dashboard/list/history has only ever meant `QueueStatus IN ('SENT','DELIVERED')` — i.e. "Firebase accepted the send request" — because `CampaignDispatchService` never actually set `QueueStatus = 'DELIVERED'` anywhere. A campaign could show "completed, delivered" while the device never displayed anything. User confirmed hitting exactly this. Decision made with user: build real device-side acknowledgment rather than just relabeling.
+- New SP `CampaignRecipient_AckDelivered(p_CampaignRecipientId, p_UserId)` — updates `QueueStatus` to `DELIVERED` + sets `DeliveredAt`, ownership-checked (`UserId` must match), always reports success regardless of match (best-effort beacon from an untrusted client, no oracle leak). Won't downgrade a terminal FAILED/SKIPPED row.
+- New SP `Campaign_GetRecipientList` — paginated per-recipient drill-down (name, email, mobile, channel, status, timestamps, fail reason) for the Super Admin UI's new "view recipients" action.
+- Split `SentCount`/`TotalSent` (accepted-by-FCM, the old — misleadingly labeled — meaning) from real `DeliveredCount`/`TotalDelivered` (ack-based) in `Campaign_GetList`, `Campaign_GetHistoryDetail`, `Communication_GetDashboardStats`. Field names kept where they already existed (`DeliveredCount`) since their meaning is now honest; `SentCount`/`TotalSent` are new additive fields.
+- `IFCMService`/`FCMService`: added optional `extraData` dictionary param to `SendAsync`/`SendMulticastAsync`, merged into the FCM data payload — keeps the shared, domain-agnostic FCM service from needing to know about campaign-specific concepts. `CampaignDispatchService.SendPushAsync` passes `campaignRecipientId` via this mechanism so the device can ack against the right row.
+- New endpoints: `POST /api/v1/campaign-recipients/{campaignRecipientId}/delivered` (any authenticated user — added to `CommunicationPreferencesController` since it's the existing "any authenticated user, communication-domain" home rather than a new controller for one endpoint) and `GET /api/v1/superadmin/campaigns/{campaignId}/recipients` (Super Admin, paginated).
+- Patch file: `Documents/NGOConnect_Patch_MarketingCommunicationCenter_DeliveryAck.sql` — 2 new SPs + 3 modified SPs, all DROP-then-CREATE, safe to re-run, not yet applied to any DB.
+- **Mobile app work needed** (separate session, not started as of this entry): call the new ack endpoint the moment the device's notifee handler actually renders a `CAMPAIGN` notification, using `data.campaignRecipientId` from the FCM payload. Instructions added as an addendum to `Documents/MarketingCommunicationCenter_MobileApp_Phase1_Prompt.md` (2026-07-30) — also documents the updated data-only Android payload shape (title/body/imageUrl/campaignRecipientId now all under `data`, not `notification`).
+- `validate_sp_params.py` re-run: all new/modified SPs pass. **Unrelated pre-existing issue surfaced by the same run, not touched**: `UserDal.cs -> User_GetMyOrgs` — SP selects a `SuspendedAt` column that no `Col<T>` mapper reads (silent data loss). Predates this session's work entirely; flagging for awareness, not fixing without being asked.
+- **Frontend (Website) built 2026-07-30**: `src/admin/api/communication.js` — added `getCampaignRecipients`. New page `src/admin/pages/communication/CampaignRecipientsPage.jsx` — paginated per-recipient drill-down (status tabs, name/email/mobile/channel/status/timestamps/fail reason), routed at `communication/campaigns/:campaignId/recipients` in `AdminApp.jsx`, linked from `CampaignsPage.jsx` ("Recipients" row action, shown once a campaign has recipients) and from `CampaignWizardPage.jsx`'s read-only view ("View recipients" button). `CampaignsPage.jsx` — added a `Sent` column alongside `Delivered` (both from the SentCount/DeliveredCount split above) and a `Duplicate` action for COMPLETED/CANCELLED/FAILED campaigns (pure frontend: replays create → save channels → save audience against the source campaign's detail, then opens the new draft in the wizard — no new backend endpoint). `CommunicationDashboardPage.jsx` — split the KPI row into `Sent (accepted)` vs `Delivered (confirmed)` with tooltips explaining the distinction. Build verified (`npm run build` — clean, 518 modules). Backend (steps 67-72) has no further changes this pass — only the mobile-prompt addendum above and this frontend work are new.
+
+---
+
 **Super admin org notifications fix — backend-only** (2026-07-25)
 - No SP, table, or API endpoint changes. C# DAL fix only — no document updates required.
 - Root cause: `FireOrgAdminNotifAsync` in `SuperAdminDal` was only calling `_fcm.SendMulticastAsync` (push notification only). It never called `_notif.CreateAsync`, so no row was saved to the `Notifications` table. This meant the bell icon count and notification page never showed super admin org status notifications.
@@ -325,6 +339,13 @@ When there is a conflict between files, this priority order applies:
   - `src/screens/profile/ProfileScreen.tsx`: Added "📣 Communication Preferences" entry to SETTINGS_ITEMS (between Notifications and Terms of Service).
 - API documentation impact: `GET/PUT /api/v1/communication-preferences` endpoints already documented if the Phase 0+1 API doc was written — no new endpoints, this is the mobile client consuming them.
 - No DB/SP/C# changes this session.
+
+---
+
+**Marketing & Communication Center — FCMService.SendMulticastAsync false-positive success bug fixed** (2026-07-24)
+- Found while debugging "Test send completed" appearing with no notification actually received on device: `SendMulticastAsync` unconditionally `return true`d at the end of its try block regardless of per-token delivery outcome — it logged `FailureCount`/per-token error codes as warnings but never let a fully-failed batch (every token stale/invalid/mismatched) affect the return value. Since the Firebase Admin SDK's `SendEachForMulticastAsync` call itself doesn't throw just because individual tokens failed, this meant total delivery failure was reported as success both to `TestSendAsync` (misleading "Test send completed" message) and to the real dispatch path (`CampaignDispatchService.SendPushAsync` would mark a `CampaignRecipient` row `SENT` even when Firebase actually delivered to nobody).
+- Fixed: now accumulates `SuccessCount` across every batch and returns `totalSuccess > 0`. No signature change, no DAL/SP involvement — pure logic fix inside `FCMService.cs`.
+- **Still needs on-device confirmation**: rebuild + restart the API, re-run Test Send. If it now reports failure, check the Serilog log line `FCMService token[{Index}] error: {Code} — {Msg}` for the actual per-token `MessagingErrorCode` (e.g. `Unregistered`/`InvalidArgument` → stale/invalid device token, needs re-registration; a mismatch error → Firebase project credentials mismatch between this API's `Firebase:CredentialsJson` and whatever Firebase project the mobile app build is registered against).
 
 ---
 
@@ -831,5 +852,142 @@ _Mobile (`App/NGOConnectApp/src/screens/opportunities/AllOpportunitiesScreen.tsx
   2. Target founder protection: if `p_UserId` is a FOUNDER, returns `IsSuccess=0` with "Founder cannot be removed" — blocks bypass even via direct API call.
 - New patch file: `NGOConnect_Patch_OrgRemoveMember_FounderProtection.sql` — apply to Railway staging and production.
 - `Database_Documentation_v4.9.md`: Update `Org_RemoveMember` SP entry — new param descriptions, add requester role check and founder protection notes.
+
+---
+
+**OrgDal.UpdateMemberRoleAsync — InvalidCastException on Save Role** (2026-07-29)
+- C# DAL fix only. No SP, DB, or API changes — no document updates required.
+- Root cause: `OrgMembers.UserId` is `INT UNSIGNED` — MySQL connector returns `UInt32`. `BaseDal.Col<int?>` uses `Convert.DefaultToType` which cannot cast `UInt32` → `Nullable<Int32>` → throws `InvalidCastException`.
+- Fix: changed to `Col<uint?>` with an explicit `(int)` cast when passing to `FireUserNotifAsync`.
+- File: `NGOConnect.Infrastructure/DAL/OrgDal.cs` line ~535.
+
+---
+
+**Expired project handling — mobile-only** (2026-07-29)
+- Mobile-only changes. No SP, DB, or API changes — no document updates required.
+- `App/NGOConnectApp/src/utils/dateUtils.ts`: added `isProjectExpired(p)` export — checks `oneTimeDate`, `recurEnd`, or `flexToDate` against UTC `sessionEndTime`; returns `true` if past deadline. Default `sessionEndTime = '18:29:59'` UTC (≈ 23:59 IST) when not provided.
+- `App/.../screens/admin/AdminProjectsScreen.tsx`: UPCOMING projects now partitioned before filters run — expired unstarted ones injected into CANCELLED source array. Expired projects render with amber "Expired" badge and "NOT STARTED" notice in the Cancelled tab. Tab counts always use the filtered array (not raw `projects[tab]`). Import: `isProjectExpired` from `dateUtils`.
+- `App/.../screens/admin/AdminProjectDetailScreen.tsx`: added `isExpiredUnstarted = project?.statusCode === 'UPCOMING' && isProjectExpired(project)`. When true: Edit button replaced with static "Expired" label; Complete/Cancel section replaced with amber info panel. Import: `isProjectExpired` from `dateUtils`.
+- `App/.../screens/opportunities/AllOpportunitiesScreen.tsx` (screens/opportunities/ — the Nearby Opportunities "View All" screen): Import `isProjectExpired`; added `if (isProjectExpired(p as any)) return false;` at top of `displayed` filter.
+- `App/.../screens/volunteer/AllOpportunitiesScreen.tsx` (screens/volunteer/ — the main All Opportunities screen): Import `isProjectExpired`; FlatList `data` filtered with `.filter(p => !isProjectExpired(p as any))`; `OppCard` shows amber "Deadline Passed" chip instead of Apply button when `isExpiredUnstarted`.
+
+---
+
+**Project_List SP — exclude projects from non-APPROVED organisations** (2026-07-29)
+- `NGOConnect_Complete_Setup_v4.9.sql`: `Project_List` SP updated — added `v_ApprovedOrgLkpId` (resolved from `ORG_STATUS / APPROVED` lookup). Both the main SELECT WHERE and the TotalCount WHERE now include: `AND (p_OrgId IS NOT NULL OR o.StatusLkpId = v_ApprovedOrgLkpId)`. Admin browse (`p_OrgId IS NOT NULL`) is unaffected — admins always see their own org's projects. Public volunteer browse now silently hides projects from SUSPENDED, PENDING, or REJECTED orgs.
+- New patch file: `Documents/NGOConnect_Patch_ProjectList_ApprovedOrgsOnly.sql` — run against Railway staging and production.
+- Document updates needed: `Database_Documentation_v4.9.md` (update `Project_List` SP section — add `v_ApprovedOrgLkpId` variable and org status filter condition).
+
+---
+
+**Project_Cancel SP — missing from all setup SQLs** (2026-07-27)
+- Root cause of Cancel Project button not working: `Project_Cancel` SP was never added to any version of the setup SQL (v4.0–v4.9). It only existed in `NGOConnect_Patch_Project_Cancel.sql`, which also clobbers `Project_List` with a dangerously outdated version using wrong column names — **do NOT re-run that old patch file**.
+- `NGOConnect_Complete_Setup_v4.9.sql`: `Project_Cancel` SP added after `Project_Complete` — params `p_ProjectId`, `p_UserId`, `p_CancelReason`; dynamically resolves CANCELLED LkpId; guards for missing lookup and not-found project; sets `StatusLkpId`, `CancelReason`, `CancelledBy`, `CancelledAt`, `UpdatedAt`, `UpdatedBy`.
+- New clean patch file: `Documents/NGOConnect_Patch_ProjectCancel_Clean.sql` — contains ONLY `Project_Cancel` SP, safe to apply. Apply to Railway staging and production.
+- `Mark as Completed` button: `Project_Complete` SP was always present in every setup SQL — should work. If it also fails, verify it was applied to the current Railway DB instance.
+- Document updates needed: `Database_Documentation_v4.9.md` (add `Project_Cancel` SP entry — params, return values, guards).
+
+---
+
+**Project_GetSessionQr SP — UTC vs IST timezone bug (QR rejected during active sessions)** (2026-07-29)
+- Root cause: Railway MySQL server runs UTC. Session times (`StartTime`, `EndTime`, `SessionDate`) are stored in IST as entered by admin. The previous version of `Project_GetSessionQr` (from `NGOConnect_Patch_QR_TimeWindow_ManualAttendance.sql`) compared `NOW()` (UTC) against IST-stored DATETIME values — e.g., at 9:20 PM IST = 3:50 PM UTC, `3:50 PM UTC < 8:15 PM IST` → true → SP returned "QR not yet available" even during an active session.
+- Fix: declared `v_NowIST = CONVERT_TZ(NOW(), '+00:00', '+05:30')` and used `v_NowIST` for both `v_NowIST < v_WindowStart` and `v_NowIST > v_WindowEnd` comparisons. `QrExpiresAt` intentionally kept UTC (`DATE_ADD(NOW(),...)`) — `Project_CheckIn` validates it with `NOW()` which is also UTC, so both sides are consistent — no change needed there.
+- `NGOConnect_Complete_Setup_v4.9.sql`: fix already in the 3.19 section (line ~7225). No change needed to setup SQL.
+- New patch file: `Documents/NGOConnect_Patch_QR_TimezoneAndDateFix.sql` — apply to Railway staging and production.
+- Document updates needed: `Database_Documentation_v4.9.md` (update `Project_GetSessionQr` SP notes — add IST timezone comment).
+
+---
+
+**Project_GetById SP — DATE_FORMAT for date columns** (2026-07-29)
+- Root cause: SP returned MySQL `DATE` columns (`OneTimeDate`, `RecurStart`, `RecurEnd`, `FlexFromDate`, `FlexToDate`) as raw values → Pomelo/C# serialised them as `DateTime` → JSON produced `"2026-07-26T00:00:00"` (with T00:00:00 suffix). The `fmtDate` utility splits on `'T'` and should handle it, but the raw ISO string was visible in the admin project detail screen.
+- Fix: wrapped all five columns in `DATE_FORMAT(p.XXX, '%Y-%m-%d') AS XXX` — C# receives a plain `string`, not `DateTime` → JSON produces `"2026-07-26"` with no suffix.
+- `NGOConnect_Complete_Setup_v4.9.sql`: updated (line ~2971-2977).
+- Patch file: included in `Documents/NGOConnect_Patch_QR_TimezoneAndDateFix.sql` (combined with the QR timezone fix above for a single Railway deploy).
+- Document updates needed: `Database_Documentation_v4.9.md` (update `Project_GetById` SP return-value column types for the 5 date fields — note they now return `VARCHAR` / date string, not `DATE`).
+
+---
+
+**AdminProjectDetailScreen — real QR code display** (2026-07-29)
+- Mobile-only change. No SP, DB, or API changes — no document updates required.
+- Root cause: QR token was displayed as an emoji placeholder (`⬛⬜⬛`/`⬜⬛⬜`/`⬛⬜⬛`) — not a real scannable QR code. Volunteers on the ImpactScreen use `react-native-vision-camera` to scan the QR; the emoji was never scannable.
+- Fix: replaced emoji placeholder with `<QRCode>` component from `react-native-qrcode-svg` (v6.3.x). Renders a real 180×180 scannable QR code from the `qrToken` UUID string. Wrapped in `qrCodeWrapper` View with drop shadow for visual polish.
+- `App/NGOConnectApp/package.json`: added `react-native-qrcode-svg ^6.3.0` and `react-native-svg ^15.8.0` to `dependencies`.
+- `App/NGOConnectApp/src/screens/admin/AdminProjectDetailScreen.tsx`: imported `QRCode from 'react-native-qrcode-svg'`; replaced emoji block with `<QRCode value={qrToken} size={180} />` inside `qrCodeWrapper`; updated styles.
+- **Action required**: run `npm install && cd ios && pod install` in the `NGOConnectApp` directory after pulling this change (two new native packages need linking).
+
+---
+
+**Suspended NGO visibility fix — full stack (Home / Admin / Community / Explore)** (2026-07-31)
+- Root cause (multi-layer): (1) `User_GetMyOrgs` SP on Railway may be the old pre-v4.5 version that returns no `OrgStatusCode` column — all client filters silently fail. (2) `adminStore.setAdminOrgs` used `orgs[0]` as the `selectedOrg` fallback with no status check — a suspended admin org could become `selectedOrg`. (3) `AdminDashboardScreen.loadOrgs` filtered by FOUNDER/ADMIN role only, not `orgStatusCode === 'APPROVED'` — suspended orgs entered `adminOrgs` and appeared in the admin org picker. (4) `HomeScreen` had `?? orgs[0]` fallback (after `approvedOrgs[0]`) — could pick a suspended org as the active volunteer org when `approvedOrgs` was empty. (5) `CommunityScreen` and `ExploreScreen` initial `activeOrgId` read from `selectedOrg?.orgId` (the admin org, possibly suspended), and `activeOrg` derivation fell through to `?? selectedOrg` as a last resort.
+- **Railway patch required**: `Documents/NGOConnect_Patch_UserGetMyOrgs_WithOrgStatus.sql` — apply to Railway staging and production. Replaces the old SP with the v4.5 version that returns `MemberStatusCode` + `OrgStatusCode` on every row. Without this patch, all client-side suspended-org guards return false.
+- `App/.../store/adminStore.ts`: `setAdminOrgs` — `selectedOrg` fallback now requires `orgStatusCode === 'APPROVED'` on both the existing-org match (`find` by orgId) and the default fallback (`find` first approved); returns `null` if no approved orgs.
+- `App/.../screens/admin/AdminDashboardScreen.tsx`: `loadOrgs` — filter changed to `isAdminOrg(o) && o.orgStatusCode === 'APPROVED'`; fallback `filtered = all` (which could include suspended) replaced with `filtered = all.filter(o => o.orgStatusCode === 'APPROVED')`.
+- `App/.../screens/home/HomeScreen.tsx`: `chosen` fallback changed from `?? orgs[0]` to `?? null` — prevents selecting a suspended org when `approvedOrgs` is empty.
+- `App/.../screens/community/CommunityScreen.tsx`: initial `activeOrgId` state no longer reads from `selectedOrg?.orgId` (admin scope — may be suspended); changed to `storeActiveOrg?.orgId ?? null`. `activeOrg` derivation: removed `?? selectedOrg` from final fallback chain.
+- `App/.../screens/ngo/ExploreScreen.tsx`: same two fixes as CommunityScreen.
+- No document updates required (no SP signature change, no new endpoints, no DB schema change — the patch replaces an SP that already existed under the same name).
+
+---
+
+**MyOrgsScreen — show suspension date/time on suspended org card + SuspendedAt pipeline** (2026-07-31)
+- `Documents/NGOConnect_Complete_Setup_v4.9.sql` — `User_GetMyOrgs` SP (line ~7716): added `SuspendedAt` subquery in first UNION SELECT (approved memberships); added `NULL AS SuspendedAt` in second UNION SELECT (pending join requests).
+- `Documents/NGOConnect_Patch_UserGetMyOrgs_WithOrgStatus.sql` — patch file updated with same `SuspendedAt` changes; header updated to reflect both OrgStatusCode + SuspendedAt changes. **Must apply to Railway staging + production** (supersedes any prior version of this patch).
+- `NGOConnect.Core/Models/User/UserModels.cs` — `UserOrgModel`: added `public DateTime? SuspendedAt { get; set; }` — populated when `OrgStatusCode = SUSPENDED`, null otherwise.
+- `NGOConnect.Infrastructure/DAL/UserDal.cs` — `GetMyOrgsAsync` mapper: added `SuspendedAt = Col<DateTime?>(r, "SuspendedAt")`.
+- `App/.../types/api.types.ts` — `Organisation` interface: added `suspendedAt?: string` (ISO datetime from SP).
+- `App/.../screens/ngo/MyOrgsScreen.tsx` — `SuspendedOrgCard`: parses `org.suspendedAt` into `en-IN` locale string (`DD Mon YYYY, HH:MM AM/PM`); renders "Suspended on …" below the "Suspended" pill. Added `suspendedDate` style (`fontSize: 11, color: '#EA580C', fontWeight: '500'`).
+- No new endpoints. No DB schema change (reads from existing `OrgStatusHistory` table).
+
+---
+
+**Cancel membership request — full stack** (2026-07-31)
+- `Documents/NGOConnect_Complete_Setup_v4.9.sql` — new SP `Org_CancelMembershipRequest(p_OrgId, p_UserId)`: soft-deletes the PENDING `OrgMembershipRequests` row (`IsDeleted = 1`). Returns `IsSuccess=0` if no pending request found.
+- `Documents/NGOConnect_Patch_CancelMembershipRequest.sql` — Railway patch (new file). **Apply to Railway staging + production.**
+- `NGOConnect.Core/Interfaces/IOrgDal.cs` — added `CancelMembershipRequestAsync(int orgId, int userId)`.
+- `NGOConnect.Infrastructure/DAL/OrgDal.cs` — implemented `CancelMembershipRequestAsync` calling `Org_CancelMembershipRequest`.
+- `NGOConnect.API/Controllers/OrgController.cs` — new endpoint: `DELETE /api/v1/org/{orgId}/membership-request` (Authorize).
+- `App/.../api/org.api.ts` — added `cancelMembershipRequest(orgId)` (DELETE) + named export.
+- `App/.../screens/ngo/MyOrgsScreen.tsx` — new `PendingRequestCard` component: shows org logo/name/requested-date + amber "Pending" pill + "Cancel Request" button. Button triggers `Alert.alert` confirmation before calling the API. On success, calls `load()` to refresh the list. Pending rows that are member-PENDING now use `PendingRequestCard`; org-PENDING rows (founder waiting for Super Admin approval) continue to use the plain `OrgCard`. Added styles: `pendingCard`, `pendingCardHeader`, `cancelRequestBtn`, `cancelRequestBtnText`.
+- No DB schema change (no new tables or columns).
+
+---
+
+**Impact screen — ProjectsCompleted always 0 + Completed tab always empty — full fix** (2026-07-31)
+
+Two separate root causes, one patch file fixes both.
+
+Root cause 1 — `User_GetImpact` (old version on Railway):
+- Old SP used `pa.AttendanceStatus = 'ATTENDED'` (a VARCHAR column that no longer exists on `ProjectAttendance` — replaced by `AttendStatusLkpId INT UNSIGNED FK`). Every attendance join silently returned no rows → `v_ProjCompleted = 0` always.
+- Even after fixing the column bug: the query required explicit `ProjectAttendance` rows marked ATTENDED, which are only created when admin manually records per-session attendance. Admin completing a project without this step left `ProjectsCompleted = 0` even for fully approved volunteers.
+- Fix: `v_ProjCompleted` now counts via `ProjectApplications` (APPROVED status) + project `StatusLkpId` IN (COMPLETED, EXPIRED). This is reliable regardless of whether admin records individual attendance.
+
+Root cause 2 — `Application_GetByUser` (old version on Railway):
+- Old SP returned only `StatusCode`, `Status`, `CreatedAt` — no `ProjectStatusCode` field.
+- Mobile `isCompleted` filter: `['COMPLETED','EXPIRED'].includes(a.projectStatusCode ?? '')` → `projectStatusCode` was `undefined` → always false → Completed tab always empty.
+- Fix: new SP returns `ProjectStatusCode`, `ProjectStatus`, `ScheduleTypeCode`, and all schedule fields.
+
+Changes:
+- `Documents/NGOConnect_Complete_Setup_v4.9.sql` — `User_GetImpact` (section 3.02): updated `v_ProjCompleted` block to use `ProjectApplications` JOIN instead of `ProjectAttendance` JOIN; updated header comment.
+- `Documents/NGOConnect_Patch_ImpactSPs_Fix.sql` — new combined Railway patch. **Apply to Railway staging + production.**
+- No C#, no API, no mobile changes needed — the issue was entirely SP-side.
+- `ImpactScreen.tsx` `isCompleted` filter and `User_GetImpact` DAL mapper are both already correct; they just need the SPs to return the right data.
+
+---
+
+**RippleHub logo — app-wide branding** (2026-07-31)
+- Mobile-only changes + email template changes. No SP, DB, or API changes — no document updates required.
+- Source logo: `Documents/Logo/logo_512x512 google play.png` (512×512 RGBA PNG, dark navy background with blue/green gradient ripple mark).
+- `App/NGOConnectApp/src/assets/images/logo.png` (NEW) — 512×512 copy for React Native asset bundle.
+- `App/NGOConnectApp/src/assets/images/logo_180.png` (NEW) — 180×180 copy (Apple touch icon).
+- `App/NGOConnectApp/ios/NGOConnectApp/Images.xcassets/RippleLogo.imageset/` (NEW) — imageset registered for iOS LaunchScreen storyboard (3x slot = logo.png 512×512).
+- `App/NGOConnectApp/android/app/src/main/res/drawable/logo.png` (NEW) — 192×192 resized via PIL for Android notifee `largeIcon`.
+- **LoginScreen.tsx**: replaced heart emoji placeholder with `<Image source={LOGO} style={logoImage} resizeMode="cover" />` (80×80, borderRadius 22).
+- **OtpScreen.tsx**: added brand block above back button — logo (64×64, borderRadius 16) + "RippleHub" bold text.
+- **InviteAcceptScreen.tsx**: logo shown inline with "Invitation" title in header; "Sent via RippleHub" strip (logo 20×20 + text) at bottom of card above CTA buttons.
+- **LaunchScreen.storyboard** (iOS): removed default "NGOConnectApp" label; added UIImageView referencing RippleLogo (100×100, borderRadius 22, centred at ~42% height), "RippleHub" bold label (28pt), tagline label (14pt); background #F0F2F8.
+- **index.js** + **RootNavigator.tsx**: notifee `largeIcon: 'logo'` — references `res/drawable/logo.png` by resource name; campaign notifications use FCM imageUrl if present, falls back to brand logo.
+- **AwsSesEmailService.cs** + **SmtpEmailService.cs** — `BuildOtpHtml`: OTP email header updated from blue (#1a56db) plain text to dark navy (#0A1628) header with embedded base64 RippleHub logo (80×80 PNG, 8,388 bytes → 11,184 char base64 data URI) above "RippleHub" h1 and updated tagline color (#93c5fd). Same `<img>` tag with `border-radius:14px` for compatible clients; logo blends seamlessly against matching dark navy background on Outlook (no border-radius support needed).
+- **Note**: Metro cache reset required after adding new image assets — run `npx react-native start --reset-cache` then rebuild.
+- **Note**: iOS notifications always use the app icon in system notifications — no per-notification override possible; since the app icon was already updated to RippleHub, iOS notifications automatically show the correct logo.
 
 ---

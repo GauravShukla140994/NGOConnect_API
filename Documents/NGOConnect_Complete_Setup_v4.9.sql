@@ -2789,6 +2789,38 @@ BEGIN
     END IF;
 END //
 
+-- v4.9 NEW: User cancels their own pending join request
+DROP PROCEDURE IF EXISTS Org_CancelMembershipRequest //
+CREATE PROCEDURE Org_CancelMembershipRequest(
+    IN p_OrgId   INT UNSIGNED,
+    IN p_UserId  INT UNSIGNED
+)
+BEGIN
+    DECLARE v_PendingLkpId INT UNSIGNED;
+    DECLARE v_Rows         INT DEFAULT 0;
+
+    SELECT lv.LookupValueId INTO v_PendingLkpId
+    FROM   LookupValues lv
+    JOIN   LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE  lt.TypeCode = 'MEMBER_STATUS' AND lv.ValueCode = 'PENDING'
+    LIMIT  1;
+
+    UPDATE OrgMembershipRequests
+    SET    IsDeleted = 1
+    WHERE  OrgId       = p_OrgId
+      AND  UserId      = p_UserId
+      AND  StatusLkpId = v_PendingLkpId
+      AND  IsDeleted   = 0;
+
+    SET v_Rows = ROW_COUNT();
+
+    IF v_Rows > 0 THEN
+        SELECT 1 AS IsSuccess, 'Membership request cancelled.' AS Message;
+    ELSE
+        SELECT 0 AS IsSuccess, 'No pending request found for this organisation.' AS Message;
+    END IF;
+END //
+
 -- v4.0 NEW: Approve or reject a membership request
 CREATE PROCEDURE Org_ReviewMembership(
     IN p_RequestId   INT UNSIGNED,
@@ -2968,9 +3000,13 @@ BEGIN
         p.ProjectName, p.Category, p.Description,
         ptv.ValueCode AS ProjectTypeCode, ptv.ValueName AS ProjectType,
         stv.ValueCode AS ScheduleTypeCode, stv.ValueName AS ScheduleType,
-        p.RecurStart, p.RecurEnd, p.RecurDays,
+        DATE_FORMAT(p.RecurStart,    '%Y-%m-%d') AS RecurStart,
+        DATE_FORMAT(p.RecurEnd,      '%Y-%m-%d') AS RecurEnd,
+        p.RecurDays,
         p.SessionStartTime, p.SessionEndTime,
-        p.OneTimeDate, p.FlexFromDate, p.FlexToDate,
+        DATE_FORMAT(p.OneTimeDate,   '%Y-%m-%d') AS OneTimeDate,
+        DATE_FORMAT(p.FlexFromDate,  '%Y-%m-%d') AS FlexFromDate,
+        DATE_FORMAT(p.FlexToDate,    '%Y-%m-%d') AS FlexToDate,
         p.MinHoursRequired,
         ltv.ValueCode AS LocationTypeCode, ltv.ValueName AS LocationType,
         p.AddressLine, p.Landmark, p.City, p.State,
@@ -3194,6 +3230,41 @@ BEGIN
         ImpactSummary = p_ImpactSummary, BeneficiaryCount = p_BeneficiaryCount, UpdatedAt = NOW()
     WHERE ProjectId = p_ProjectId AND IsDeleted = 0;
     SELECT 1 AS IsSuccess, 'Project marked as completed.' AS Message;
+END //
+
+-- v4.0 NEW: Cancel a project (sets status to CANCELLED, records reason + who)
+CREATE PROCEDURE Project_Cancel(
+    IN p_ProjectId    INT UNSIGNED,
+    IN p_UserId       INT UNSIGNED,
+    IN p_CancelReason TEXT
+)
+BEGIN
+    DECLARE v_CancelledStatusId INT UNSIGNED;
+
+    SELECT lv.LookupValueId INTO v_CancelledStatusId
+    FROM   LookupValues lv
+    JOIN   LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE  lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'CANCELLED'
+    LIMIT  1;
+
+    IF v_CancelledStatusId IS NULL THEN
+        SELECT 0 AS IsSuccess, 'Project status lookup not found.' AS Message;
+    ELSEIF NOT EXISTS (
+        SELECT 1 FROM Projects WHERE ProjectId = p_ProjectId AND IsDeleted = 0
+    ) THEN
+        SELECT 0 AS IsSuccess, 'Project not found.' AS Message;
+    ELSE
+        UPDATE Projects
+        SET    StatusLkpId  = v_CancelledStatusId,
+               CancelReason = p_CancelReason,
+               CancelledBy  = p_UserId,
+               CancelledAt  = NOW(),
+               UpdatedAt    = NOW(),
+               UpdatedBy    = p_UserId
+        WHERE  ProjectId = p_ProjectId AND IsDeleted = 0;
+
+        SELECT 1 AS IsSuccess, 'Project cancelled successfully.' AS Message;
+    END IF;
 END //
 
 -- ── APPLICATION SPs ─────────────────────────────────────────────
@@ -6016,7 +6087,10 @@ END //
 -- Full rebuild: ImpactScore inline, rank name, anchored on Users table.
 -- FIXED: uses AttendStatusLkpId (FK) not AttendanceStatus (VARCHAR which doesn't exist)
 --        anchored on Users (not UserProfiles) — always returns a row
--- (Source: NGOConnect_Patch_ColumnFix.sql — supersedes NGOConnect_Patch_ImpactSPs.sql)
+-- FIXED: v_ProjCompleted now counts APPROVED applications on COMPLETED/EXPIRED projects
+--        (previously required explicit ProjectAttendance rows marked ATTENDED, which were
+--         never created when admin completed a project without recording individual attendance)
+-- (Source: NGOConnect_Patch_ImpactSPs_Fix.sql)
 DROP PROCEDURE IF EXISTS User_GetImpact //
 CREATE PROCEDURE User_GetImpact(IN p_UserId INT UNSIGNED)
 BEGIN
@@ -6056,15 +6130,19 @@ BEGIN
     WHERE  pa.UserId = p_UserId AND pa.AttendStatusLkpId = v_AttStatusAttended;
     SET v_TotalHours = ROUND(v_TotalMinutes / 60.0, 1);
 
-    SELECT COUNT(DISTINCT ps.ProjectId)
+    -- Count projects where user had an APPROVED application AND project is COMPLETED/EXPIRED.
+    -- This is more reliable than requiring explicit ProjectAttendance rows (which are only
+    -- created when admin manually marks attendance per session — often skipped for completed projects).
+    SELECT COUNT(DISTINCT pa.ProjectId)
     INTO   v_ProjCompleted
-    FROM   ProjectAttendance pa
-    JOIN   ProjectSessions ps ON pa.SessionId  = ps.SessionId
-    JOIN   Projects        p  ON ps.ProjectId  = p.ProjectId
-    JOIN   LookupValues    lv ON p.StatusLkpId = lv.LookupValueId
-    WHERE  pa.UserId = p_UserId
-      AND  pa.AttendStatusLkpId = v_AttStatusAttended
-      AND  lv.ValueCode IN ('COMPLETED', 'EXPIRED');
+    FROM   ProjectApplications pa
+    JOIN   Projects        p   ON pa.ProjectId   = p.ProjectId
+    JOIN   LookupValues    apv ON pa.StatusLkpId = apv.LookupValueId
+    JOIN   LookupValues    prv ON p.StatusLkpId  = prv.LookupValueId
+    WHERE  pa.UserId    = p_UserId
+      AND  pa.IsDeleted = 0
+      AND  apv.ValueCode  = 'APPROVED'
+      AND  prv.ValueCode IN ('COMPLETED', 'EXPIRED');
 
     SELECT COUNT(*) INTO v_NgosJoined
     FROM   OrgMembers   om JOIN LookupValues lv ON om.StatusLkpId = lv.LookupValueId
@@ -6261,11 +6339,12 @@ CREATE PROCEDURE Project_List(
     IN p_UserLon    DECIMAL(10,7)
 )
 BEGIN
-    DECLARE v_Offset          INT;
-    DECLARE v_StatusLkpId     INT UNSIGNED DEFAULT NULL;
-    DECLARE v_TypeLkpId       INT UNSIGNED DEFAULT NULL;
-    DECLARE v_ActiveLkpId     INT UNSIGNED DEFAULT NULL;
-    DECLARE v_UpcomingLkpId   INT UNSIGNED DEFAULT NULL;
+    DECLARE v_Offset             INT;
+    DECLARE v_StatusLkpId        INT UNSIGNED DEFAULT NULL;
+    DECLARE v_TypeLkpId          INT UNSIGNED DEFAULT NULL;
+    DECLARE v_ActiveLkpId        INT UNSIGNED DEFAULT NULL;
+    DECLARE v_UpcomingLkpId      INT UNSIGNED DEFAULT NULL;
+    DECLARE v_ApprovedOrgLkpId   INT UNSIGNED DEFAULT NULL;
 
     SET v_Offset = (p_PageNumber - 1) * p_PageSize;
 
@@ -6289,6 +6368,11 @@ BEGIN
     SELECT lv.LookupValueId INTO v_UpcomingLkpId
     FROM   LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
     WHERE  lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'UPCOMING' LIMIT 1;
+
+    -- Resolve APPROVED org status — public browse must exclude suspended/inactive orgs
+    SELECT lv.LookupValueId INTO v_ApprovedOrgLkpId
+    FROM   LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE  lt.TypeCode = 'ORG_STATUS' AND lv.ValueCode = 'APPROVED' LIMIT 1;
 
     SELECT
         p.ProjectId,
@@ -6363,6 +6447,8 @@ BEGIN
             OR p.AddressLine  LIKE CONCAT('%', p_Keyword, '%'))
       -- Public volunteer browse: only ACTIVE + UPCOMING (admin with p_OrgId sees all)
       AND  (p_OrgId IS NOT NULL OR p.StatusLkpId IN (v_ActiveLkpId, v_UpcomingLkpId))
+      -- Public volunteer browse: only projects from APPROVED organisations
+      AND  (p_OrgId IS NOT NULL OR o.StatusLkpId = v_ApprovedOrgLkpId)
     ORDER BY
         CASE WHEN p_UserLat IS NOT NULL AND p_UserLon IS NOT NULL THEN
             CASE WHEN p.Latitude IS NOT NULL AND p.Longitude IS NOT NULL THEN
@@ -6396,7 +6482,8 @@ BEGIN
             OR p.State        LIKE CONCAT('%', p_Keyword, '%')
             OR p.Landmark     LIKE CONCAT('%', p_Keyword, '%')
             OR p.AddressLine  LIKE CONCAT('%', p_Keyword, '%'))
-      AND  (p_OrgId IS NOT NULL OR p.StatusLkpId IN (v_ActiveLkpId, v_UpcomingLkpId));
+      AND  (p_OrgId IS NOT NULL OR p.StatusLkpId IN (v_ActiveLkpId, v_UpcomingLkpId))
+      AND  (p_OrgId IS NOT NULL OR o.StatusLkpId = v_ApprovedOrgLkpId);
 END //
 
 
@@ -7188,6 +7275,7 @@ BEGIN
     DECLARE v_Buffer      INT DEFAULT 15;
     DECLARE v_WindowStart DATETIME;
     DECLARE v_WindowEnd   DATETIME;
+    DECLARE v_NowIST      DATETIME;   -- Railway server is UTC; session times are IST
     DECLARE v_RowsHit     INT DEFAULT 0;
 
     SELECT ProjectId, SessionDate, StartTime, EndTime
@@ -7205,15 +7293,20 @@ BEGIN
         FROM Settings WHERE SettingKey = 'QR_BUFFER_MINUTES' AND IsDeleted = 0 LIMIT 1;
         IF v_Buffer IS NULL THEN SET v_Buffer = 15; END IF;
 
+        -- Session times are stored in IST (as entered by admin).
+        -- Railway MySQL server runs UTC. Convert NOW() to IST for apples-to-apples comparison.
+        -- QrExpiresAt is intentionally kept as UTC (DATE_ADD(NOW(),...)) because
+        -- Project_CheckIn validates it with NOW() — both UTC, internally consistent.
+        SET v_NowIST      = CONVERT_TZ(NOW(), '+00:00', '+05:30');
         SET v_WindowStart = DATE_SUB(TIMESTAMP(v_SessionDate, v_StartTime), INTERVAL v_Buffer MINUTE);
         SET v_WindowEnd   = TIMESTAMP(v_SessionDate, v_EndTime);
 
-        IF NOW() < v_WindowStart THEN
+        IF v_NowIST < v_WindowStart THEN
             SELECT 0 AS IsSuccess,
                    CONCAT('QR not yet available. Session starts at ', TIME_FORMAT(v_StartTime, '%h:%i %p'),
                           '. QR opens ', v_Buffer, ' min before start.') AS Message,
                    NULL AS QrToken;
-        ELSEIF NOW() > v_WindowEnd THEN
+        ELSEIF v_NowIST > v_WindowEnd THEN
             SELECT 0 AS IsSuccess,
                    CONCAT('Session ended at ', TIME_FORMAT(v_EndTime, '%h:%i %p'), '. QR is no longer active.') AS Message,
                    NULL AS QrToken;
@@ -7681,7 +7774,13 @@ BEGIN
          JOIN LookupTypes  ht ON hv.LookupTypeId  = ht.LookupTypeId
          WHERE h.OrgId = o.OrgId AND ht.TypeCode = 'ORG_STATUS' AND hv.ValueCode = 'REJECTED'
          ORDER BY h.CreatedAt DESC LIMIT 1
-        ) AS RejectionReason
+        ) AS RejectionReason,
+        (SELECT h.CreatedAt FROM OrgStatusHistory h
+         JOIN LookupValues hv ON h.NewStatusLkpId = hv.LookupValueId
+         JOIN LookupTypes  ht ON hv.LookupTypeId  = ht.LookupTypeId
+         WHERE h.OrgId = o.OrgId AND ht.TypeCode = 'ORG_STATUS' AND hv.ValueCode = 'SUSPENDED'
+         ORDER BY h.CreatedAt DESC LIMIT 1
+        ) AS SuspendedAt
     FROM OrgMembers om
     JOIN  Organisations o  ON om.OrgId       = o.OrgId  AND o.IsDeleted = 0
     JOIN  LookupValues  sv ON om.StatusLkpId = sv.LookupValueId
@@ -7706,7 +7805,8 @@ BEGIN
         mr.CreatedAt AS JoinedAt,
         'PENDING' AS MemberStatusCode,
         COALESCE(os.ValueCode, 'ACTIVE') AS OrgStatusCode,
-        NULL AS RejectionReason
+        NULL AS RejectionReason,
+        NULL AS SuspendedAt
     FROM OrgMembershipRequests mr
     JOIN  Organisations o  ON mr.OrgId       = o.OrgId  AND o.IsDeleted = 0
     JOIN  LookupValues  ms ON mr.StatusLkpId = ms.LookupValueId
@@ -10144,6 +10244,34 @@ BEGIN
 END //
 DELIMITER ;
 
+-- Real delivery acknowledgment from the mobile device itself — called by the app
+-- immediately when it actually renders/displays a campaign push (not by the
+-- dispatch worker). This is what makes "Delivered" mean "the device actually
+-- got it" instead of "Firebase's Admin SDK accepted the send request", which is
+-- all CampaignRecipient_MarkStatus's 'SENT' status has ever meant. Ownership-
+-- checked (p_UserId must match the row's UserId) so one user can never ack
+-- another user's recipient row. Always reports success regardless of whether a
+-- row actually matched — this is a best-effort beacon from an untrusted client,
+-- deliberately not leaking whether a given CampaignRecipientId exists or belongs
+-- to someone else. Won't downgrade a terminal FAILED/SKIPPED_* row.
+DROP PROCEDURE IF EXISTS CampaignRecipient_AckDelivered;
+
+DELIMITER //
+CREATE PROCEDURE CampaignRecipient_AckDelivered(
+    IN p_CampaignRecipientId BIGINT UNSIGNED,
+    IN p_UserId              INT UNSIGNED
+)
+BEGIN
+    UPDATE CampaignRecipients
+    SET QueueStatus = 'DELIVERED', DeliveredAt = NOW()
+    WHERE CampaignRecipientId = p_CampaignRecipientId
+      AND UserId = p_UserId
+      AND QueueStatus IN ('SENT', 'QUEUED', 'PROCESSING');
+
+    SELECT 1 AS IsSuccess, 'Acknowledged.' AS Message;
+END //
+DELIMITER ;
+
 -- Hook for future open/click tracking (pixel + redirect endpoints are a small
 -- follow-up, not wired in Phase 1 — see MarketingCommunicationCenter_BRD_v1.0.docx
 -- Section 8, "Rich HTML Editor" is Phase 2 scope, tracking pixel belongs with it).
@@ -10232,7 +10360,11 @@ BEGIN
               JOIN LookupValues lv_ch ON lv_ch.LookupValueId = cc.ChannelLkpId
               WHERE cc.CampaignId = c.CampaignId) AS Channels,
            (SELECT COUNT(*) FROM CampaignRecipients cr WHERE cr.CampaignId = c.CampaignId) AS TotalRecipients,
-           (SELECT COUNT(*) FROM CampaignRecipients cr WHERE cr.CampaignId = c.CampaignId AND cr.QueueStatus IN ('SENT','DELIVERED')) AS DeliveredCount,
+           -- SentCount = accepted by FCM (not proof of arrival); DeliveredCount = real
+           -- device-confirmed delivery via CampaignRecipient_AckDelivered. Keep both —
+           -- SentCount was the old (misleadingly-labeled) "DeliveredCount" meaning.
+           (SELECT COUNT(*) FROM CampaignRecipients cr WHERE cr.CampaignId = c.CampaignId AND cr.QueueStatus IN ('SENT','DELIVERED')) AS SentCount,
+           (SELECT COUNT(*) FROM CampaignRecipients cr WHERE cr.CampaignId = c.CampaignId AND cr.QueueStatus = 'DELIVERED') AS DeliveredCount,
            (SELECT COUNT(*) FROM CampaignRecipients cr WHERE cr.CampaignId = c.CampaignId AND cr.OpenedAt IS NOT NULL) AS OpenedCount,
            (SELECT COUNT(*) FROM CampaignRecipients cr WHERE cr.CampaignId = c.CampaignId AND cr.ClickedAt IS NOT NULL) AS ClickedCount,
            (SELECT COUNT(*) FROM CampaignRecipients cr WHERE cr.CampaignId = c.CampaignId AND cr.QueueStatus = 'FAILED') AS FailedCount
@@ -10298,13 +10430,51 @@ BEGIN
     SELECT
         c.CampaignId, c.CampaignName,
         (SELECT COUNT(*) FROM CampaignRecipients WHERE CampaignId = c.CampaignId) AS TotalRecipients,
-        (SELECT COUNT(*) FROM CampaignRecipients WHERE CampaignId = c.CampaignId AND QueueStatus IN ('SENT','DELIVERED')) AS DeliveredCount,
+        (SELECT COUNT(*) FROM CampaignRecipients WHERE CampaignId = c.CampaignId AND QueueStatus IN ('SENT','DELIVERED')) AS SentCount,
+        (SELECT COUNT(*) FROM CampaignRecipients WHERE CampaignId = c.CampaignId AND QueueStatus = 'DELIVERED') AS DeliveredCount,
         (SELECT COUNT(*) FROM CampaignRecipients WHERE CampaignId = c.CampaignId AND OpenedAt IS NOT NULL) AS OpenedCount,
         (SELECT COUNT(*) FROM CampaignRecipients WHERE CampaignId = c.CampaignId AND ClickedAt IS NOT NULL) AS ClickedCount,
         (SELECT COUNT(*) FROM CampaignRecipients WHERE CampaignId = c.CampaignId AND QueueStatus = 'FAILED') AS FailedCount,
         (SELECT COUNT(*) FROM CampaignRecipients WHERE CampaignId = c.CampaignId AND QueueStatus LIKE 'SKIPPED%') AS SkippedCount
     FROM Campaigns c
     WHERE c.CampaignId = p_CampaignId AND c.IsDeleted = 0;
+END //
+DELIMITER ;
+
+-- Per-recipient drill-down for a completed (or any) campaign — phone/email/name
+-- + individual delivery status per row. Paged (Col<T>/DynamicRow 2-result-set
+-- convention: rows, then TotalCount). Super Admin only, via CampaignController.
+DROP PROCEDURE IF EXISTS Campaign_GetRecipientList;
+
+DELIMITER //
+CREATE PROCEDURE Campaign_GetRecipientList(
+    IN p_CampaignId INT UNSIGNED,
+    IN p_StatusCode VARCHAR(20),
+    IN p_PageNumber INT,
+    IN p_PageSize   INT
+)
+BEGIN
+    DECLARE v_Offset INT DEFAULT (p_PageNumber - 1) * p_PageSize;
+
+    SELECT cr.CampaignRecipientId, cr.UserId,
+           CONCAT(up.FirstName, ' ', up.LastName) AS UserName,
+           u.Email, u.Mobile,
+           lv_ch.ValueCode AS ChannelCode,
+           cr.QueueStatus, cr.FailReason, cr.RetryCount,
+           cr.QueuedAt, cr.SentAt, cr.DeliveredAt, cr.OpenedAt, cr.ClickedAt
+    FROM CampaignRecipients cr
+    JOIN Users u              ON u.UserId = cr.UserId
+    LEFT JOIN UserProfiles up ON up.UserId = cr.UserId
+    JOIN LookupValues lv_ch   ON lv_ch.LookupValueId = cr.ChannelLkpId
+    WHERE cr.CampaignId = p_CampaignId
+      AND (p_StatusCode IS NULL OR p_StatusCode = '' OR cr.QueueStatus = p_StatusCode)
+    ORDER BY cr.CampaignRecipientId
+    LIMIT p_PageSize OFFSET v_Offset;
+
+    SELECT COUNT(*) AS TotalCount
+    FROM CampaignRecipients cr
+    WHERE cr.CampaignId = p_CampaignId
+      AND (p_StatusCode IS NULL OR p_StatusCode = '' OR cr.QueueStatus = p_StatusCode);
 END //
 DELIMITER ;
 
@@ -10329,7 +10499,12 @@ BEGIN
         (SELECT COUNT(*) FROM CampaignRecipients cr JOIN LookupValues lv ON lv.LookupValueId = cr.ChannelLkpId WHERE lv.ValueCode = 'PUSH'  AND cr.QueueStatus IN ('SENT','DELIVERED')) AS TotalPushSent,
         (SELECT COUNT(*) FROM CampaignRecipients cr JOIN LookupValues lv ON lv.LookupValueId = cr.ChannelLkpId WHERE lv.ValueCode = 'EMAIL' AND cr.QueueStatus IN ('SENT','DELIVERED')) AS TotalEmailSent,
         (SELECT COUNT(*) FROM CampaignRecipients WHERE QueueStatus = 'FAILED') AS TotalFailed,
-        (SELECT COUNT(*) FROM CampaignRecipients WHERE QueueStatus IN ('SENT','DELIVERED')) AS TotalDelivered,
+        -- TotalSent = FCM/SES accepted the send request (not proof of arrival).
+        -- TotalDelivered = real device-confirmed delivery via CampaignRecipient_AckDelivered
+        -- (mobile calls this the moment it actually renders a push). These used to be
+        -- the same number under the "TotalDelivered" name — that was misleading.
+        (SELECT COUNT(*) FROM CampaignRecipients WHERE QueueStatus IN ('SENT','DELIVERED')) AS TotalSent,
+        (SELECT COUNT(*) FROM CampaignRecipients WHERE QueueStatus = 'DELIVERED') AS TotalDelivered,
         (SELECT COUNT(*) FROM CampaignRecipients WHERE QueueStatus NOT LIKE 'SKIPPED%') AS TotalAttempted,
         (SELECT COUNT(*) FROM CampaignRecipients WHERE OpenedAt IS NOT NULL) AS TotalOpened,
         (SELECT COUNT(*) FROM CampaignRecipients WHERE ClickedAt IS NOT NULL) AS TotalClicked,

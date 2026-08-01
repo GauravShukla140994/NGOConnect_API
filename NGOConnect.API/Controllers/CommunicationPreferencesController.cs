@@ -20,10 +20,12 @@ namespace NGOConnect.API.Controllers
     public class CommunicationPreferencesController : ControllerBase
     {
         private readonly ICommunicationPreferenceDal _preferences;
+        private readonly ICampaignDal                _campaigns;
 
-        public CommunicationPreferencesController(ICommunicationPreferenceDal preferences)
+        public CommunicationPreferencesController(ICommunicationPreferenceDal preferences, ICampaignDal campaigns)
         {
             _preferences = preferences;
+            _campaigns   = campaigns;
         }
 
         [HttpGet]
@@ -33,6 +35,18 @@ namespace NGOConnect.API.Controllers
         [HttpPut]
         public async Task<ApiResponse> Update([FromBody] UpdateCommunicationPreferencesRequest request)
             => await _preferences.UpdateAsync(GetUserId(), request);
+
+        // ── Real delivery acknowledgment ──────────────────────────
+        // Called by the mobile app itself the moment it actually renders a campaign
+        // push (not by our own dispatch worker) — this is what makes "Delivered"
+        // mean the device really got it, instead of just "FCM accepted the send
+        // request". Absolute route (not nested under communication-preferences)
+        // since this isn't really a preference — kept in this controller because
+        // it's the existing "any authenticated user, communication-domain" home,
+        // rather than adding a whole new controller for one endpoint.
+        [HttpPost("/api/v1/campaign-recipients/{campaignRecipientId:long}/delivered")]
+        public async Task<ApiResponse> AckDelivered(long campaignRecipientId)
+            => await _campaigns.AckDeliveredAsync(campaignRecipientId, GetUserId());
 
         private int GetUserId()
         {

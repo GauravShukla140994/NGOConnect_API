@@ -135,6 +135,17 @@ namespace NGOConnect.API.Controllers
         public async Task<ApiResponse<DynamicRow>> GetHistoryDetail(int campaignId)
             => await _campaigns.GetHistoryDetailAsync(campaignId);
 
+        // Per-recipient drill-down (phone/email/name + individual status) for a
+        // campaign — lets Super Admin see exactly who got delivered/failed and why,
+        // not just aggregate counts.
+        [HttpGet("campaigns/{campaignId:int}/recipients")]
+        public async Task<ApiResponse<PagedResult<DynamicRow>>> GetRecipients(
+            int campaignId,
+            [FromQuery] string? statusCode = null,
+            [FromQuery] int     pageNumber = 1,
+            [FromQuery] int     pageSize   = 20)
+            => await _campaigns.GetRecipientListAsync(campaignId, statusCode, pageNumber, pageSize);
+
         // ── Helpers ───────────────────────────────────────────────
 
         private int GetSuperAdminUserId()
