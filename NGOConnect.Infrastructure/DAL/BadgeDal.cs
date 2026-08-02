@@ -27,20 +27,24 @@ namespace NGOConnect.Infrastructure.DAL
                 });
 
                 if (result.Succeeded)
+                {
+                    var badgeName = Col<string>(result.Row!, "BadgeName") ?? "Badge";
+                    var title     = "🏅 Badge Awarded!";
+                    var body      = $"Congratulations! You've earned the {badgeName} badge. Keep up the great work!";
+
                     _ = Task.Run(async () =>
                     {
                         try
                         {
-                            await _notif.CreateAsync(request.UserId, "🏅 Badge Awarded!",
-                                "Congratulations! You have earned a new badge.",
-                                "BADGE_AWARDED", request.UserId, "USER");
+                            await _notif.CreateAsync(request.UserId, title, body,
+                                "BADGE_AWARDED", request.ProjectId, "PROJECT");
                             var tokens = await _notif.GetTokensByUserIdAsync(request.UserId);
-                            await _fcm.SendMulticastAsync(tokens, "🏅 Badge Awarded!",
-                                "Congratulations! You have earned a new badge.",
-                                "BADGE_AWARDED", request.UserId, "USER");
+                            await _fcm.SendMulticastAsync(tokens, title, body,
+                                "BADGE_AWARDED", request.ProjectId, "PROJECT");
                         }
                         catch (Exception ex) { Log.Error(ex, "BadgeDal.AwardAsync notify failed"); }
                     });
+                }
 
                 return result.ToApiResponse();
             }

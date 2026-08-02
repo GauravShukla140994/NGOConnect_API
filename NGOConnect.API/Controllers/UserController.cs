@@ -82,6 +82,15 @@ namespace NGOConnect.API.Controllers
         public async Task<ApiResponse<UserImpactModel>> GetImpact()
             => await _userDal.GetImpactAsync(GetUserId());
 
+        /// <summary>
+        /// Single-call replacement for the 3 separate calls on the ImpactScreen.
+        /// Returns impact stats + last-5 applications per tab + last-3 badges + full counts.
+        /// Eliminates the unbounded data fetch that would slow load time as records accumulate.
+        /// </summary>
+        [HttpGet("impact-summary")] [Authorize]
+        public async Task<ApiResponse<ImpactSummaryModel>> GetImpactSummary()
+            => await _userDal.GetImpactSummaryAsync(GetUserId());
+
         // ── Contact Update (OTP flow) — s-edit-profile screen ───────────────────
         /// <summary>
         /// Send OTP to an email or phone number the user wants to add.

@@ -268,6 +268,47 @@ When there is a conflict between files, this priority order applies:
 
 ---
 
+**ImpactScreen performance — single API call replaces 3 separate calls** (2026-08-02)
+- Root issue: ImpactScreen called `getMyImpact()` + `getMyBadges()` + `getMyApplications()` in parallel on mount. `getMyApplications()` returned ALL applications with no server-side limit — would become O(N) data transfer as users accumulate applications. Client-side slicing to 5 items was cosmetic, not a perf fix.
+- New SP `User_GetImpactSummary(p_UserId, p_AppLimit, p_BadgeLimit)` — 7 result sets: RS0-3 (Applied/Upcoming/Completed/Cancelled tabs, each LIMIT p_AppLimit, server-filtered by status/project-status), RS4 (latest p_BadgeLimit badges), RS5 (TotalApplied/Upcoming/Completed/Cancelled/Badges counts), RS6 (full impact stats, same logic as User_GetImpact).
+- `NGOConnect_Patch_ImpactSummary.sql` created — apply to Railway staging → production.
+- `NGOConnect_Complete_Setup_v4.9.sql` — `User_GetImpactSummary` SP added (section 3.03; `Application_GetByUser` renumbered to 3.04).
+- `NGOConnect.Core/Models/User/UserModels.cs` — `ImpactSummaryModel` class added (5 DynamicRow list props + 5 total count ints + full impact stat fields).
+- `NGOConnect.Core/Interfaces/IUserDal.cs` — `GetImpactSummaryAsync(int userId)` added.
+- `NGOConnect.Infrastructure/DAL/UserDal.cs` — `GetImpactSummaryAsync` implemented using `FillDataSetAsync` + `DataSet.Tables[0..6]` pattern (no new BaseDal method needed — DataSet natively captures all result sets).
+- `NGOConnect.API/Controllers/UserController.cs` — `GET /api/v1/user/impact-summary [Authorize]` endpoint added.
+- `App/.../types/api.types.ts` — `ImpactSummary` interface added.
+- `App/.../api/user.api.ts` — `getImpactSummary()` added (named export + userApi member).
+- `App/.../screens/profile/ImpactScreen.tsx` — refactored: 3 state vars (`impact`, `badges`, `applications`) replaced with single `summary: ImpactSummary`; `load()` now one call; client-side tab filtering removed; tab badge counts use `tabTotals[tab]` (full DB counts) not visible list length; "View N more" uses `totalX - TAB_LIMIT`.
+- Documents to update when "update documents" is called:
+  - `Database_Documentation_v4.9.md` → new SP `User_GetImpactSummary` (params + 7 result sets)
+  - `API_Documentation_v4.9.docx` → new endpoint `GET /user/impact-summary` (request: none; response: ImpactSummary shape)
+  - `NGOConnect_Postman_Collection_v4.9.json` → add `GET /user/impact-summary` request
+
+---
+
+**Badge system — ImpactScreen display + notification fix + User_GetBadges SP duplicate removed** (2026-08-02)
+- **Setup SQL `NGOConnect_Complete_Setup_v4.9.sql`** — removed duplicate `User_GetBadges` SP definition (old schema version at line ~6274 was overriding the correct one at line ~4609; old definition returned `ub.BadgeType` as both BadgeName and BadgeCode — a raw VARCHAR, never matched BADGE_META keys in the mobile app).
+- **`NGOConnect.Infrastructure/DAL/BadgeDal.cs`** — badge award notification now carries `ProjectId` (not `UserId`) as `refId`, `EntityType = "PROJECT"`; body personalized with actual badge name from SP result row (e.g. "You've earned the Star Volunteer badge").
+- **`NGOConnect.Infrastructure/DAL/SkillRatingDal.cs`** — notification title/body improved; already used `ProjectId` / `"PROJECT"` — no structural change.
+- **Mobile `RootNavigator.tsx`** — `BADGE_AWARDED` and `SKILL_RATING` notification taps now navigate to `ProjectDetail` with `projectId`; fall back to Impact tab when no refId.
+- **Mobile `ImpactScreen.tsx`** — `BadgeCard` fully redesigned: horizontal row layout, emoji/color from `BADGE_META` keyed on `badgeCode` (STAR_VOL ⭐ amber, TEAM_PLAYER 🤝 blue, TOP_PERFORM 🏆 purple, fallback 🏅); shows badge name, org name, project name, awarded date. Badge list changed from horizontal ScrollView to vertical View. Removed `badge.tier ?? 'Helper'` chip — `tier` was never returned by the SP.
+- **`Documents/NGOConnect_Patch_UserBadges_SchemaFix.sql`** — Part 2 appended: DROP + CREATE `User_GetBadges` with correct schema (lv.ValueCode AS BadgeCode, lv.ValueName AS BadgeName, JOIN Projects for ProjectName, AwardedByOrgId for OrgName). **Apply this full patch to Railway staging → production** (Part 1 = ALTER TABLE, Part 2 = SP fix — both needed).
+- Documents to update when "update documents" is called:
+  - `Database_Documentation_v4.9.md` → `User_GetBadges` SP — updated return columns (BadgeName from lv.ValueName, BadgeCode from lv.ValueCode, OrgName via AwardedByOrgId, ProjectName via ProjectId JOIN)
+
+---
+
+**Certificate template — hide skills section when no skills rated** (2026-08-02)
+- Template-only change — no SP/API/DB/C# changes.
+- `Documents/ripplehub_volunteer_certificate_template.html` → `renderCertificate()` updated:
+  - Added parsing for `data.skillRatings` (pipe-separated string from API, e.g. `"Communication:4.0|Leadership:3.5"`) in addition to `data.skills` array — accepts both formats.
+  - `#skillChips` container now hidden (`style.display = 'none'`) when no skills have been rated. Previously the container remained visible but empty.
+- No documents to update (template is a design artefact, not tracked in DB/API docs).
+- **Skill rating flow clarification** (no code change needed): the admin rates skills from the ATTENDED section of `ParticipantsScreen` — each ATTENDED volunteer card shows star rating rows per project skill + "Save Ratings" button. Ratings are stored in `UserSkillRatings` and appear on the certificate via `Certificate_GetData` SP.
+
+---
+
 **Public certificate verify page — Website-only, built from existing spec** (2026-08-01)
 - No SP/API/DB changes — `GET /api/v1/certificates/{certCode}` (`CertificateController.GetCertificate`, `[AllowAnonymous]`) already existed and already had a comment referencing this exact page (`Documents/ripplehub_verify_page_spec.md`), so this was purely a Website-side build against a spec that was already fully written.
 - New route `Website/src/pages/VerifyCertificatePage.jsx` at `/verify/:certCode` (registered in `main.jsx`), unauthenticated, no app-redirect (unlike `/invite`, `/ngo`, `/opportunity` which use `useDeepLinkLanding` and auto-open the app — this page is meant to stay in-browser for any visitor).
@@ -1095,3 +1136,39 @@ DB schema fixes + new SPs + new API endpoints + React Native UI. Patch file: `pa
 **New documents:**
 - `Documents/patch_skill_rating_and_certificate.sql` — apply to Railway staging then production.
 - `Documents/ripplehub_verify_page_spec.md` — full spec for `ripplehub.app/verify/{certCode}` web page (API contract, data mapping, page states, implementation notes).
+
+---
+
+**Completed/cancelled project participant screen fixes — mobile-only** (2026-08-01)
+- No SP/API/DB changes. React Native mobile app only.
+- Root cause (participant preview wrong): `recentApps = apps.slice(0, 3)` always showed the 3 most recently *applied* volunteers (ordered by `CreatedAt DESC`). For a COMPLETED project, these were often `APPROVED`/`PENDING` volunteers (who didn't get attendance recorded), not `ATTENDED` ones — so the preview looked wrong.
+- Root cause (section labels wrong): `ParticipantsScreen` had no knowledge of project status (it wasn't passed via navigation params), so labels always read "APPROVED — UPCOMING" and "ATTENDED — LAST SESSION" / "NO SHOWS — LAST SESSION" even on fully completed projects.
+- `AdminProjectDetailScreen.tsx`:
+  - `recentApps` — for `isReadOnly` (COMPLETED/CANCELLED) projects, sort by status priority (`ATTENDED` first, then `NO_SHOW`, `APPROVED`, `PENDING`) before slicing to 3, so the preview shows the most relevant volunteers.
+  - Both `nav.navigate('Participants', ...)` calls — now pass `projectStatus: project?.statusCode` as a third param.
+- `ParticipantsScreen.tsx`:
+  - Destructures new `projectStatus` param from `route.params`; derives `isCompleted`, `isCancelled`, `isReadOnly`.
+  - Section labels: "APPROVED — UPCOMING" → "APPROVED — NOT MARKED (N)" when `isReadOnly`; "ATTENDED — LAST SESSION (DATE)" → "ATTENDED (N)"; "NO SHOWS — LAST SESSION" → "NO SHOWS (N)".
+  - KPI strip: "Approved" label → "Not marked"; `Pending` KPI hidden entirely for read-only projects.
+  - Pending applications section — hidden entirely for `isReadOnly` projects (no point approving/rejecting on a completed project).
+- No document updates required for API/DB docs (mobile-only change).
+
+---
+
+**Project_ManualAttendance SP — auto-create session if none exists** (2026-08-01)
+- Root cause: `Project_ManualAttendance` returned `'No past session found'` when admin never created a QR session before completing the project. Blocked all retroactive attendance marking on completed projects.
+- Fix: If `ProjectSessions` has no row for this project, create one from `Projects.OneTimeDate` / `RecurStart` / `FlexFromDate` (in that priority), `SessionStartTime`, `SessionEndTime`, `MaxVolunteers`. Then proceed with the attendance insert as normal.
+- Result: Admin can now individually mark APPROVED volunteers as ATTENDED on the completed project participants screen, even if the QR flow was never used.
+- `Documents/NGOConnect_Complete_Setup_v4.9.sql` — `Project_ManualAttendance` SP updated ✅
+- `Documents/patch_manual_attendance_auto_session.sql` — NEW; apply to Railway staging → production
+- DB docs to update when "update documents" called: `Database_Documentation_v4.9.md` → `Project_ManualAttendance` SP description (no param change, just behavior change — auto-creates session).
+
+---
+
+**CRITICAL BUG FIX — UserBadges schema + 0 KPIs bug** (2026-08-01)
+- Root cause: `UserBadges` table was created with OLD schema (`BadgeType VARCHAR(50) NOT NULL`, `AwardedByUserId INT UNSIGNED NOT NULL`) — missing columns `BadgeLkpId`, `AwardedBy`, `AwardedByOrgId`, `ProjectId`, `CreatedAt` that all post-badge-patch SPs reference.
+- Effect: `Application_GetByProject` crashed on every call ("Unknown column 'ub.BadgeLkpId'"), causing ALL project participants to show 0 across every project tab in `AdminProjectDetailScreen` and `ParticipantsScreen`.
+- Same crash affected `UserBadge_Award` (badge awarding broken) and `User_GetBadges` (Impact screen badges broken).
+- Fix: `Documents/NGOConnect_Patch_UserBadges_SchemaFix.sql` — NEW; ALTER TABLE adds missing columns, relaxes NOT NULL on old columns. **Apply to Railway FIRST (before any other patch).**
+- `Documents/NGOConnect_Complete_Setup_v4.9.sql` — `CREATE TABLE UserBadges` replaced with correct modern schema. Both `User_GetBadges` definitions updated to use `CreatedAt` instead of the removed `AwardedAt`.
+- DB docs to update when "update documents" called: `Database_Documentation_v4.9.md` → `UserBadges` table schema (full column list updated).

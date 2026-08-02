@@ -33,12 +33,12 @@ namespace NGOConnect.Infrastructure.DAL
                     {
                         try
                         {
-                            await _notif.CreateAsync(request.RatedUserId, "⭐ Skill Rating Received",
-                                "Someone rated one of your skills. Check your impact profile!",
+                            var title = "⭐ Skill Rated by NGO";
+                            var body  = "Your skill has been rated by the project coordinator. Tap to view your project.";
+                            await _notif.CreateAsync(request.RatedUserId, title, body,
                                 "SKILL_RATING", request.ProjectId, "PROJECT");
                             var tokens = await _notif.GetTokensByUserIdAsync(request.RatedUserId);
-                            await _fcm.SendMulticastAsync(tokens, "⭐ Skill Rating Received",
-                                "Someone rated one of your skills. Check your impact profile!",
+                            await _fcm.SendMulticastAsync(tokens, title, body,
                                 "SKILL_RATING", request.ProjectId, "PROJECT");
                         }
                         catch (Exception ex) { Log.Error(ex, "SkillRatingDal.AddRatingAsync notify failed"); }

@@ -373,6 +373,84 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
+        // ── Impact Summary (single call) ──────────────────────────────────────────
+
+        public async Task<ApiResponse<ImpactSummaryModel>> GetImpactSummaryAsync(int userId)
+        {
+            try
+            {
+                using var conn = await _db.CreateConnectionAsync();
+                using var cmd  = _db.CreateCommand("User_GetImpactSummary", conn);
+                _db.AddParameter(cmd, "p_UserId",     userId);
+                _db.AddParameter(cmd, "p_AppLimit",   5);
+                _db.AddParameter(cmd, "p_BadgeLimit", 3);
+
+                var ds = await _db.FillDataSetAsync(cmd);
+
+                // Helper: safely convert a table index to a DynamicRow list
+                List<DynamicRow> ToRows(int tableIdx) =>
+                    ds.Tables.Count > tableIdx
+                        ? ds.Tables[tableIdx].Rows.Cast<DataRow>()
+                              .Select(r => new DynamicRow(r)).ToList()
+                        : [];
+
+                var countsRow = ds.Tables.Count > 5 && ds.Tables[5].Rows.Count > 0
+                    ? ds.Tables[5].Rows[0] : null;
+                var impactRow = ds.Tables.Count > 6 && ds.Tables[6].Rows.Count > 0
+                    ? ds.Tables[6].Rows[0] : null;
+
+                var applied   = ToRows(0);
+                var upcoming  = ToRows(1);
+                var completed = ToRows(2);
+                var cancelled = ToRows(3);
+                var badges    = ToRows(4);
+
+                var model = new ImpactSummaryModel
+                {
+                    Applied        = applied,
+                    Upcoming       = upcoming,
+                    Completed      = completed,
+                    Cancelled      = cancelled,
+                    Badges         = badges,
+                    TotalApplied   = countsRow is not null ? Col<int>(countsRow, "TotalApplied")   : applied.Count,
+                    TotalUpcoming  = countsRow is not null ? Col<int>(countsRow, "TotalUpcoming")  : upcoming.Count,
+                    TotalCompleted = countsRow is not null ? Col<int>(countsRow, "TotalCompleted") : completed.Count,
+                    TotalCancelled = countsRow is not null ? Col<int>(countsRow, "TotalCancelled") : cancelled.Count,
+                    TotalBadges    = countsRow is not null ? Col<int>(countsRow, "TotalBadges")    : badges.Count,
+                };
+
+                if (impactRow is not null)
+                {
+                    model.ImpactScore          = Col<int>(impactRow,      "ImpactScore");
+                    model.ReliabilityPct       = Col<decimal>(impactRow,  "ReliabilityPct");
+                    model.ProjectsCompleted    = Col<int>(impactRow,      "ProjectsCompleted");
+                    model.TotalHours           = Col<decimal>(impactRow,  "TotalHours");
+                    model.BadgeCount           = Col<int>(impactRow,      "BadgeCount");
+                    model.SkillCount           = Col<int>(impactRow,      "SkillCount");
+                    model.ProjectsApplied      = Col<int>(impactRow,      "ProjectsApplied");
+                    model.CertificateCount     = Col<int>(impactRow,      "CertificateCount");
+                    model.MemberSince          = Col<DateTime>(impactRow, "MemberSince");
+                    model.RankName             = Col<string>(impactRow,   "RankName") ?? "Newcomer";
+                    model.RankNumber           = Col<int>(impactRow,      "RankNumber");
+                    model.TotalRanked          = Col<int>(impactRow,      "TotalRanked");
+                    model.NgosJoined           = Col<int>(impactRow,      "NgosJoined");
+                    model.PendingApplications  = Col<int>(impactRow,      "PendingApplications");
+                    model.ApprovedApplications = Col<int>(impactRow,      "ApprovedApplications");
+                    model.FirstName            = Col<string>(impactRow,   "FirstName");
+                    model.LastName             = Col<string>(impactRow,   "LastName");
+                    model.ProfilePhoto         = Col<string>(impactRow,   "ProfilePhoto");
+                    model.Bio                  = Col<string>(impactRow,   "Bio");
+                }
+
+                return ApiResponse<ImpactSummaryModel>.Success(model);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetImpactSummaryAsync failed UserId={UserId}", userId);
+                return ApiResponse<ImpactSummaryModel>.Failure("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
         // ── Contact Update (OTP flow) ─────────────────────────────────────────────
 
         public async Task<ApiResponse> SendContactOtpAsync(int userId, SendContactOtpRequest request, string ipAddress)

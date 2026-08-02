@@ -233,6 +233,50 @@ namespace NGOConnect.Core.Models.User
         [Required][MaxLength(6)]   public string OtpCode { get; set; } = string.Empty;
     }
 
+    // ── Impact Summary — single-call replacement for Impact + Badges + Applications ──
+    /// <summary>
+    /// Returned by User_GetImpactSummary SP (7 result sets).
+    /// Replaces 3 separate API calls on the ImpactScreen with one call.
+    /// Lists are server-side limited (default: 5 apps, 3 badges) to keep response small.
+    /// Counts (TotalApplied etc.) hold the full DB count for "View N more" display.
+    /// </summary>
+    public class ImpactSummaryModel
+    {
+        // Tab lists — server-side limited (5 items each)
+        public List<DynamicRow> Applied   { get; set; } = [];
+        public List<DynamicRow> Upcoming  { get; set; } = [];
+        public List<DynamicRow> Completed { get; set; } = [];
+        public List<DynamicRow> Cancelled { get; set; } = [];
+        // Badge list — server-side limited (3 items)
+        public List<DynamicRow> Badges    { get; set; } = [];
+        // Full counts (for "View N more" buttons and tab badges)
+        public int TotalApplied   { get; set; }
+        public int TotalUpcoming  { get; set; }
+        public int TotalCompleted { get; set; }
+        public int TotalCancelled { get; set; }
+        public int TotalBadges    { get; set; }
+        // Impact stats (same as UserImpactModel)
+        public int      ImpactScore          { get; set; }
+        public decimal  ReliabilityPct       { get; set; }
+        public int      ProjectsCompleted    { get; set; }
+        public decimal  TotalHours           { get; set; }
+        public int      BadgeCount           { get; set; }
+        public int      SkillCount           { get; set; }
+        public int      ProjectsApplied      { get; set; }
+        public int      CertificateCount     { get; set; }
+        public DateTime MemberSince          { get; set; }
+        public string   RankName             { get; set; } = "Newcomer";
+        public int      RankNumber           { get; set; }
+        public int      TotalRanked          { get; set; }
+        public int      NgosJoined           { get; set; }
+        public int      PendingApplications  { get; set; }
+        public int      ApprovedApplications { get; set; }
+        public string?  FirstName            { get; set; }
+        public string?  LastName             { get; set; }
+        public string?  ProfilePhoto         { get; set; }
+        public string?  Bio                  { get; set; }
+    }
+
     // ── Impact Dashboard — GET response ────────────────────────────────────────
     public class UserImpactModel
     {

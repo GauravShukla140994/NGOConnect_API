@@ -446,9 +446,21 @@
       `🔗 Verify at &nbsp;<a href="https://ripplehub.app/verify/${data.certificateId}" target="_blank">ripplehub.app/verify/${data.certificateId}</a>`;
 
     // Skill chips
+    // Accepts either:
+    //   data.skills       = [{ name, rating }]          (pre-parsed)
+    //   data.skillRatings = "Communication:4.0|Leadership:3.5"  (raw from API)
     const chipsEl = document.getElementById('skillChips');
     chipsEl.innerHTML = '';
-    (data.skills || []).forEach(s => {
+    let skills = data.skills || [];
+    if (!skills.length && data.skillRatings) {
+      skills = data.skillRatings.split('|').map(pair => {
+        const [name, rating] = pair.split(':');
+        return { name: name.trim(), rating: parseFloat(rating) };
+      });
+    }
+    // Hide the section entirely when no skills have been rated
+    chipsEl.style.display = skills.length ? '' : 'none';
+    skills.forEach(s => {
       const chip = document.createElement('span');
       chip.className = 'cert-skill-chip';
       chip.textContent = `${s.name}  ${s.rating.toFixed(1)} ★`;
