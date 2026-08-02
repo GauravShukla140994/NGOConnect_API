@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using NGOConnect.Core.Models.Common;
 
 namespace NGOConnect.Core.Models.User
 {
