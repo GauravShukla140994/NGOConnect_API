@@ -260,6 +260,15 @@
 
     /* Print / PDF styles */
     @media print {
+      /* Browsers strip background colors/gradients by default when printing
+         (to save ink) unless explicitly told to keep them — without this, the
+         navy header, blue meta cards, and seal all print washed-out/near-white
+         instead of their real colors. */
+      * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+        color-adjust: exact !important;
+      }
       body { background: #fff; padding: 0; }
       .certificate {
         box-shadow: none;
@@ -413,12 +422,11 @@
       document.querySelectorAll(selector).forEach(el => el.textContent = value);
     }
 
-    // Text replacements
-    document.querySelectorAll('[class*="cert-id-value"], .cert-verify a').forEach(el => {
+    // Text replacements — certificateId is shown here for human reference only
+    // (the CERT-2026-NNNNNN code); it is NOT what the verify link uses (see below).
+    document.querySelectorAll('[class*="cert-id-value"]').forEach(el => {
       el.textContent = data.certificateId;
     });
-    document.querySelector('.cert-verify a').href =
-      'https://ripplehub.app/verify/' + data.certificateId;
 
     document.querySelector('.cert-id-date').textContent    = data.issueDate;
     document.querySelector('.cert-ngo-name').textContent   = data.ngoName;
@@ -440,10 +448,19 @@
     if (metaCards[1]) metaCards[1].textContent = data.completionDate;
     if (metaCards[2]) metaCards[2].textContent = data.impactScore;
 
-    // Verify link text
+    // Verify link — MUST use data.verifyUrl (the encrypted token URL from the
+    // API), never a link built from data.certificateId. certificateId is a
+    // sequential, guessable code (CERT-2026-000001, 000002, ...) — printing a
+    // scannable/clickable link built from it here would let anyone enumerate
+    // every certificate on the platform straight off a PDF, defeating the
+    // whole point of the encrypted verify token. Falls back to a certificateId
+    // link ONLY when no verifyUrl was supplied at all (e.g. this file's own
+    // local demo/testing use, never in production).
+    const verifyLink = data.verifyUrl || ('https://ripplehub.app/verify/' + data.certificateId);
+    const verifyDisplay = verifyLink.replace(/^https?:\/\//, '');
     const verifyEl = document.querySelector('.cert-verify');
     verifyEl.innerHTML =
-      `🔗 Verify at &nbsp;<a href="https://ripplehub.app/verify/${data.certificateId}" target="_blank">ripplehub.app/verify/${data.certificateId}</a>`;
+      `🔗 Verify at &nbsp;<a href="${verifyLink}" target="_blank">${verifyDisplay}</a>`;
 
     // Skill chips
     // Accepts either:

@@ -1216,3 +1216,24 @@ DB schema fixes + new SPs + new API endpoints + React Native UI. Patch file: `pa
 - Documents to update when "update documents" is called:
   - `Database_Documentation_v4.9.md` → `Application_GetByProject` SP (new `HasCertificate` column); `User_GetImpactSummary` RS2 (new `HasCertificate` column)
   - `API_Documentation_v4.9.docx` → `POST /certificates/issue` — note admin-only, ATTENDED volunteers on COMPLETED projects only
+
+---
+
+**HoursLogged + HasCertificate missing from User_GetImpactSummary RS2 and Application_GetByUser** (2026-08-02)
+
+- **Root issue**: `hoursLogged` was not shown on Impact screen (Completed) or MyProjects screen (Completed tab). `hasCertificate` was also missing from MyProjects screen because `Application_GetByUser` had neither column.
+
+- **SP `User_GetImpactSummary`** RS2 (Completed projects) — added `HoursLogged` subquery:
+  ```sql
+  COALESCE((SELECT SUM(ata2.HoursLogged) FROM ProjectAttendance ata2 JOIN ProjectSessions pss2 ON ata2.SessionId = pss2.SessionId WHERE pss2.ProjectId = p.ProjectId AND ata2.UserId = p_UserId), 0) AS HoursLogged
+  ```
+  Already had `HasCertificate`. Fixed in `NGOConnect_Complete_Setup_v4.9.sql`.
+
+- **SP `Application_GetByUser`** — added both `HoursLogged` (same subquery) and `HasCertificate` (VolunteerCertificates EXISTS subquery). Fixed in `NGOConnect_Complete_Setup_v4.9.sql`.
+
+- **Patch file `Documents/NGOConnect_Patch_HoursLogged_HasCertificate.sql`** — NEW; DROP+CREATE for both SPs. Apply to Railway staging → production.
+
+- No C# or mobile changes needed — both fields are DynamicRow/camelCase auto-mapped; frontend already reads `hoursLogged` and `hasCertificate`.
+
+- Documents to update when "update documents" is called:
+  - `Database_Documentation_v4.9.md` → `User_GetImpactSummary` RS2 (new `HoursLogged` column); `Application_GetByUser` (new `HoursLogged` + `HasCertificate` columns)

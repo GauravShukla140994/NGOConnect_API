@@ -321,7 +321,13 @@ def parse_dal_col_reads(dal_dir):
       Pass 1 -- find named mapper function bodies: { "MapProfile": ["UserId", ...] }
       Pass 2 -- link each Execute*Async("SpName", mapper) to its col reads.
     """
-    col_re       = re.compile(r'Col<[^>]+>\s*\(\s*\w+\s*,\s*"(\w+)"', re.IGNORECASE)
+    # Matches both Col<T>(r, "Name") and ColNullable<T>(r, "Name")
+    # findall returns (group1, group2) tuples — normalised by _col_match() below
+    col_re       = re.compile(r'ColNullable<[^>]+>\s*\(\s*\w+\s*,\s*"(\w+)"|Col<[^>]+>\s*\(\s*\w+\s*,\s*"(\w+)"', re.IGNORECASE)
+
+    def _col_matches(text):
+        """Return flat list of column-name strings from col_re.findall()."""
+        return [g1 or g2 for g1, g2 in col_re.findall(text)]
     mapper_re    = re.compile(
         r'(?:private|public|protected|internal)?\s*static\s+\S[\w<>?,\s]*?\s+(Map\w+)\s*\(',
         re.IGNORECASE
@@ -361,7 +367,7 @@ def parse_dal_col_reads(dal_dir):
                 body_start = m.end() + (brace if brace != -1 else 0)
             inner, _ = _extract_braced_block(clean, body_start)
             if inner is not None:
-                named_mappers[func_name] = col_re.findall(inner)
+                named_mappers[func_name] = _col_matches(inner)
 
         # -- Pass 2: link SP calls to col reads --------------------------------
         lines = clean.splitlines()
@@ -390,7 +396,7 @@ def parse_dal_col_reads(dal_dir):
                 il_m = inline_lambda_re.search(lookahead)
                 if il_m:
                     inner, _ = _extract_braced_block(lookahead, il_m.start())
-                    cols = col_re.findall(inner) if inner else []
+                    cols = _col_matches(inner) if inner else []
                 else:
                     cols = []
 

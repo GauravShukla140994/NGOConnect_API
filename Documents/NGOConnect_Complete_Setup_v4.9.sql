@@ -565,7 +565,7 @@ CREATE TABLE ProjectAttendance (
     UserId            INT UNSIGNED  NOT NULL,
     CheckInTime       DATETIME      NOT NULL,
     CheckOutTime      DATETIME      NULL,
-    HoursLogged       DECIMAL(4,2)  NULL,
+    HoursLogged       DECIMAL(6,2)  NULL,
     QrScannedAt       DATETIME      NULL,
     AttendStatusLkpId INT UNSIGNED  NOT NULL,
     NoShowReason      TEXT          NULL,
@@ -3236,21 +3236,137 @@ BEGIN
     SELECT ProjectSkillId, SkillName FROM ProjectSkills WHERE ProjectId = p_ProjectId ORDER BY SkillName;
 END //
 
--- v4.0 NEW: Mark a project as completed with impact summary
+-- v4.9 UPDATED: Mark a project as completed + auto-mark APPROVED volunteers as ATTENDED
+-- Auto-creates a session from project schedule if none exists so HoursLogged is always recorded.
+-- Volunteers who already have an ATTENDED record are skipped (idempotent).
 CREATE PROCEDURE Project_Complete(
-    IN p_ProjectId       INT UNSIGNED,
-    IN p_CompletedBy     INT UNSIGNED,
-    IN p_ImpactSummary   TEXT,
+    IN p_ProjectId        INT UNSIGNED,
+    IN p_CompletedBy      INT UNSIGNED,
+    IN p_ImpactSummary    TEXT,
     IN p_BeneficiaryCount INT UNSIGNED
 )
 BEGIN
-    DECLARE v_StatusLkpId INT UNSIGNED;
-    SELECT LookupValueId INTO v_StatusLkpId FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+    DECLARE v_CompletedStatusId  INT UNSIGNED;
+    DECLARE v_ApprovedLkpId      INT UNSIGNED;
+    DECLARE v_AttendedLkpId      INT UNSIGNED;
+    DECLARE v_SessionId          INT UNSIGNED DEFAULT NULL;
+    DECLARE v_SessionDate        DATE;
+    DECLARE v_StartTime          TIME;
+    DECLARE v_EndTime            TIME;
+    DECLARE v_MaxVol             INT UNSIGNED DEFAULT 0;
+    DECLARE v_SessionHours       DECIMAL(6,2) DEFAULT 1.00;
+    DECLARE v_HoursLogged        DECIMAL(6,2) DEFAULT 1.00;
+    DECLARE v_TypeCode           VARCHAR(50)  DEFAULT '';
+    DECLARE v_RecurStart         DATE         DEFAULT NULL;
+    DECLARE v_RecurEnd           DATE         DEFAULT NULL;
+    DECLARE v_RecurDays          VARCHAR(50)  DEFAULT NULL;
+    DECLARE v_DaysPerWeek        INT          DEFAULT 1;
+    DECLARE v_Weeks              INT          DEFAULT 1;
+
+    -- 1. Get lookup IDs
+    SELECT LookupValueId INTO v_CompletedStatusId
+    FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
     WHERE lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'COMPLETED' LIMIT 1;
 
-    UPDATE Projects SET StatusLkpId = v_StatusLkpId, CompletedAt = NOW(), CompletedBy = p_CompletedBy,
-        ImpactSummary = p_ImpactSummary, BeneficiaryCount = p_BeneficiaryCount, UpdatedAt = NOW()
-    WHERE ProjectId = p_ProjectId AND IsDeleted = 0;
+    SELECT LookupValueId INTO v_ApprovedLkpId
+    FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE lt.TypeCode = 'APPLICATION_STATUS' AND lv.ValueCode = 'APPROVED' LIMIT 1;
+
+    SELECT LookupValueId INTO v_AttendedLkpId
+    FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE lt.TypeCode = 'ATTENDANCE_STATUS' AND lv.ValueCode = 'ATTENDED' LIMIT 1;
+
+    -- 2. Mark project COMPLETED
+    UPDATE Projects
+    SET    StatusLkpId    = v_CompletedStatusId,
+           CompletedAt    = NOW(),
+           CompletedBy    = p_CompletedBy,
+           ImpactSummary  = p_ImpactSummary,
+           BeneficiaryCount = p_BeneficiaryCount,
+           UpdatedAt      = NOW()
+    WHERE  ProjectId = p_ProjectId AND IsDeleted = 0;
+
+    -- 3. Load project schedule info (type + times + recur details)
+    SELECT
+        COALESCE(ptv.ValueCode, 'ONE_TIME'),
+        COALESCE(p.SessionStartTime, '09:00:00'),
+        COALESCE(p.SessionEndTime,   '17:00:00'),
+        p.RecurStart, p.RecurEnd, p.RecurDays,
+        COALESCE(p.MaxVolunteers, 0)
+    INTO v_TypeCode, v_StartTime, v_EndTime, v_RecurStart, v_RecurEnd, v_RecurDays, v_MaxVol
+    FROM Projects p
+    LEFT JOIN LookupValues ptv ON p.ProjectTypeLkpId = ptv.LookupValueId
+    WHERE p.ProjectId = p_ProjectId AND p.IsDeleted = 0;
+
+    -- 4. Find an existing past session, or auto-create one
+    SELECT ps.SessionId, ps.SessionDate, ps.StartTime, ps.EndTime
+    INTO   v_SessionId, v_SessionDate, v_StartTime, v_EndTime
+    FROM   ProjectSessions ps
+    WHERE  ps.ProjectId = p_ProjectId AND ps.IsDeleted = 0
+    ORDER  BY ps.SessionDate DESC LIMIT 1;
+
+    IF v_SessionId IS NULL THEN
+        SELECT COALESCE(p.OneTimeDate, p.RecurStart, p.FlexFromDate, CURDATE())
+        INTO   v_SessionDate
+        FROM   Projects p WHERE p.ProjectId = p_ProjectId AND p.IsDeleted = 0;
+
+        INSERT INTO ProjectSessions
+            (ProjectId, SessionDate, StartTime, EndTime, MaxVolunteers, CreatedBy)
+        VALUES
+            (p_ProjectId, v_SessionDate, v_StartTime, v_EndTime, v_MaxVol, p_CompletedBy);
+
+        SET v_SessionId = LAST_INSERT_ID();
+    END IF;
+
+    -- 5. Hours per session (minimum 0.5h)
+    SET v_SessionHours = GREATEST(
+        ROUND(TIMESTAMPDIFF(MINUTE, v_StartTime, v_EndTime) / 60.0, 2),
+        0.50
+    );
+
+    -- 6. Total hours = session_hours × occurrences (RECURRING: days/week × weeks)
+    IF v_TypeCode = 'RECURRING'
+       AND v_RecurStart IS NOT NULL AND v_RecurEnd IS NOT NULL
+       AND v_RecurDays IS NOT NULL AND v_RecurDays <> ''
+    THEN
+        SET v_DaysPerWeek = LENGTH(v_RecurDays) - LENGTH(REPLACE(v_RecurDays, ',', '')) + 1;
+        SET v_Weeks = GREATEST(CEIL(DATEDIFF(v_RecurEnd, v_RecurStart) / 7.0), 1);
+        SET v_HoursLogged = LEAST(v_SessionHours * v_DaysPerWeek * v_Weeks, 9999.99);
+    ELSE
+        SET v_HoursLogged = v_SessionHours;
+    END IF;
+
+    -- 7. Insert ATTENDED records for all APPROVED volunteers not already marked ATTENDED
+    INSERT INTO ProjectAttendance
+        (SessionId, UserId, CheckInTime, HoursLogged, AttendStatusLkpId, AdminNote, CreatedBy)
+    SELECT
+        v_SessionId,
+        pa.UserId,
+        NOW(),
+        v_HoursLogged,
+        v_AttendedLkpId,
+        'Auto-marked attended on project completion.',
+        p_CompletedBy
+    FROM ProjectApplications pa
+    WHERE pa.ProjectId  = p_ProjectId
+      AND pa.StatusLkpId = v_ApprovedLkpId
+      AND pa.IsDeleted   = 0
+      AND NOT EXISTS (
+          SELECT 1
+          FROM   ProjectAttendance att2
+          JOIN   ProjectSessions   ps2 ON att2.SessionId = ps2.SessionId
+          WHERE  att2.UserId    = pa.UserId
+            AND  ps2.ProjectId  = p_ProjectId
+            AND  att2.AttendStatusLkpId = v_AttendedLkpId
+            AND  ps2.IsDeleted  = 0
+      )
+    ON DUPLICATE KEY UPDATE
+        AttendStatusLkpId = v_AttendedLkpId,
+        HoursLogged       = v_HoursLogged,
+        AdminNote         = 'Auto-marked attended on project completion.',
+        UpdatedAt         = NOW(),
+        UpdatedBy         = p_CompletedBy;
+
     SELECT 1 AS IsSuccess, 'Project marked as completed.' AS Message;
 END //
 
@@ -6324,7 +6440,6 @@ DELIMITER //
 DROP PROCEDURE IF EXISTS User_GetImpact //
 CREATE PROCEDURE User_GetImpact(IN p_UserId INT UNSIGNED)
 BEGIN
-    DECLARE v_TotalMinutes      DECIMAL(12,2) DEFAULT 0;
     DECLARE v_TotalHours        DECIMAL(8,2)  DEFAULT 0;
     DECLARE v_ProjCompleted     INT           DEFAULT 0;
     DECLARE v_NgosJoined        INT           DEFAULT 0;
@@ -6353,12 +6468,11 @@ BEGIN
     FROM   LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
     WHERE  lt.TypeCode = 'ATTENDANCE_STATUS' AND lv.ValueCode = 'NO_SHOW' LIMIT 1;
 
-    SELECT COALESCE(SUM(TIMESTAMPDIFF(MINUTE, ps.StartTime, ps.EndTime)), 0)
-    INTO   v_TotalMinutes
+    -- Sum stored HoursLogged (accurate per-project totals, includes recurring multiplier)
+    SELECT ROUND(COALESCE(SUM(pa.HoursLogged), 0), 1)
+    INTO   v_TotalHours
     FROM   ProjectAttendance pa
-    JOIN   ProjectSessions ps ON pa.SessionId = ps.SessionId
     WHERE  pa.UserId = p_UserId AND pa.AttendStatusLkpId = v_AttStatusAttended;
-    SET v_TotalHours = ROUND(v_TotalMinutes / 60.0, 1);
 
     -- Count projects where user had an APPROVED application AND project is COMPLETED/EXPIRED.
     -- This is more reliable than requiring explicit ProjectAttendance rows (which are only
@@ -6560,6 +6674,13 @@ BEGIN
         projSv.ValueCode AS ProjectStatusCode, projSv.ValueName AS ProjectStatus,
         IF(jtv.ValueCode = 'APPROVE_REQ', 1, 0) AS RequiresApproval,
         IF(EXISTS(SELECT 1 FROM ProjectAttendance ata JOIN ProjectSessions pss ON ata.SessionId = pss.SessionId WHERE pss.ProjectId = p.ProjectId AND ata.UserId = p_UserId), 1, 0) AS IsCheckedIn,
+        -- Total hours logged by this volunteer across all sessions of this project
+        COALESCE((
+            SELECT SUM(ata2.HoursLogged)
+            FROM ProjectAttendance ata2
+            JOIN ProjectSessions pss2 ON ata2.SessionId = pss2.SessionId
+            WHERE pss2.ProjectId = p.ProjectId AND ata2.UserId = p_UserId
+        ), 0) AS HoursLogged,
         -- Whether a certificate has been issued for this volunteer on this completed project
         IF(EXISTS(SELECT 1 FROM VolunteerCertificates vc WHERE vc.ProjectId = pa.ProjectId AND vc.UserId = pa.UserId AND vc.IsDeleted = 0), 1, 0) AS HasCertificate
     FROM ProjectApplications pa
@@ -6616,7 +6737,6 @@ BEGIN
 
     -- RS6: Impact stats (same logic as User_GetImpact)
     BEGIN
-        DECLARE v_TotalMinutes      DECIMAL(12,2) DEFAULT 0;
         DECLARE v_TotalHours        DECIMAL(8,2)  DEFAULT 0;
         DECLARE v_ProjCompleted     INT           DEFAULT 0;
         DECLARE v_NgosJoined        INT           DEFAULT 0;
@@ -6640,10 +6760,11 @@ BEGIN
         SELECT LookupValueId INTO v_AttStatusAttended FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId WHERE lt.TypeCode = 'ATTENDANCE_STATUS' AND lv.ValueCode = 'ATTENDED' LIMIT 1;
         SELECT LookupValueId INTO v_AttStatusNoShow   FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId WHERE lt.TypeCode = 'ATTENDANCE_STATUS' AND lv.ValueCode = 'NO_SHOW'   LIMIT 1;
 
-        SELECT COALESCE(SUM(TIMESTAMPDIFF(MINUTE, ps.StartTime, ps.EndTime)), 0) INTO v_TotalMinutes
-        FROM ProjectAttendance pa JOIN ProjectSessions ps ON pa.SessionId = ps.SessionId
-        WHERE pa.UserId = p_UserId AND pa.AttendStatusLkpId = v_AttStatusAttended;
-        SET v_TotalHours = ROUND(v_TotalMinutes / 60.0, 1);
+        -- Use SUM(HoursLogged) — reflects accurate per-project totals
+        SELECT ROUND(COALESCE(SUM(pa.HoursLogged), 0), 1)
+        INTO   v_TotalHours
+        FROM   ProjectAttendance pa
+        WHERE  pa.UserId = p_UserId AND pa.AttendStatusLkpId = v_AttStatusAttended;
 
         SELECT COUNT(DISTINCT pa.ProjectId) INTO v_ProjCompleted
         FROM ProjectApplications pa JOIN Projects p ON pa.ProjectId = p.ProjectId
@@ -6748,7 +6869,14 @@ BEGIN
             SELECT 1 FROM ProjectAttendance ata
             JOIN   ProjectSessions pss ON ata.SessionId = pss.SessionId
             WHERE  pss.ProjectId = p.ProjectId AND ata.UserId = p_UserId
-        ), 1, 0) AS IsCheckedIn
+        ), 1, 0) AS IsCheckedIn,
+        COALESCE((
+            SELECT SUM(ata2.HoursLogged)
+            FROM ProjectAttendance ata2
+            JOIN ProjectSessions pss2 ON ata2.SessionId = pss2.SessionId
+            WHERE pss2.ProjectId = p.ProjectId AND ata2.UserId = p_UserId
+        ), 0) AS HoursLogged,
+        IF(EXISTS(SELECT 1 FROM VolunteerCertificates vc WHERE vc.ProjectId = pa.ProjectId AND vc.UserId = pa.UserId AND vc.IsDeleted = 0), 1, 0) AS HasCertificate
     FROM   ProjectApplications pa
     JOIN   Projects      p     ON pa.ProjectId   = p.ProjectId
     JOIN   Organisations o     ON p.OrgId        = o.OrgId
