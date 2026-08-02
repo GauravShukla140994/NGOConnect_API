@@ -268,6 +268,20 @@ When there is a conflict between files, this priority order applies:
 
 ---
 
+**Certificate verify link security fix — encrypted token replaces guessable CertCode** (2026-08-02)
+- **Root issue**: the verify page (and every "share my certificate" button, mobile + website) built public links directly from CertCode — `CERT-{year}-{6-digit sequential counter}` via the `CERT` IdSequences row. That's a bare incrementing number, not sparse — user caught this immediately: anyone could walk `CERT-2026-000001`, `000002`, `000003`, ... off the public, `[AllowAnonymous]` `GET /certificates/{certCode}` endpoint and pull every volunteer's name, photo, org, and hours off the platform. An earlier version of this spec's own security notes incorrectly claimed the codes were "sparse" — they are not.
+- **Fix reuses existing infrastructure** rather than inventing new crypto: `IUrlTokenService` (AES-256-GCM, already built for `/ngo` and `/opportunity` share links) now also handles entityType `"CERT"`.
+- New SP `Certificate_GetDataById(IN p_CertificateId INT UNSIGNED)` — same shape as `Certificate_GetData`, keyed by the internal numeric `CertificateId` instead of `CertCode`. Added to `NGOConnect_Complete_Setup_v4.9.sql` and `Documents/NGOConnect_Patch_CertificateVerifyToken.sql` (new patch file, DROP+CREATE, idempotent, not yet run against any DB besides local dev).
+- `ICertificateDal`/`CertificateDal`: new `GetDataByIdAsync(int certificateId)`; new private `AttachVerifyLink(DynamicRow row)` helper (constructor now also takes `IUrlTokenService`) that encrypts `certificateId` → `verifyToken` + `verifyUrl` (`https://ripplehub.app/verify/{token}`) and attaches both fields to every certificate row returned by `GetByUserAsync`, `GetDataAsync`, `GetDataByIdAsync`, and `IssueAsync`. Callers (mobile, website) must use `verifyUrl` from the API response — never build the link themselves from `certCode`.
+- `CertificateController.cs`: **removed `[AllowAnonymous]` from `GET /certificates/{certCode}`** — now auth-required (mobile's own JWT already covers this; it was only ever meant for the logged-in user viewing their own cert, not public access). New `GET /certificates/verify/{token}` (`[AllowAnonymous]`) — decrypts the token, validates `entityType == "CERT"`, calls `GetDataByIdAsync`. Bad/tampered/foreign-type tokens return generic `NOT_FOUND` (no oracle leak), matching the `/ngo` and `/opportunity` share-token posture.
+- `Website/src/pages/VerifyCertificatePage.jsx` + `main.jsx`: route changed from `/verify/:certCode` to `/verify/:token`; fetches `GET /certificates/verify/{token}` instead of the old certCode endpoint. Error copy no longer references the raw URL segment (it's an opaque token now, not a meaningful ID to show a human).
+- `App/.../screens/common/CertificateModal.tsx`: `CertData` gained `verifyUrl`; `buildCertHtml`'s embedded "Verify at" link and the Share button both now use `d.verifyUrl`/state `verifyUrl` from the API response, not a client-built `ripplehub.app/verify/${certCode}` string. `App/.../types/api.types.ts`: `UserCert.verifyUrl?: string` added.
+- `validate_sp_params.py` re-run after all changes: clean (only the pre-existing, unrelated, already-flagged `User_GetMyOrgs`/`SuspendedAt` mismatch, not touched).
+- Build verified: `Website` `npm run build` clean (519 modules). No `dotnet` SDK in this sandbox — backend changes reviewed manually (DI registrations for `ICertificateDal`/`IUrlTokenService` confirmed present and lifetime-compatible: scoped depending on singleton). **Not yet build-verified with the actual .NET SDK or run against any live DB** — do that before deploying.
+- **Also reported same session, separate issue**: user said `/verify/{certCode}` was loading the full marketing site instead of the certificate. Could not confirm root cause directly (sandbox network blocks `ripplehub.app`), but the local commit history shows the verify page's initial commit (`cf53a4e`) is in sync with `origin/main` — most likely explanation is Railway simply hadn't redeployed that commit yet when it was tested. Given the route has now changed again (`:certCode` → `:token`), **a fresh deploy is required regardless** — confirm Railway has picked up the latest commit before re-testing.
+
+---
+
 **ImpactScreen performance — single API call replaces 3 separate calls** (2026-08-02)
 - Root issue: ImpactScreen called `getMyImpact()` + `getMyBadges()` + `getMyApplications()` in parallel on mount. `getMyApplications()` returned ALL applications with no server-side limit — would become O(N) data transfer as users accumulate applications. Client-side slicing to 5 items was cosmetic, not a perf fix.
 - New SP `User_GetImpactSummary(p_UserId, p_AppLimit, p_BadgeLimit)` — 7 result sets: RS0-3 (Applied/Upcoming/Completed/Cancelled tabs, each LIMIT p_AppLimit, server-filtered by status/project-status), RS4 (latest p_BadgeLimit badges), RS5 (TotalApplied/Upcoming/Completed/Cancelled/Badges counts), RS6 (full impact stats, same logic as User_GetImpact).
@@ -1172,3 +1186,33 @@ DB schema fixes + new SPs + new API endpoints + React Native UI. Patch file: `pa
 - Fix: `Documents/NGOConnect_Patch_UserBadges_SchemaFix.sql` — NEW; ALTER TABLE adds missing columns, relaxes NOT NULL on old columns. **Apply to Railway FIRST (before any other patch).**
 - `Documents/NGOConnect_Complete_Setup_v4.9.sql` — `CREATE TABLE UserBadges` replaced with correct modern schema. Both `User_GetBadges` definitions updated to use `CreatedAt` instead of the removed `AwardedAt`.
 - DB docs to update when "update documents" called: `Database_Documentation_v4.9.md` → `UserBadges` table schema (full column list updated).
+
+---
+
+**Certificate issuance — admin Issue Certificate button + per-project cert visibility on volunteer screens** (2026-08-02)
+
+- **Root issue**: Certificate button on volunteer Impact/MyProjects screens was always visible, even before any cert was issued. Admin had no way to issue a cert from the ParticipantsScreen.
+
+- **SP `Application_GetByProject`** — updated in `NGOConnect_Complete_Setup_v4.9.sql` (both definitions — initial at line ~3310 and section 3.20): added `HasCertificate` subquery:
+  ```sql
+  IF(EXISTS(SELECT 1 FROM VolunteerCertificates vc WHERE vc.ProjectId = pa.ProjectId AND vc.UserId = pa.UserId AND vc.IsDeleted = 0), 1, 0) AS HasCertificate
+  ```
+  Section 3.20 was also missing `AwardedBadgeCodes` from the prior session; that defect is fixed in this same update (both definitions now identical and correct).
+
+- **SP `User_GetImpactSummary`** — RS2 (Completed tab) updated in `NGOConnect_Complete_Setup_v4.9.sql` to include the same `HasCertificate` subquery.
+
+- **Patch file `Documents/NGOConnect_Patch_CertificateIssuance.sql`** — NEW; DROP+CREATE for `Application_GetByProject` (full version with AwardedBadgeCodes + HasCertificate) and `User_GetImpactSummary` (HasCertificate in RS2). Apply to Railway staging → production.
+
+- **`App/.../types/api.types.ts`** — `hasCertificate?: number` added to `UserApplication` interface. MySQL IF() returns integer 1/0; check as `!!app.hasCertificate`.
+
+- **`App/.../api/user.api.ts`** — `issueCertificate(data)` added to `userApi` + named export. Calls `POST /certificates/issue`.
+
+- **`App/.../screens/admin/ParticipantsScreen.tsx`** — Issue Certificate button added to `AttendedCard`, shown only when `isCompleted` (project is COMPLETED status); button shows "✓ Certificate Issued" if already issued (`hasCertificate`), otherwise "📄 Issue Certificate". `issuedCerts` state pre-populated from `app.hasCertificate` on data load. `handleIssueCertificate` callback calls API, updates local state on success. New style constants: `issueCertBtn`, `issueCertBtnIssued`, `issueCertBtnText`, `issueCertBtnIssuedText`.
+
+- **`App/.../screens/profile/ImpactScreen.tsx`** — `CompletedCard` cert button now only renders when `!!app.hasCertificate`. `onCertPress` prop made optional.
+
+- **`App/.../screens/volunteer/MyProjectsScreen.tsx`** — Completed tab cert button now only renders when `!!item.hasCertificate`.
+
+- Documents to update when "update documents" is called:
+  - `Database_Documentation_v4.9.md` → `Application_GetByProject` SP (new `HasCertificate` column); `User_GetImpactSummary` RS2 (new `HasCertificate` column)
+  - `API_Documentation_v4.9.docx` → `POST /certificates/issue` — note admin-only, ATTENDED volunteers on COMPLETED projects only

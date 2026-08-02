@@ -3360,7 +3360,12 @@ BEGIN
          WHERE  ub.UserId     = pa.UserId
            AND  ub.ProjectId  = pa.ProjectId
            AND  ub.IsDeleted  = 0
-        )                                           AS AwardedBadgeCodes
+        )                                           AS AwardedBadgeCodes,
+        -- Whether a certificate has already been issued for this volunteer on this project
+        IF(EXISTS(SELECT 1 FROM VolunteerCertificates vc2
+                  WHERE vc2.ProjectId = pa.ProjectId
+                    AND vc2.UserId    = pa.UserId
+                    AND vc2.IsDeleted = 0), 1, 0)   AS HasCertificate
     FROM   ProjectApplications pa
     JOIN   UserProfiles up   ON pa.UserId        = up.UserId AND up.IsDeleted = 0
     LEFT JOIN LookupValues appSv ON pa.StatusLkpId = appSv.LookupValueId
@@ -4280,6 +4285,46 @@ BEGIN
     JOIN  Users         u  ON vc.UserId    = u.UserId
     JOIN  UserProfiles  up ON vc.UserId    = up.UserId
     WHERE vc.CertCode = p_CertCode;
+END //
+
+-- v5.1 NEW: Same data as Certificate_GetData, keyed by the internal numeric
+-- CertificateId instead of the sequential, guessable CertCode (CERT-2026-000001
+-- style — an incrementing counter, NOT sparse despite an earlier doc's claim).
+-- Used exclusively by the public /verify page via an AES-256-GCM encrypted
+-- token (IUrlTokenService, entityType "CERT") that carries this ID — the raw
+-- CertificateId is never exposed in a URL, so this SP being keyed by a "guessable"
+-- sequential integer is not a problem: the caller can only reach it by first
+-- successfully decrypting a token, which requires the server's secret key.
+CREATE PROCEDURE Certificate_GetDataById(IN p_CertificateId INT UNSIGNED)
+BEGIN
+    SELECT
+        vc.CertificateId, vc.CertCode, vc.IssuedAt, vc.TotalHours,
+        -- Volunteer
+        u.UserId,
+        CONCAT(up.FirstName, ' ', up.LastName) AS VolunteerName,
+        up.ProfilePhoto,
+        -- Project
+        p.ProjectId, p.ProjectName,
+        -- Organisation
+        o.OrgId, o.OrgName, o.LogoUrl AS OrgLogoUrl,
+        -- Impact score
+        up.ImpactScore,
+        -- Skill ratings for this project (pipe-separated SkillName:Rating pairs)
+        (SELECT GROUP_CONCAT(ps.SkillName, ':', ROUND(usr.Rating, 1)
+                             ORDER BY ps.SkillName SEPARATOR '|')
+         FROM   ProjectSkills ps
+         JOIN   UserSkillRatings usr
+                ON  usr.SkillId    = ps.ProjectSkillId
+                AND usr.UserId     = vc.UserId
+                AND usr.ProjectId  = vc.ProjectId
+         WHERE  ps.ProjectId = vc.ProjectId) AS SkillRatings,
+        vc.IsDeleted
+    FROM  VolunteerCertificates vc
+    JOIN  Projects      p  ON vc.ProjectId = p.ProjectId
+    JOIN  Organisations o  ON vc.OrgId     = o.OrgId
+    JOIN  Users         u  ON vc.UserId    = u.UserId
+    JOIN  UserProfiles  up ON vc.UserId    = up.UserId
+    WHERE vc.CertificateId = p_CertificateId;
 END //
 
 -- Issues (or returns existing) certificate for a volunteer on a project
@@ -6514,7 +6559,9 @@ BEGIN
         p.Landmark AS LocationName, p.City,
         projSv.ValueCode AS ProjectStatusCode, projSv.ValueName AS ProjectStatus,
         IF(jtv.ValueCode = 'APPROVE_REQ', 1, 0) AS RequiresApproval,
-        IF(EXISTS(SELECT 1 FROM ProjectAttendance ata JOIN ProjectSessions pss ON ata.SessionId = pss.SessionId WHERE pss.ProjectId = p.ProjectId AND ata.UserId = p_UserId), 1, 0) AS IsCheckedIn
+        IF(EXISTS(SELECT 1 FROM ProjectAttendance ata JOIN ProjectSessions pss ON ata.SessionId = pss.SessionId WHERE pss.ProjectId = p.ProjectId AND ata.UserId = p_UserId), 1, 0) AS IsCheckedIn,
+        -- Whether a certificate has been issued for this volunteer on this completed project
+        IF(EXISTS(SELECT 1 FROM VolunteerCertificates vc WHERE vc.ProjectId = pa.ProjectId AND vc.UserId = pa.UserId AND vc.IsDeleted = 0), 1, 0) AS HasCertificate
     FROM ProjectApplications pa
     JOIN Projects p ON pa.ProjectId = p.ProjectId
     JOIN Organisations o ON p.OrgId = o.OrgId
@@ -7758,8 +7805,9 @@ END //
 
 
 -- ── 3.20 Application_GetByProject ──────────────────────────────────────────
--- Full rebuild: joins ProjectAttendance; attendance status overrides application status
--- (Source: NGOConnect_Patch_QR_TimeWindow_ManualAttendance.sql)
+-- Full rebuild: joins ProjectAttendance; attendance status overrides application status.
+-- v4.9 ADD: AwardedBadgeCodes, HasCertificate columns
+-- (Consolidated: QR patch + BadgeAward patch + CertificateIssuance patch)
 DROP PROCEDURE IF EXISTS Application_GetByProject //
 CREATE PROCEDURE Application_GetByProject(
     IN p_ProjectId  INT UNSIGNED,
@@ -7777,7 +7825,7 @@ BEGIN
         SELECT lv.LookupValueId INTO v_FilterLkpId
         FROM   LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
         WHERE  lt.TypeCode = 'APPLICATION_STATUS' AND lv.ValueCode = p_StatusCode LIMIT 1;
-
+        -- Also try ATTENDANCE_STATUS (ATTENDED, NO_SHOW)
         IF v_FilterLkpId IS NULL THEN
             SELECT lv.LookupValueId INTO v_FilterLkpId
             FROM   LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
@@ -7786,45 +7834,84 @@ BEGIN
     END IF;
 
     SELECT
-        pa.ApplicationId, pa.UserId,
-        CONCAT(up.FirstName, ' ', up.LastName) AS ApplicantName,
-        up.ProfilePhoto, up.City,
-        up.Occupation                          AS Profession,
-        pa.Motivation, pa.RequestedSessions,
-        COALESCE(attSv.ValueCode, appSv.ValueCode) AS StatusCode,
-        COALESCE(attSv.ValueName, appSv.ValueName) AS Status,
-        pa.StatusUpdatedAt, pa.CreatedAt,
+        pa.ApplicationId,
+        pa.UserId,
+        CONCAT(up.FirstName, ' ', up.LastName)     AS ApplicantName,
+        up.ProfilePhoto,
+        up.City,
+        up.Occupation                               AS Profession,
+        pa.Motivation,
+        pa.RequestedSessions,
+        COALESCE(attSv.ValueCode, appSv.ValueCode)  AS StatusCode,
+        COALESCE(attSv.ValueName, appSv.ValueName)  AS Status,
+        pa.StatusUpdatedAt,
+        pa.CreatedAt,
         DATE_FORMAT(CONVERT_TZ(att.CheckInTime, '+00:00', '+05:30'), '%Y-%m-%dT%H:%i:%s') AS CheckedInAt,
         att.HoursLogged,
-        att.IsNoShowExcused AS IsExcused,
-        att.QrScannedAt, att.AdminNote,
-        ps.SessionDate, ps.StartTime AS SessionStartTime, ps.EndTime AS SessionEndTime
+        att.IsNoShowExcused                         AS IsExcused,
+        att.QrScannedAt,
+        att.AdminNote,
+        ps.SessionDate,
+        ps.StartTime   AS SessionStartTime,
+        ps.EndTime     AS SessionEndTime,
+        -- Badges already awarded to this volunteer on this project (comma-separated ValueCodes)
+        (SELECT GROUP_CONCAT(lv2.ValueCode ORDER BY ub.CreatedAt SEPARATOR ',')
+         FROM   UserBadges ub
+         JOIN   LookupValues lv2 ON ub.BadgeLkpId = lv2.LookupValueId
+         WHERE  ub.UserId     = pa.UserId
+           AND  ub.ProjectId  = pa.ProjectId
+           AND  ub.IsDeleted  = 0
+        )                                           AS AwardedBadgeCodes,
+        -- Whether a certificate has already been issued for this volunteer on this project
+        IF(EXISTS(SELECT 1 FROM VolunteerCertificates vc2
+                  WHERE vc2.ProjectId = pa.ProjectId
+                    AND vc2.UserId    = pa.UserId
+                    AND vc2.IsDeleted = 0), 1, 0)   AS HasCertificate
     FROM   ProjectApplications pa
-    JOIN   UserProfiles up ON pa.UserId = up.UserId AND up.IsDeleted = 0
+    JOIN   UserProfiles up   ON pa.UserId        = up.UserId AND up.IsDeleted = 0
     LEFT JOIN LookupValues appSv ON pa.StatusLkpId = appSv.LookupValueId
+    -- Most-recent attendance record for this user on this project
     LEFT JOIN ProjectAttendance att ON att.AttendanceId = (
-        SELECT att2.AttendanceId FROM ProjectAttendance att2
-        JOIN ProjectSessions ps2 ON att2.SessionId = ps2.SessionId
-        WHERE att2.UserId = pa.UserId AND ps2.ProjectId = pa.ProjectId AND ps2.IsDeleted = 0
-        ORDER BY ps2.SessionDate DESC, att2.CreatedAt DESC LIMIT 1
+        SELECT att2.AttendanceId
+        FROM   ProjectAttendance att2
+        JOIN   ProjectSessions   ps2 ON att2.SessionId = ps2.SessionId
+        WHERE  att2.UserId     = pa.UserId
+          AND  ps2.ProjectId   = pa.ProjectId
+          AND  ps2.IsDeleted   = 0
+        ORDER BY ps2.SessionDate DESC, att2.CreatedAt DESC
+        LIMIT  1
     )
-    LEFT JOIN LookupValues attSv ON att.AttendStatusLkpId = attSv.LookupValueId
-    LEFT JOIN ProjectSessions ps ON ps.SessionId = att.SessionId
-    WHERE  pa.ProjectId = p_ProjectId AND pa.IsDeleted = 0
-      AND  (v_FilterLkpId IS NULL OR pa.StatusLkpId = v_FilterLkpId OR att.AttendStatusLkpId = v_FilterLkpId)
+    LEFT JOIN LookupValues   attSv ON att.AttendStatusLkpId = attSv.LookupValueId
+    LEFT JOIN ProjectSessions ps   ON ps.SessionId          = att.SessionId
+    WHERE  pa.ProjectId = p_ProjectId
+      AND  pa.IsDeleted = 0
+      AND  (
+            v_FilterLkpId IS NULL
+            OR pa.StatusLkpId        = v_FilterLkpId
+            OR att.AttendStatusLkpId = v_FilterLkpId
+           )
     ORDER BY pa.CreatedAt DESC
-    LIMIT p_PageSize OFFSET v_Offset;
+    LIMIT  p_PageSize OFFSET v_Offset;
 
     SELECT COUNT(*) AS TotalCount
     FROM   ProjectApplications pa
     LEFT JOIN ProjectAttendance att ON att.AttendanceId = (
-        SELECT att2.AttendanceId FROM ProjectAttendance att2
-        JOIN ProjectSessions ps2 ON att2.SessionId = ps2.SessionId
-        WHERE att2.UserId = pa.UserId AND ps2.ProjectId = pa.ProjectId AND ps2.IsDeleted = 0
-        ORDER BY ps2.SessionDate DESC, att2.CreatedAt DESC LIMIT 1
+        SELECT att2.AttendanceId
+        FROM   ProjectAttendance att2
+        JOIN   ProjectSessions   ps2 ON att2.SessionId = ps2.SessionId
+        WHERE  att2.UserId     = pa.UserId
+          AND  ps2.ProjectId   = pa.ProjectId
+          AND  ps2.IsDeleted   = 0
+        ORDER BY ps2.SessionDate DESC, att2.CreatedAt DESC
+        LIMIT  1
     )
-    WHERE  pa.ProjectId = p_ProjectId AND pa.IsDeleted = 0
-      AND  (v_FilterLkpId IS NULL OR pa.StatusLkpId = v_FilterLkpId OR att.AttendStatusLkpId = v_FilterLkpId);
+    WHERE  pa.ProjectId = p_ProjectId
+      AND  pa.IsDeleted = 0
+      AND  (
+            v_FilterLkpId IS NULL
+            OR pa.StatusLkpId        = v_FilterLkpId
+            OR att.AttendStatusLkpId = v_FilterLkpId
+           );
 END //
 
 
