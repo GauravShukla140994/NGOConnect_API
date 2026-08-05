@@ -13,10 +13,10 @@ change must be applied carefully before releasing a new version.
 
 | File | Purpose |
 |---|---|
-| `NGOConnect_Complete_Setup_v4.9.sql` | Single-run DB script — tables, seed data, all SPs |
-| `Database_Documentation_v4.9.md` | Full DB reference — tables, columns, indexes, SP signatures, parameters, return values |
-| `API_Documentation_v4.9.docx` | API reference for frontend/mobile teams — endpoints, request bodies, responses, auth |
-| `NGOConnect_Postman_Collection_v4.9.json` | Ready-to-import Postman collection — all endpoints with sample request bodies |
+| `NGOConnect_Complete_Setup_v5.0.sql` | Single-run DB script — tables, seed data, all SPs |
+| `Database_Documentation_v5.0.md` | Full DB reference — tables, columns, indexes, SP signatures, parameters, return values |
+| `API_Documentation_v5.0.docx` | API reference for frontend/mobile teams — endpoints, request bodies, responses, auth |
+| `NGOConnect_Postman_Collection_v5.0.json` | Ready-to-import Postman collection — all endpoints with sample request bodies |
 
 ---
 
@@ -175,15 +175,21 @@ When it is included in a Railway patch, update to `✅ Railway applied`.
 | `NGOConnect_Patch_SuperAdminOrgDetail_TaxEligibility.sql` | Organisations.Is80GEligible/Is12AEligible columns (idempotent ALTER); SuperAdmin_Org_GetDetail SP | ✅ Railway applied |
 | `NGOConnect_Patch_OrgUpdateResubmit_TaxEligibility.sql` | Org_Update + Org_Resubmit: add p_Is80GEligible/p_Is12AEligible params | ✅ Railway applied |
 
-### v4.9 Pending — Not yet applied to Railway
+### v5.0 Release — ALL patches applied to Railway staging 2026-08-05
 
 | File | What it covers | Status |
 |---|---|---|
-| `NGOConnect_Patch_InviteListAndPending_v4.9.sql` | Org_Invite_GetHistory: history list SP; Org_Invite_GetPendingForUser: UserId match fix | ⏳ Pending Railway |
-| `NGOConnect_Patch_InviteAcceptDirectJoin_v4.9.sql` | Org_Invite_Accept: direct OrgMembers INSERT (skip OrgMembershipRequests approval step) | ⏳ Pending Railway |
-| `NGOConnect_Patch_InviteNotifications_v4.9.sql` | Invite notification SPs | ⏳ Pending Railway |
-| `NGOConnect_Patch_UrlShareToken_v4.9.sql` | Settings INSERT: SECURITY/URL_SHARE_SECRET_KEY for AES-256-GCM share URL encryption. ⚠️ Replace placeholder with `openssl rand -hex 32` output before running | ⏳ Pending Railway |
-| `NGOConnect_Patch_MarketingCommunicationCenter_Phase0Phase1.sql` | 6 new tables (UserCommunicationPreferences, Campaigns, CampaignChannels, CampaignAudienceRules, CampaignRecipients, CampaignQueueJobs); 2 new Users indexes; MKTG_CAMPAIGN_TYPE/PRIORITY/STATUS/CHANNEL lookups; COMMUNICATION Settings group; 20 new SPs. Not yet applied anywhere, not yet build-verified (see pending list above) | 🟡 Local only |
+| `NGOConnect_Patch_InviteListAndPending_v4.9.sql` | Org_Invite_GetHistory: history list SP; Org_Invite_GetPendingForUser: UserId match fix | ✅ Railway applied |
+| `NGOConnect_Patch_InviteAcceptDirectJoin_v4.9.sql` | Org_Invite_Accept: direct OrgMembers INSERT (skip OrgMembershipRequests approval step) | ✅ Railway applied |
+| `NGOConnect_Patch_InviteNotifications_v4.9.sql` | Invite notification SPs | ✅ Railway applied |
+| `NGOConnect_Patch_UrlShareToken_v4.9.sql` | Settings INSERT: SECURITY/URL_SHARE_SECRET_KEY for AES-256-GCM share URL encryption. ⚠️ Replace placeholder with `openssl rand -hex 32` output before running | ✅ Railway applied |
+| `NGOConnect_Patch_MarketingCommunicationCenter_Phase0Phase1.sql` | 6 new tables (UserCommunicationPreferences, Campaigns, CampaignChannels, CampaignAudienceRules, CampaignRecipients, CampaignQueueJobs); 2 new Users indexes; MKTG_CAMPAIGN_TYPE/PRIORITY/STATUS/CHANNEL lookups; COMMUNICATION Settings group; 20 new SPs | ✅ Railway applied |
+| `NGOConnect_Patch_MarketingCommunicationCenter_DeliveryAck.sql` | CampaignRecipient_AckDelivered + Campaign_GetRecipientList SPs; SentCount/DeliveredCount split in Campaign_GetList/GetHistoryDetail/Communication_GetDashboardStats | ✅ Railway applied |
+| `NGOConnect_Patch_ImpactSummary.sql` | User_GetImpactSummary (7 result sets) SP | ✅ Railway applied |
+| `NGOConnect_Patch_BadgeAward_AwardedCodes.sql` | UserBadge_Award: duplicate guard, BadgeName+UserId in result; Application_GetByProject: AwardedBadgeCodes column | ✅ Railway applied |
+| `NGOConnect_Patch_UserBadges_SchemaFix.sql` | UserBadges table schema rebuild (BadgeLkpId FK, AwardedByOrgId, ProjectId); User_GetBadges SP rewrite | ✅ Railway applied |
+| `NGOConnect_Patch_CertificateVerifyToken.sql` | Certificate_GetDataById SP; IUrlTokenService wired for CERT entityType | ✅ Railway applied |
+| `NGOConnect_Patch_ExcludeExpiredProjects.sql` | Project_List: ACTIVE+UPCOMING whitelist for public browse; approved-orgs-only filter | ✅ Railway applied |
 
 ### Other Individual Patches (absorbed into versioned patches or superseded)
 
@@ -266,7 +272,27 @@ When there is a conflict between files, this priority order applies:
 
 ## Current Pending Document Updates
 
+**Resend email provider added (2026-08-05)**
+- NEW `NGOConnect.Infrastructure/Services/ResendEmailService.cs` — implements `IEmailService` via Resend HTTPS API (not SMTP; Railway-compatible)
+- `SmtpEmailService.cs` — added `internal static` HTML builder methods (`BuildOtpHtmlInternal`, `BuildInviteHtmlInternal`, `BuildSupportHtmlInternal`) so both services share the same email templates
+- `ServiceCollectionExtensions.AddEmailService()` — added third provider case: `"resend"` → `AddHttpClient<IEmailService, ResendEmailService>()`
+- `appsettings.json` — added `Resend:ApiKey` (empty, secret), updated `EmailProvider` comment to list smtp/resend/awsses, added `Email:SupportAddress` field, updated `Email:FromName` to "RippleHub"
+- `appsettings.Development.json` — added `Resend:ApiKey` placeholder, `EmailProvider` set back to `"smtp"` for local dev
+- **Railway staging action required**: set `EmailProvider = resend` + `Resend__ApiKey = <key>` as env vars; remove `EmailProvider = smtp`
+- **Documents to update**: API_Documentation (no new endpoints — internal infra change only); no DB/SP changes
+
+**v5.0 Release Summary (2026-08-05)**
+All 4 documents bumped from v4.9 → v5.0. All Railway staging patches through 2026-08-05 absorbed. Documents:
+- `NGOConnect_Complete_Setup_v5.0.sql` — ✅ Created (all SPs and tables current)
+- `Database_Documentation_v5.0.md` — ✅ Created (62 tables, 52 LookupTypes, 204 SPs)
+- `API_Documentation_v5.0.docx` — ✅ Created (all endpoints including 8 Org Invite, 13 Marketing Campaign, Share, Support, Certificate, etc.)
+- `NGOConnect_Postman_Collection_v5.0.json` — ✅ Created (all requests with sample bodies, organized in 16 folders)
+
 ---
+
+<!--
+PREVIOUS PENDING ITEMS — ALL APPLIED IN v5.0
+(kept below for reference; remove when next version bump occurs)
 
 **Certificate verify link security fix — encrypted token replaces guessable CertCode** (2026-08-02)
 - **Root issue**: the verify page (and every "share my certificate" button, mobile + website) built public links directly from CertCode — `CERT-{year}-{6-digit sequential counter}` via the `CERT` IdSequences row. That's a bare incrementing number, not sparse — user caught this immediately: anyone could walk `CERT-2026-000001`, `000002`, `000003`, ... off the public, `[AllowAnonymous]` `GET /certificates/{certCode}` endpoint and pull every volunteer's name, photo, org, and hours off the platform. An earlier version of this spec's own security notes incorrectly claimed the codes were "sparse" — they are not.
@@ -1237,3 +1263,5 @@ DB schema fixes + new SPs + new API endpoints + React Native UI. Patch file: `pa
 
 - Documents to update when "update documents" is called:
   - `Database_Documentation_v4.9.md` → `User_GetImpactSummary` RS2 (new `HoursLogged` column); `Application_GetByUser` (new `HoursLogged` + `HasCertificate` columns)
+
+-->

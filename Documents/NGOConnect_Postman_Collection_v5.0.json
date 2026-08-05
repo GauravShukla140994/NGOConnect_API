@@ -1,0 +1,505 @@
+{
+  "info": {
+    "name": "NGOConnect API v5.0",
+    "description": "NGO Connect Platform — Full API Collection v5.0\nReleased: 2026-08-05\nAbsorbs all patches applied to Railway staging through 2026-08-05.\n\nNew in v5.0:\n- Impact Summary (7 result sets)\n- Communication Preferences\n- Share Tokens & Public Resolvers\n- Support Contact\n- Certificates (issue + public verify)\n- Skill Ratings (per-project)\n- Org Invitations (8 endpoints)\n- Campaign Recipients (device ack)\n- Marketing Campaigns (Super Admin CRUD)\n- Membership Request Cancel\n- Application Withdraw\n- Saved Posts\n- Post Bulk Notify Org",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "ngoconnect-api-v5-0"
+  },
+  "variable": [
+    { "key": "BASE_URL", "value": "https://ngoconnectapi-staging.up.railway.app/api/v1", "type": "string" },
+    { "key": "ACCESS_TOKEN", "value": "", "type": "string" },
+    { "key": "REFRESH_TOKEN", "value": "", "type": "string" },
+    { "key": "USER_ID", "value": "1", "type": "string" },
+    { "key": "ORG_ID", "value": "1", "type": "string" },
+    { "key": "PROJECT_ID", "value": "1", "type": "string" },
+    { "key": "POST_ID", "value": "1", "type": "string" },
+    { "key": "APPLICATION_ID", "value": "1", "type": "string" },
+    { "key": "CAMPAIGN_ID", "value": "1", "type": "string" },
+    { "key": "CERT_CODE", "value": "CERT-2026-000001", "type": "string" },
+    { "key": "INVITE_ID", "value": "1", "type": "string" },
+    { "key": "INVITE_TOKEN", "value": "", "type": "string" },
+    { "key": "SHARE_TOKEN", "value": "", "type": "string" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{ACCESS_TOKEN}}", "type": "string" }]
+  },
+  "item": [
+
+    {
+      "name": "01 - Auth",
+      "item": [
+        {
+          "name": "Send OTP",
+          "request": {
+            "method": "POST", "auth": { "type": "noauth" },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{BASE_URL}}/auth/send-otp", "host": ["{{BASE_URL}}"], "path": ["auth","send-otp"] },
+            "body": { "mode": "raw", "raw": "{\n  \"recipient\": \"9876543210\",\n  \"type\": \"MOBILE\",\n  \"purpose\": \"LOGIN\",\n  \"countryCode\": \"+91\"\n}" }
+          }
+        },
+        {
+          "name": "Verify OTP",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "if (pm.response.code === 200) {",
+            "  const r = pm.response.json();",
+            "  if (r.data) {",
+            "    pm.collectionVariables.set('ACCESS_TOKEN', r.data.accessToken);",
+            "    pm.collectionVariables.set('REFRESH_TOKEN', r.data.refreshToken);",
+            "  }",
+            "}"
+          ], "type": "text/javascript" } }],
+          "request": {
+            "method": "POST", "auth": { "type": "noauth" },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{BASE_URL}}/auth/verify-otp", "host": ["{{BASE_URL}}"], "path": ["auth","verify-otp"] },
+            "body": { "mode": "raw", "raw": "{\n  \"recipient\": \"9876543210\",\n  \"type\": \"MOBILE\",\n  \"otpCode\": \"123456\",\n  \"ipAddress\": \"127.0.0.1\"\n}" }
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST", "auth": { "type": "noauth" },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{BASE_URL}}/auth/refresh-token", "host": ["{{BASE_URL}}"], "path": ["auth","refresh-token"] },
+            "body": { "mode": "raw", "raw": "{\n  \"refreshToken\": \"{{REFRESH_TOKEN}}\"\n}" }
+          }
+        },
+        {
+          "name": "Revoke Token (Logout)",
+          "request": {
+            "method": "POST",
+            "url": { "raw": "{{BASE_URL}}/auth/revoke-token", "host": ["{{BASE_URL}}"], "path": ["auth","revoke-token"] }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "02 - User",
+      "item": [
+        { "name": "Get My Profile", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/user/profile", "host": ["{{BASE_URL}}"], "path": ["user","profile"] } } },
+        { "name": "Update Profile", "request": { "method": "PUT",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/user/profile", "host": ["{{BASE_URL}}"], "path": ["user","profile"] },
+          "body": { "mode": "raw", "raw": "{\n  \"firstName\": \"Ravi\",\n  \"lastName\": \"Kumar\",\n  \"bio\": \"Passionate volunteer\",\n  \"city\": \"Mumbai\",\n  \"state\": \"Maharashtra\"\n}" }
+        } },
+        { "name": "Get Public Profile", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/user/{{USER_ID}}/profile", "host": ["{{BASE_URL}}"], "path": ["user","{{USER_ID}}","profile"] } } },
+        { "name": "Get Impact Stats", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/user/impact", "host": ["{{BASE_URL}}"], "path": ["user","impact"] } } },
+        { "name": "Get Impact Summary [v5.0 NEW]", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/user/impact-summary?appLimit=5&badgeLimit=5", "host": ["{{BASE_URL}}"], "path": ["user","impact-summary"], "query": [{ "key": "appLimit", "value": "5" }, { "key": "badgeLimit", "value": "5" }] } } },
+        { "name": "Get My Badges", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/user/badges", "host": ["{{BASE_URL}}"], "path": ["user","badges"] } } },
+        { "name": "Get My Skills", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/user/skills", "host": ["{{BASE_URL}}"], "path": ["user","skills"] } } },
+        { "name": "Add Skill", "request": { "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/user/skills", "host": ["{{BASE_URL}}"], "path": ["user","skills"] },
+          "body": { "mode": "raw", "raw": "{\n  \"skillName\": \"Community Outreach\"\n}" }
+        } },
+        { "name": "Remove Skill", "request": { "method": "DELETE", "url": { "raw": "{{BASE_URL}}/user/skills/1", "host": ["{{BASE_URL}}"], "path": ["user","skills","1"] } } },
+        { "name": "Get My Documents", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/user/documents", "host": ["{{BASE_URL}}"], "path": ["user","documents"] } } },
+        { "name": "Upload Document", "request": { "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/user/documents", "host": ["{{BASE_URL}}"], "path": ["user","documents"] },
+          "body": { "mode": "raw", "raw": "{\n  \"documentTypeLkpId\": 10,\n  \"fileUrl\": \"https://storage.example.com/aadhaar.pdf\",\n  \"fileName\": \"aadhaar.pdf\",\n  \"fileSizeKb\": 512\n}" }
+        } },
+        { "name": "Delete Document", "request": { "method": "DELETE", "url": { "raw": "{{BASE_URL}}/user/documents/1", "host": ["{{BASE_URL}}"], "path": ["user","documents","1"] } } },
+        { "name": "Get Interests", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/user/interests", "host": ["{{BASE_URL}}"], "path": ["user","interests"] } } },
+        { "name": "Update Interests", "request": { "method": "PUT",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/user/interests", "host": ["{{BASE_URL}}"], "path": ["user","interests"] },
+          "body": { "mode": "raw", "raw": "{\n  \"interestLkpIds\": [1, 3, 7]\n}" }
+        } },
+        { "name": "Get Safety Preferences", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/user/safety-preferences", "host": ["{{BASE_URL}}"], "path": ["user","safety-preferences"] } } },
+        { "name": "Update Safety Preferences", "request": { "method": "PUT",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/user/safety-preferences", "host": ["{{BASE_URL}}"], "path": ["user","safety-preferences"] },
+          "body": { "mode": "raw", "raw": "{\n  \"emergVisibilityLkpId\": 1,\n  \"autoShareDurLkpId\": 2,\n  \"allowLocDuringSos\": true,\n  \"allowLocDuringProj\": true,\n  \"emergencyContactName\": \"Priya Kumar\",\n  \"emergencyContactPhone\": \"9876500001\",\n  \"emergencyContactRelation\": \"Spouse\"\n}" }
+        } },
+        { "name": "Get Communication Preferences [v5.0 NEW]", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/communication-preferences", "host": ["{{BASE_URL}}"], "path": ["communication-preferences"] } } },
+        { "name": "Update Communication Preferences [v5.0 NEW]", "request": { "method": "PUT",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/communication-preferences", "host": ["{{BASE_URL}}"], "path": ["communication-preferences"] },
+          "body": { "mode": "raw", "raw": "{\n  \"receivePushNotifications\": true,\n  \"receivePromotionalEmails\": false,\n  \"receivePromotionalSms\": false,\n  \"receiveNgoUpdates\": true,\n  \"receiveDonationAlerts\": true,\n  \"receiveVolunteerOpportunities\": true\n}" }
+        } },
+        { "name": "Get User Applications", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/user/applications?pageNumber=1&pageSize=10", "host": ["{{BASE_URL}}"], "path": ["user","applications"], "query": [{ "key": "pageNumber", "value": "1" }, { "key": "pageSize", "value": "10" }] } } }
+      ]
+    },
+
+    {
+      "name": "03 - Organisations",
+      "item": [
+        { "name": "Register Org", "request": { "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/org", "host": ["{{BASE_URL}}"], "path": ["org"] },
+          "body": { "mode": "raw", "raw": "{\n  \"orgName\": \"Helping Hands Foundation\",\n  \"orgTypeLkpId\": 1,\n  \"about\": \"NGO helping underprivileged children\",\n  \"contactEmail\": \"info@helpinghands.org\",\n  \"contactPhone\": \"9900000001\",\n  \"city\": \"Mumbai\",\n  \"state\": \"Maharashtra\",\n  \"is80GEligible\": false,\n  \"is12AEligible\": false\n}" }
+        } },
+        { "name": "Get Org Profile", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/org/{{ORG_ID}}", "host": ["{{BASE_URL}}"], "path": ["org","{{ORG_ID}}"] } } },
+        { "name": "Update Org", "request": { "method": "PUT",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/org/{{ORG_ID}}", "host": ["{{BASE_URL}}"], "path": ["org","{{ORG_ID}}"] },
+          "body": { "mode": "raw", "raw": "{\n  \"about\": \"Updated about text\",\n  \"website\": \"https://helpinghands.org\",\n  \"is80GEligible\": true\n}" }
+        } },
+        { "name": "List Orgs", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/org/list?pageNumber=1&pageSize=10", "host": ["{{BASE_URL}}"], "path": ["org","list"], "query": [{ "key": "pageNumber", "value": "1" }, { "key": "pageSize", "value": "10" }] } } },
+        { "name": "Recommended Orgs", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/org/recommended", "host": ["{{BASE_URL}}"], "path": ["org","recommended"] } } },
+        { "name": "Follow Org", "request": { "method": "POST", "url": { "raw": "{{BASE_URL}}/org/{{ORG_ID}}/follow", "host": ["{{BASE_URL}}"], "path": ["org","{{ORG_ID}}","follow"] } } },
+        { "name": "Unfollow Org", "request": { "method": "POST", "url": { "raw": "{{BASE_URL}}/org/{{ORG_ID}}/unfollow", "host": ["{{BASE_URL}}"], "path": ["org","{{ORG_ID}}","unfollow"] } } },
+        { "name": "Get NGO Dashboard", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/org/{{ORG_ID}}/dashboard", "host": ["{{BASE_URL}}"], "path": ["org","{{ORG_ID}}","dashboard"] } } },
+        { "name": "Request Membership", "request": { "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/org/{{ORG_ID}}/membership-request", "host": ["{{BASE_URL}}"], "path": ["org","{{ORG_ID}}","membership-request"] },
+          "body": { "mode": "raw", "raw": "{\n  \"prevNgoExperience\": \"2 years at NSS\",\n  \"volunteerSkills\": \"Teaching, First Aid\",\n  \"areasOfInterest\": \"Education, Healthcare\",\n  \"whyJoin\": \"Passionate about community service\"\n}" }
+        } },
+        { "name": "Cancel Membership Request [v5.0 NEW]", "request": { "method": "DELETE", "url": { "raw": "{{BASE_URL}}/org/{{ORG_ID}}/membership-request", "host": ["{{BASE_URL}}"], "path": ["org","{{ORG_ID}}","membership-request"] } } },
+        { "name": "Get Members", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/org/{{ORG_ID}}/members", "host": ["{{BASE_URL}}"], "path": ["org","{{ORG_ID}}","members"] } } },
+        { "name": "Get Pending Members", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/org/{{ORG_ID}}/members/pending?pageNumber=1&pageSize=10", "host": ["{{BASE_URL}}"], "path": ["org","{{ORG_ID}}","members","pending"] } } },
+        { "name": "Review Membership", "request": { "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/org/{{ORG_ID}}/members/1/review", "host": ["{{BASE_URL}}"], "path": ["org","{{ORG_ID}}","members","1","review"] },
+          "body": { "mode": "raw", "raw": "{\n  \"statusCode\": \"APPROVED\",\n  \"adminNotes\": \"Welcome to the team!\"\n}" }
+        } },
+        { "name": "Remove Member", "request": { "method": "DELETE", "url": { "raw": "{{BASE_URL}}/org/{{ORG_ID}}/members/{{USER_ID}}", "host": ["{{BASE_URL}}"], "path": ["org","{{ORG_ID}}","members","{{USER_ID}}"] } } },
+        { "name": "Resubmit Org", "request": { "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/org/{{ORG_ID}}/resubmit", "host": ["{{BASE_URL}}"], "path": ["org","{{ORG_ID}}","resubmit"] },
+          "body": { "mode": "raw", "raw": "{\n  \"orgName\": \"Helping Hands Foundation\",\n  \"regNumber\": \"MH/2020/00123\"\n}" }
+        } }
+      ]
+    },
+
+    {
+      "name": "04 - Org Invitations [v5.0 NEW]",
+      "item": [
+        { "name": "Send Invite", "request": { "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/org/{{ORG_ID}}/invite/send", "host": ["{{BASE_URL}}"], "path": ["org","{{ORG_ID}}","invite","send"] },
+          "body": { "mode": "raw", "raw": "{\n  \"inviteTypeCode\": \"PHONE\",\n  \"inviteValue\": \"9876543210\",\n  \"countryCode\": \"+91\"\n}" }
+        } },
+        { "name": "List Invites", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/org/{{ORG_ID}}/invite/list?pageNumber=1&pageSize=10", "host": ["{{BASE_URL}}"], "path": ["org","{{ORG_ID}}","invite","list"] } } },
+        { "name": "Cancel Invite (Admin)", "request": { "method": "POST", "url": { "raw": "{{BASE_URL}}/org/invite/{{INVITE_ID}}/cancel", "host": ["{{BASE_URL}}"], "path": ["org","invite","{{INVITE_ID}}","cancel"] } } },
+        { "name": "Resend Invite", "request": { "method": "POST", "url": { "raw": "{{BASE_URL}}/org/invite/{{INVITE_ID}}/resend", "host": ["{{BASE_URL}}"], "path": ["org","invite","{{INVITE_ID}}","resend"] } } },
+        { "name": "Verify Invite Token (Public)", "request": { "method": "GET", "auth": { "type": "noauth" }, "url": { "raw": "{{BASE_URL}}/org/invite/verify/{{INVITE_TOKEN}}", "host": ["{{BASE_URL}}"], "path": ["org","invite","verify","{{INVITE_TOKEN}}"] } } },
+        { "name": "Accept Invite", "request": { "method": "POST", "url": { "raw": "{{BASE_URL}}/org/invite/{{INVITE_ID}}/accept", "host": ["{{BASE_URL}}"], "path": ["org","invite","{{INVITE_ID}}","accept"] } } },
+        { "name": "Get Pending Invites for User", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/org/invite/pending", "host": ["{{BASE_URL}}"], "path": ["org","invite","pending"] } } },
+        { "name": "Decline Invite", "request": { "method": "POST", "url": { "raw": "{{BASE_URL}}/org/invite/{{INVITE_ID}}/decline", "host": ["{{BASE_URL}}"], "path": ["org","invite","{{INVITE_ID}}","decline"] } } }
+      ]
+    },
+
+    {
+      "name": "05 - Projects",
+      "item": [
+        { "name": "Create Project", "request": { "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/project", "host": ["{{BASE_URL}}"], "path": ["project"] },
+          "body": { "mode": "raw", "raw": "{\n  \"orgId\": {{ORG_ID}},\n  \"projectName\": \"Tree Plantation Drive\",\n  \"description\": \"Plant 500 trees in urban parks\",\n  \"isPublic\": true,\n  \"maxVolunteers\": 50,\n  \"city\": \"Mumbai\",\n  \"state\": \"Maharashtra\",\n  \"scheduleType\": \"ONE_TIME\",\n  \"recurStart\": \"2026-09-15\",\n  \"sessionStartTime\": \"09:00:00\",\n  \"sessionEndTime\": \"13:00:00\"\n}" }
+        } },
+        { "name": "Get Project", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/project/{{PROJECT_ID}}", "host": ["{{BASE_URL}}"], "path": ["project","{{PROJECT_ID}}"] } } },
+        { "name": "Update Project", "request": { "method": "PUT",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/project/{{PROJECT_ID}}", "host": ["{{BASE_URL}}"], "path": ["project","{{PROJECT_ID}}"] },
+          "body": { "mode": "raw", "raw": "{\n  \"description\": \"Updated description\",\n  \"maxVolunteers\": 75\n}" }
+        } },
+        { "name": "List Projects", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/project/list?pageNumber=1&pageSize=10&keyword=tree", "host": ["{{BASE_URL}}"], "path": ["project","list"], "query": [{ "key": "pageNumber", "value": "1" }, { "key": "pageSize", "value": "10" }, { "key": "keyword", "value": "tree" }] } } },
+        { "name": "Nearby Feed", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/project/nearby-feed?userLat=19.0760&userLon=72.8777&pageNumber=1&pageSize=10", "host": ["{{BASE_URL}}"], "path": ["project","nearby-feed"], "query": [{ "key": "userLat", "value": "19.0760" }, { "key": "userLon", "value": "72.8777" }, { "key": "pageNumber", "value": "1" }, { "key": "pageSize", "value": "10" }] } } },
+        { "name": "Cancel Project [v5.0 NEW]", "request": { "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/project/{{PROJECT_ID}}/cancel", "host": ["{{BASE_URL}}"], "path": ["project","{{PROJECT_ID}}","cancel"] },
+          "body": { "mode": "raw", "raw": "{\n  \"cancelReason\": \"Venue unavailable due to weather\"\n}" }
+        } },
+        { "name": "Complete Project", "request": { "method": "POST", "url": { "raw": "{{BASE_URL}}/project/{{PROJECT_ID}}/complete", "host": ["{{BASE_URL}}"], "path": ["project","{{PROJECT_ID}}","complete"] } } },
+        { "name": "Add Session", "request": { "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/project/{{PROJECT_ID}}/sessions", "host": ["{{BASE_URL}}"], "path": ["project","{{PROJECT_ID}}","sessions"] },
+          "body": { "mode": "raw", "raw": "{\n  \"sessionDate\": \"2026-09-15\",\n  \"startTime\": \"09:00:00\",\n  \"endTime\": \"13:00:00\",\n  \"maxVolunteers\": 50\n}" }
+        } },
+        { "name": "Get Sessions", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/project/{{PROJECT_ID}}/sessions?pageNumber=1&pageSize=10", "host": ["{{BASE_URL}}"], "path": ["project","{{PROJECT_ID}}","sessions"] } } },
+        { "name": "Get Session QR", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/project/{{PROJECT_ID}}/sessions/1/qr", "host": ["{{BASE_URL}}"], "path": ["project","{{PROJECT_ID}}","sessions","1","qr"] } } },
+        { "name": "Add Project Skill", "request": { "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/project/{{PROJECT_ID}}/skills", "host": ["{{BASE_URL}}"], "path": ["project","{{PROJECT_ID}}","skills"] },
+          "body": { "mode": "raw", "raw": "{\n  \"skillName\": \"Environmental Awareness\",\n  \"isRequired\": true\n}" }
+        } },
+        { "name": "Get Project Skills with Ratings [v5.0 NEW]", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/project/{{PROJECT_ID}}/skills?userId={{USER_ID}}", "host": ["{{BASE_URL}}"], "path": ["project","{{PROJECT_ID}}","skills"], "query": [{ "key": "userId", "value": "{{USER_ID}}" }] } } },
+        { "name": "Get Volunteer Skill Ratings [v5.0 NEW]", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/project/{{PROJECT_ID}}/skill-ratings/{{USER_ID}}", "host": ["{{BASE_URL}}"], "path": ["project","{{PROJECT_ID}}","skill-ratings","{{USER_ID}}"] } } },
+        { "name": "Add/Update Skill Rating [v5.0 UPDATED]", "request": { "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/project/{{PROJECT_ID}}/skill-ratings", "host": ["{{BASE_URL}}"], "path": ["project","{{PROJECT_ID}}","skill-ratings"] },
+          "body": { "mode": "raw", "raw": "{\n  \"applicationId\": 1,\n  \"projectSkillId\": 1,\n  \"ratedUserId\": {{USER_ID}},\n  \"rating\": 4.5,\n  \"notes\": \"Excellent team player\"\n}" }
+        } },
+        { "name": "Apply to Project", "request": { "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/project/{{PROJECT_ID}}/apply", "host": ["{{BASE_URL}}"], "path": ["project","{{PROJECT_ID}}","apply"] },
+          "body": { "mode": "raw", "raw": "{\n  \"motivation\": \"Deeply committed to environmental causes\"\n}" }
+        } },
+        { "name": "Get Applications (Admin)", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/project/{{PROJECT_ID}}/applications?pageNumber=1&pageSize=10", "host": ["{{BASE_URL}}"], "path": ["project","{{PROJECT_ID}}","applications"] } } },
+        { "name": "Review Application", "request": { "method": "PUT",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/project/{{PROJECT_ID}}/applications/{{APPLICATION_ID}}/review", "host": ["{{BASE_URL}}"], "path": ["project","{{PROJECT_ID}}","applications","{{APPLICATION_ID}}","review"] },
+          "body": { "mode": "raw", "raw": "{\n  \"statusLkpId\": 2,\n  \"rejectionReason\": \"\"\n}" }
+        } },
+        { "name": "Withdraw Application [v5.0 NEW]", "request": { "method": "DELETE", "url": { "raw": "{{BASE_URL}}/applications/{{APPLICATION_ID}}/withdraw", "host": ["{{BASE_URL}}"], "path": ["applications","{{APPLICATION_ID}}","withdraw"] } } },
+        { "name": "QR Check-in", "request": { "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/project/{{PROJECT_ID}}/checkin", "host": ["{{BASE_URL}}"], "path": ["project","{{PROJECT_ID}}","checkin"] },
+          "body": { "mode": "raw", "raw": "{\n  \"qrToken\": \"uuid-token-here\",\n  \"sessionId\": 1\n}" }
+        } },
+        { "name": "Manual Attendance [v5.0 UPDATED]", "request": { "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/project/{{PROJECT_ID}}/attendance/manual", "host": ["{{BASE_URL}}"], "path": ["project","{{PROJECT_ID}}","attendance","manual"] },
+          "body": { "mode": "raw", "raw": "{\n  \"applicationId\": 1,\n  \"markedBy\": {{USER_ID}}\n}" }
+        } },
+        { "name": "Get Attendance", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/project/{{PROJECT_ID}}/attendance?pageNumber=1&pageSize=10", "host": ["{{BASE_URL}}"], "path": ["project","{{PROJECT_ID}}","attendance"] } } },
+        { "name": "Excuse No-Show", "request": { "method": "PUT", "url": { "raw": "{{BASE_URL}}/project/{{PROJECT_ID}}/attendance/1/excuse", "host": ["{{BASE_URL}}"], "path": ["project","{{PROJECT_ID}}","attendance","1","excuse"] } } }
+      ]
+    },
+
+    {
+      "name": "06 - Certificates [v5.0 Updated]",
+      "item": [
+        { "name": "Issue Certificate [v5.0 NEW]", "request": { "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/certificates/issue", "host": ["{{BASE_URL}}"], "path": ["certificates","issue"] },
+          "body": { "mode": "raw", "raw": "{\n  \"projectId\": {{PROJECT_ID}},\n  \"userId\": {{USER_ID}},\n  \"orgId\": {{ORG_ID}},\n  \"totalHours\": 8.5\n}" }
+        } },
+        { "name": "Get Certificate by CertCode", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/certificates/{{CERT_CODE}}", "host": ["{{BASE_URL}}"], "path": ["certificates","{{CERT_CODE}}"] } } },
+        { "name": "Verify Certificate (Public) [v5.0 NEW]", "request": { "method": "GET", "auth": { "type": "noauth" }, "url": { "raw": "{{BASE_URL}}/certificates/verify/{{SHARE_TOKEN}}", "host": ["{{BASE_URL}}"], "path": ["certificates","verify","{{SHARE_TOKEN}}"] } } }
+      ]
+    },
+
+    {
+      "name": "07 - Feed & Posts",
+      "item": [
+        { "name": "Create Post", "request": { "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/posts", "host": ["{{BASE_URL}}"], "path": ["posts"] },
+          "body": { "mode": "raw", "raw": "{\n  \"orgId\": {{ORG_ID}},\n  \"content\": \"Exciting new volunteer opportunity this weekend!\",\n  \"postTypeLkpId\": 1,\n  \"visibilityLkpId\": 1\n}" }
+        } },
+        { "name": "Get Post", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/posts/{{POST_ID}}", "host": ["{{BASE_URL}}"], "path": ["posts","{{POST_ID}}"] } } },
+        { "name": "Delete Post", "request": { "method": "DELETE", "url": { "raw": "{{BASE_URL}}/posts/{{POST_ID}}", "host": ["{{BASE_URL}}"], "path": ["posts","{{POST_ID}}"] } } },
+        { "name": "Like Post", "request": { "method": "POST", "url": { "raw": "{{BASE_URL}}/posts/{{POST_ID}}/like", "host": ["{{BASE_URL}}"], "path": ["posts","{{POST_ID}}","like"] } } },
+        { "name": "Unlike Post", "request": { "method": "POST", "url": { "raw": "{{BASE_URL}}/posts/{{POST_ID}}/unlike", "host": ["{{BASE_URL}}"], "path": ["posts","{{POST_ID}}","unlike"] } } },
+        { "name": "Save Post", "request": { "method": "POST", "url": { "raw": "{{BASE_URL}}/posts/{{POST_ID}}/save", "host": ["{{BASE_URL}}"], "path": ["posts","{{POST_ID}}","save"] } } },
+        { "name": "Unsave Post", "request": { "method": "POST", "url": { "raw": "{{BASE_URL}}/posts/{{POST_ID}}/unsave", "host": ["{{BASE_URL}}"], "path": ["posts","{{POST_ID}}","unsave"] } } },
+        { "name": "Get Saved Posts [v5.0 NEW]", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/posts/saved?pageNumber=1&pageSize=10", "host": ["{{BASE_URL}}"], "path": ["posts","saved"] } } },
+        { "name": "Add Comment", "request": { "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/posts/{{POST_ID}}/comments", "host": ["{{BASE_URL}}"], "path": ["posts","{{POST_ID}}","comments"] },
+          "body": { "mode": "raw", "raw": "{\n  \"content\": \"Great initiative! Count me in.\"\n}" }
+        } },
+        { "name": "Get Comments", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/posts/{{POST_ID}}/comments?pageNumber=1&pageSize=10", "host": ["{{BASE_URL}}"], "path": ["posts","{{POST_ID}}","comments"] } } },
+        { "name": "Report Post", "request": { "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/posts/{{POST_ID}}/report", "host": ["{{BASE_URL}}"], "path": ["posts","{{POST_ID}}","report"] },
+          "body": { "mode": "raw", "raw": "{\n  \"reasonCode\": \"SPAM\",\n  \"details\": \"Repeated promotional post\"\n}" }
+        } },
+        { "name": "Bulk Notify Org Members [v5.0 NEW]", "request": { "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/posts/{{POST_ID}}/notify-org", "host": ["{{BASE_URL}}"], "path": ["posts","{{POST_ID}}","notify-org"] },
+          "body": { "mode": "raw", "raw": "{\n  \"orgId\": {{ORG_ID}}\n}" }
+        } },
+        { "name": "Personalized Feed [v5.0 UPDATED]", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/feed/personalized?pageSize=10", "host": ["{{BASE_URL}}"], "path": ["feed","personalized"], "query": [{ "key": "pageSize", "value": "10" }, { "key": "cursorPostId", "value": "", "disabled": true }, { "key": "cursorScore", "value": "", "disabled": true }] } } },
+        { "name": "Org Feed", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/feed/org/{{ORG_ID}}?pageNumber=1&pageSize=10", "host": ["{{BASE_URL}}"], "path": ["feed","org","{{ORG_ID}}"] } } },
+        { "name": "Track Interaction", "request": { "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/feed/interaction", "host": ["{{BASE_URL}}"], "path": ["feed","interaction"] },
+          "body": { "mode": "raw", "raw": "{\n  \"postId\": {{POST_ID}},\n  \"interactionType\": \"LIKE\"\n}" }
+        } },
+        { "name": "Get Post Permissions", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/posts/permissions/{{ORG_ID}}", "host": ["{{BASE_URL}}"], "path": ["posts","permissions","{{ORG_ID}}"] } } }
+      ]
+    },
+
+    {
+      "name": "08 - Community",
+      "item": [
+        { "name": "Get Community Posts", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/community/{{ORG_ID}}/posts?pageNumber=1&pageSize=10", "host": ["{{BASE_URL}}"], "path": ["community","{{ORG_ID}}","posts"] } } },
+        { "name": "Create Community Post", "request": { "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/community/{{ORG_ID}}/posts", "host": ["{{BASE_URL}}"], "path": ["community","{{ORG_ID}}","posts"] },
+          "body": { "mode": "raw", "raw": "{\n  \"title\": \"Team meeting this Saturday\",\n  \"content\": \"Join us for our monthly team sync\",\n  \"postTypeLkpId\": 1\n}" }
+        } },
+        { "name": "Like Community Post", "request": { "method": "POST", "url": { "raw": "{{BASE_URL}}/community/posts/1/like", "host": ["{{BASE_URL}}"], "path": ["community","posts","1","like"] } } },
+        { "name": "Add Community Comment", "request": { "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/community/posts/1/comments", "host": ["{{BASE_URL}}"], "path": ["community","posts","1","comments"] },
+          "body": { "mode": "raw", "raw": "{\n  \"content\": \"Will be there!\"\n}" }
+        } },
+        { "name": "Vote on Poll", "request": { "method": "POST", "url": { "raw": "{{BASE_URL}}/community/polls/1/vote", "host": ["{{BASE_URL}}"], "path": ["community","polls","1","vote"] } } }
+      ]
+    },
+
+    {
+      "name": "09 - SOS",
+      "item": [
+        { "name": "Trigger SOS", "request": { "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/sos", "host": ["{{BASE_URL}}"], "path": ["sos"] },
+          "body": { "mode": "raw", "raw": "{\n  \"alertTypeLkpId\": 1,\n  \"description\": \"Need immediate help\",\n  \"latitude\": 19.0760,\n  \"longitude\": 72.8777\n}" }
+        } },
+        { "name": "Get SOS Detail", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/sos/1", "host": ["{{BASE_URL}}"], "path": ["sos","1"] } } },
+        { "name": "Resolve SOS", "request": { "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/sos/1/resolve", "host": ["{{BASE_URL}}"], "path": ["sos","1","resolve"] },
+          "body": { "mode": "raw", "raw": "{\n  \"resolvedByLkpId\": 1\n}" }
+        } },
+        { "name": "Log SOS Location", "request": { "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/sos/1/location", "host": ["{{BASE_URL}}"], "path": ["sos","1","location"] },
+          "body": { "mode": "raw", "raw": "{\n  \"latitude\": 19.0761,\n  \"longitude\": 72.8778,\n  \"accuracy\": 5.0\n}" }
+        } }
+      ]
+    },
+
+    {
+      "name": "10 - Donations",
+      "item": [
+        { "name": "List Campaigns", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/org/{{ORG_ID}}/donation-campaigns", "host": ["{{BASE_URL}}"], "path": ["org","{{ORG_ID}}","donation-campaigns"] } } },
+        { "name": "Create Campaign", "request": { "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/org/{{ORG_ID}}/donation-campaigns", "host": ["{{BASE_URL}}"], "path": ["org","{{ORG_ID}}","donation-campaigns"] },
+          "body": { "mode": "raw", "raw": "{\n  \"campaignName\": \"Children Education Fund 2026\",\n  \"targetAmount\": 500000,\n  \"startDate\": \"2026-09-01\",\n  \"endDate\": \"2026-12-31\",\n  \"campaignTypeLkpId\": 1\n}" }
+        } },
+        { "name": "Trending Campaigns (Public)", "request": { "method": "GET", "auth": { "type": "noauth" }, "url": { "raw": "{{BASE_URL}}/donation-campaigns/trending", "host": ["{{BASE_URL}}"], "path": ["donation-campaigns","trending"] } } },
+        { "name": "Create Donation", "request": { "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/donations", "host": ["{{BASE_URL}}"], "path": ["donations"] },
+          "body": { "mode": "raw", "raw": "{\n  \"campaignId\": 1,\n  \"donationAmount\": 1000,\n  \"payMethodLkpId\": 1,\n  \"isAnonymous\": false\n}" }
+        } },
+        { "name": "My Donations", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/donations/my", "host": ["{{BASE_URL}}"], "path": ["donations","my"] } } },
+        { "name": "Donation Dashboard", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/org/{{ORG_ID}}/donation-dashboard", "host": ["{{BASE_URL}}"], "path": ["org","{{ORG_ID}}","donation-dashboard"] } } }
+      ]
+    },
+
+    {
+      "name": "11 - Share & Public Resolver [v5.0 NEW]",
+      "item": [
+        { "name": "Generate Share Token", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/share/token?type=NGO&id={{ORG_ID}}", "host": ["{{BASE_URL}}"], "path": ["share","token"], "query": [{ "key": "type", "value": "NGO" }, { "key": "id", "value": "{{ORG_ID}}" }] } } },
+        { "name": "Resolve Share Token (Public)", "request": { "method": "GET", "auth": { "type": "noauth" }, "url": { "raw": "{{BASE_URL}}/public/resolve/{{SHARE_TOKEN}}", "host": ["{{BASE_URL}}"], "path": ["public","resolve","{{SHARE_TOKEN}}"] } } },
+        { "name": "Get Public Org via Token", "request": { "method": "GET", "auth": { "type": "noauth" }, "url": { "raw": "{{BASE_URL}}/public/org/{{SHARE_TOKEN}}", "host": ["{{BASE_URL}}"], "path": ["public","org","{{SHARE_TOKEN}}"] } } },
+        { "name": "Get Public Opportunity via Token", "request": { "method": "GET", "auth": { "type": "noauth" }, "url": { "raw": "{{BASE_URL}}/public/opportunity/{{SHARE_TOKEN}}", "host": ["{{BASE_URL}}"], "path": ["public","opportunity","{{SHARE_TOKEN}}"] } } }
+      ]
+    },
+
+    {
+      "name": "12 - Support [v5.0 NEW]",
+      "item": [
+        { "name": "Submit Support Contact", "request": { "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/support/contact", "host": ["{{BASE_URL}}"], "path": ["support","contact"] },
+          "body": { "mode": "raw", "raw": "{\n  \"categoryCode\": \"TECHNICAL\",\n  \"categoryLabel\": \"Technical Issue\",\n  \"subject\": \"App crash on certificate download\",\n  \"description\": \"The app crashes when I try to download my certificate.\",\n  \"contactEmail\": \"user@example.com\",\n  \"contactName\": \"Ravi Kumar\"\n}" }
+        } }
+      ]
+    },
+
+    {
+      "name": "13 - Notifications",
+      "item": [
+        { "name": "Get Notifications", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/notifications?pageNumber=1&pageSize=20", "host": ["{{BASE_URL}}"], "path": ["notifications"] } } },
+        { "name": "Mark Read", "request": { "method": "PUT", "url": { "raw": "{{BASE_URL}}/notifications/1/read", "host": ["{{BASE_URL}}"], "path": ["notifications","1","read"] } } },
+        { "name": "Mark All Read", "request": { "method": "PUT", "url": { "raw": "{{BASE_URL}}/notifications/read-all", "host": ["{{BASE_URL}}"], "path": ["notifications","read-all"] } } },
+        { "name": "Register Device Token", "request": { "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/notifications/device-token", "host": ["{{BASE_URL}}"], "path": ["notifications","device-token"] },
+          "body": { "mode": "raw", "raw": "{\n  \"token\": \"fcm-registration-token-here\",\n  \"deviceType\": \"android\"\n}" }
+        } },
+        { "name": "Unregister Device Token", "request": { "method": "DELETE", "url": { "raw": "{{BASE_URL}}/notifications/device-token", "host": ["{{BASE_URL}}"], "path": ["notifications","device-token"] } } }
+      ]
+    },
+
+    {
+      "name": "14 - Campaign Recipients [v5.0 NEW]",
+      "item": [
+        { "name": "Acknowledge Delivery (Device Ack)", "request": { "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": { "raw": "{{BASE_URL}}/campaign-recipients/1/delivered", "host": ["{{BASE_URL}}"], "path": ["campaign-recipients","1","delivered"] },
+          "body": { "mode": "raw", "raw": "{}" }
+        } }
+      ]
+    },
+
+    {
+      "name": "15 - Lookup & Settings",
+      "item": [
+        { "name": "Get All Lookup Types", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/lookup/types", "host": ["{{BASE_URL}}"], "path": ["lookup","types"] } } },
+        { "name": "Get Lookup Values by TypeCode", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/lookup/values/ORG_TYPE", "host": ["{{BASE_URL}}"], "path": ["lookup","values","ORG_TYPE"] } } },
+        { "name": "Get Public Settings", "request": { "method": "GET", "auth": { "type": "noauth" }, "url": { "raw": "{{BASE_URL}}/settings/public", "host": ["{{BASE_URL}}"], "path": ["settings","public"] } } }
+      ]
+    },
+
+    {
+      "name": "16 - Super Admin",
+      "item": [
+        {
+          "name": "16.1 - NGO Management",
+          "item": [
+            { "name": "List Orgs (SA)", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/superadmin/orgs?pageNumber=1&pageSize=10", "host": ["{{BASE_URL}}"], "path": ["superadmin","orgs"] } } },
+            { "name": "Get Org Detail (SA)", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/superadmin/orgs/{{ORG_ID}}", "host": ["{{BASE_URL}}"], "path": ["superadmin","orgs","{{ORG_ID}}"] } } },
+            { "name": "Approve Org", "request": { "method": "POST", "url": { "raw": "{{BASE_URL}}/superadmin/orgs/{{ORG_ID}}/approve", "host": ["{{BASE_URL}}"], "path": ["superadmin","orgs","{{ORG_ID}}","approve"] } } },
+            { "name": "Reject Org", "request": { "method": "POST",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "url": { "raw": "{{BASE_URL}}/superadmin/orgs/{{ORG_ID}}/reject", "host": ["{{BASE_URL}}"], "path": ["superadmin","orgs","{{ORG_ID}}","reject"] },
+              "body": { "mode": "raw", "raw": "{\n  \"rejectionReason\": \"Incomplete documentation\"\n}" }
+            } },
+            { "name": "Suspend Org", "request": { "method": "POST",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "url": { "raw": "{{BASE_URL}}/superadmin/orgs/{{ORG_ID}}/suspend", "host": ["{{BASE_URL}}"], "path": ["superadmin","orgs","{{ORG_ID}}","suspend"] },
+              "body": { "mode": "raw", "raw": "{\n  \"suspensionReason\": \"Compliance violation\"\n}" }
+            } },
+            { "name": "Verify Org Profile", "request": { "method": "POST",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "url": { "raw": "{{BASE_URL}}/superadmin/orgs/{{ORG_ID}}/verify-profile", "host": ["{{BASE_URL}}"], "path": ["superadmin","orgs","{{ORG_ID}}","verify-profile"] },
+              "body": { "mode": "raw", "raw": "{\n  \"verificationStatusCode\": \"VERIFIED\"\n}" }
+            } }
+          ]
+        },
+        {
+          "name": "16.2 - Marketing Campaigns [v5.0 NEW]",
+          "item": [
+            { "name": "Communication Dashboard", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/superadmin/communication/dashboard", "host": ["{{BASE_URL}}"], "path": ["superadmin","communication","dashboard"] } } },
+            { "name": "Create Campaign", "request": { "method": "POST",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "url": { "raw": "{{BASE_URL}}/superadmin/campaigns", "host": ["{{BASE_URL}}"], "path": ["superadmin","campaigns"] },
+              "body": { "mode": "raw", "raw": "{\n  \"title\": \"Independence Day Volunteer Drive\",\n  \"description\": \"Special campaign for Aug 15 activities\",\n  \"campaignType\": \"VOLUNTEER_DRIVE\",\n  \"priority\": \"HIGH\",\n  \"scheduledAt\": null\n}" }
+            } },
+            { "name": "List Campaigns (SA)", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/superadmin/campaigns?pageNumber=1&pageSize=10", "host": ["{{BASE_URL}}"], "path": ["superadmin","campaigns"] } } },
+            { "name": "Get Campaign Detail", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/superadmin/campaigns/{{CAMPAIGN_ID}}", "host": ["{{BASE_URL}}"], "path": ["superadmin","campaigns","{{CAMPAIGN_ID}}"] } } },
+            { "name": "Update Campaign", "request": { "method": "PUT",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "url": { "raw": "{{BASE_URL}}/superadmin/campaigns/{{CAMPAIGN_ID}}", "host": ["{{BASE_URL}}"], "path": ["superadmin","campaigns","{{CAMPAIGN_ID}}"] },
+              "body": { "mode": "raw", "raw": "{\n  \"title\": \"Updated Campaign Title\",\n  \"priority\": \"URGENT\"\n}" }
+            } },
+            { "name": "Update Campaign Status", "request": { "method": "PUT",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "url": { "raw": "{{BASE_URL}}/superadmin/campaigns/{{CAMPAIGN_ID}}/status", "host": ["{{BASE_URL}}"], "path": ["superadmin","campaigns","{{CAMPAIGN_ID}}","status"] },
+              "body": { "mode": "raw", "raw": "{\n  \"status\": \"RUNNING\"\n}" }
+            } },
+            { "name": "Add/Update Channel", "request": { "method": "POST",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "url": { "raw": "{{BASE_URL}}/superadmin/campaigns/{{CAMPAIGN_ID}}/channels", "host": ["{{BASE_URL}}"], "path": ["superadmin","campaigns","{{CAMPAIGN_ID}}","channels"] },
+              "body": { "mode": "raw", "raw": "{\n  \"channel\": \"PUSH\",\n  \"pushTitle\": \"Join us for Independence Day!\",\n  \"pushBody\": \"Be part of something meaningful this Aug 15. Click to find an opportunity near you.\",\n  \"pushDeepLink\": \"ngoconnect://opportunities\",\n  \"pushActionLabel\": \"Find Opportunity\"\n}" }
+            } },
+            { "name": "Delete Channel", "request": { "method": "DELETE", "url": { "raw": "{{BASE_URL}}/superadmin/campaigns/{{CAMPAIGN_ID}}/channels/PUSH", "host": ["{{BASE_URL}}"], "path": ["superadmin","campaigns","{{CAMPAIGN_ID}}","channels","PUSH"] } } },
+            { "name": "Set Audience Rule", "request": { "method": "POST",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "url": { "raw": "{{BASE_URL}}/superadmin/campaigns/{{CAMPAIGN_ID}}/audience", "host": ["{{BASE_URL}}"], "path": ["superadmin","campaigns","{{CAMPAIGN_ID}}","audience"] },
+              "body": { "mode": "raw", "raw": "{\n  \"ruleType\": \"ACTIVE_LAST_N_DAYS\",\n  \"ruleParams\": { \"days\": 30 }\n}" }
+            } },
+            { "name": "Estimate Audience", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/superadmin/campaigns/{{CAMPAIGN_ID}}/audience/estimate", "host": ["{{BASE_URL}}"], "path": ["superadmin","campaigns","{{CAMPAIGN_ID}}","audience","estimate"] } } },
+            { "name": "Resolve Recipients", "request": { "method": "POST", "url": { "raw": "{{BASE_URL}}/superadmin/campaigns/{{CAMPAIGN_ID}}/resolve-recipients", "host": ["{{BASE_URL}}"], "path": ["superadmin","campaigns","{{CAMPAIGN_ID}}","resolve-recipients"] } } },
+            { "name": "Get Recipient List [v5.0 NEW]", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/superadmin/campaigns/{{CAMPAIGN_ID}}/recipients?pageNumber=1&pageSize=50", "host": ["{{BASE_URL}}"], "path": ["superadmin","campaigns","{{CAMPAIGN_ID}}","recipients"] } } },
+            { "name": "Get Campaign History", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/superadmin/campaigns/{{CAMPAIGN_ID}}/history", "host": ["{{BASE_URL}}"], "path": ["superadmin","campaigns","{{CAMPAIGN_ID}}","history"] } } }
+          ]
+        },
+        {
+          "name": "16.3 - Settings (SA)",
+          "item": [
+            { "name": "Get All Settings", "request": { "method": "GET", "url": { "raw": "{{BASE_URL}}/superadmin/settings", "host": ["{{BASE_URL}}"], "path": ["superadmin","settings"] } } },
+            { "name": "Update Setting", "request": { "method": "PUT",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "url": { "raw": "{{BASE_URL}}/superadmin/settings/OTP_EXPIRY_MINUTES", "host": ["{{BASE_URL}}"], "path": ["superadmin","settings","OTP_EXPIRY_MINUTES"] },
+              "body": { "mode": "raw", "raw": "{\n  \"value\": \"10\"\n}" }
+            } }
+          ]
+        }
+      ]
+    }
+
+  ]
+}

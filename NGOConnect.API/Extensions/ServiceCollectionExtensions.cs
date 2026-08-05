@@ -114,27 +114,35 @@ namespace NGOConnect.API.Extensions
         /// <summary>
         /// Register email service based on "EmailProvider" config key.
         ///
-        ///   "smtp"   → SmtpEmailService (MailKit) — local dev / any SMTP provider
-        ///   "awsses" → AwsSesEmailService (AWS SDK) — staging + production via AWS SES
+        ///   "smtp"   → SmtpEmailService (MailKit)       — local dev only (SMTP blocked on Railway/PaaS)
+        ///   "resend" → ResendEmailService (HTTPS API)   — staging + production (not blocked by Railway)
+        ///   "awsses" → AwsSesEmailService (AWS SDK)     — future production via AWS SES (requires approval)
         ///
-        /// Railway env var: EmailProvider = awsses
-        /// Reuses AWS:AccessKeyId / AWS:SecretAccessKey / AWS:Region already set for S3.
-        /// IAM user must have ses:SendEmail permission on the verified sending domain.
+        /// Railway env var: EmailProvider = resend
+        /// Resend config:   Resend__ApiKey (Railway env var) / Resend:ApiKey (appsettings.Development.json)
+        /// Note: Raw SMTP (port 587/465) is blocked by Railway. Always use resend or awsses on Railway.
         /// </summary>
         public static IServiceCollection AddEmailService(
             this IServiceCollection services, IConfiguration config)
         {
             var provider = (config["EmailProvider"] ?? "smtp").Trim().ToLowerInvariant();
 
-            if (provider == "awsses")
+            switch (provider)
             {
-                services.AddSingleton<IEmailService, AwsSesEmailService>();
-                Log.Information("EmailService: AwsSesEmailService (AWS SES SDK)");
-            }
-            else
-            {
-                services.AddSingleton<IEmailService, SmtpEmailService>();
-                Log.Information("EmailService: SmtpEmailService (SMTP / MailKit)");
+                case "awsses":
+                    services.AddSingleton<IEmailService, AwsSesEmailService>();
+                    Log.Information("EmailService: AwsSesEmailService (AWS SES SDK)");
+                    break;
+
+                case "resend":
+                    services.AddHttpClient<IEmailService, ResendEmailService>();
+                    Log.Information("EmailService: ResendEmailService (Resend HTTPS API)");
+                    break;
+
+                default: // "smtp"
+                    services.AddSingleton<IEmailService, SmtpEmailService>();
+                    Log.Information("EmailService: SmtpEmailService (SMTP / MailKit) — use only in local dev");
+                    break;
             }
 
             return services;

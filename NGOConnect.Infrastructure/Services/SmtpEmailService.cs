@@ -75,6 +75,18 @@ namespace NGOConnect.Infrastructure.Services
         }
 
         // ── HTML Email Template ──────────────────────────────────
+        // Internal so ResendEmailService can reuse the same templates without duplication.
+        internal static string BuildOtpHtmlInternal(string otpCode, int expiryMinutes) =>
+            BuildOtpHtml(otpCode, expiryMinutes);
+
+        internal static string BuildInviteHtmlInternal(string inviterName, string orgName, string inviteLink) =>
+            BuildInviteHtml(inviterName, orgName, inviteLink);
+
+        internal static string BuildSupportHtmlInternal(
+            string contactName, string categoryLabel, string subject,
+            string description, string contactEmail, string? attachmentUrl = null) =>
+            BuildSupportHtml(contactName, categoryLabel, subject, description, contactEmail, attachmentUrl);
+
         private static string BuildOtpHtml(string otpCode, int expiryMinutes) => $"""
             <!DOCTYPE html>
             <html lang="en">
