@@ -201,6 +201,43 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_PostId", postId);
                     _db.AddParameter(cmd, "p_UserId", userId);
                 });
+
+                if (result.Succeeded && result.Row != null)
+                {
+                    var authorUserId = Col<int>(result.Row, "PostAuthorUserId");
+                    var actorName    = Col<string>(result.Row, "ActorName")?.Trim() ?? "Someone";
+                    // Only notify the author — never notify if you liked your own post
+                    if (authorUserId > 0 && authorUserId != userId)
+                    {
+                        var capturedAuthor    = authorUserId;
+                        var capturedActor     = actorName;
+                        var capturedPostId    = postId;
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                await _notif.CreateAsync(capturedAuthor,
+                                    "❤️ New Like",
+                                    $"{capturedActor} liked your post.",
+                                    "POST_LIKED",
+                                    refId: capturedPostId);
+
+                                var tokens = await _notif.GetTokensByUserIdAsync(capturedAuthor);
+                                if (tokens.Count > 0)
+                                    await _fcm.SendAsync(tokens[0],
+                                        "❤️ New Like",
+                                        $"{capturedActor} liked your post.",
+                                        "POST_LIKED",
+                                        refId: capturedPostId);
+                            }
+                            catch (Exception ex)
+                            {
+                                Log.Warning(ex, "LikeAsync notification failed PostId={PostId}", capturedPostId);
+                            }
+                        });
+                    }
+                }
+
                 return result.ToApiResponse();
             }
             catch (Exception ex)
@@ -243,8 +280,41 @@ namespace NGOConnect.Infrastructure.DAL
                 if (!result.Succeeded)
                     return ApiResponse<DynamicRow>.Failure(result.Message, "COMMENT_FAILED");
 
-                var commentId = Col<int>(result.Row!, "CommentId");
-                // Return minimal comment data from the write result row
+                var commentId    = Col<int>(result.Row!, "CommentId");
+                var authorUserId = Col<int>(result.Row!, "PostAuthorUserId");
+                var actorName    = Col<string>(result.Row!, "ActorName")?.Trim() ?? "Someone";
+
+                // Notify post author — skip self-comment
+                if (authorUserId > 0 && authorUserId != userId)
+                {
+                    var capturedAuthor  = authorUserId;
+                    var capturedActor   = actorName;
+                    var capturedPostId  = postId;
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await _notif.CreateAsync(capturedAuthor,
+                                "💬 New Comment",
+                                $"{capturedActor} commented on your post.",
+                                "POST_COMMENTED",
+                                refId: capturedPostId);
+
+                            var tokens = await _notif.GetTokensByUserIdAsync(capturedAuthor);
+                            if (tokens.Count > 0)
+                                await _fcm.SendAsync(tokens[0],
+                                    "💬 New Comment",
+                                    $"{capturedActor} commented on your post.",
+                                    "POST_COMMENTED",
+                                    refId: capturedPostId);
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Warning(ex, "AddCommentAsync notification failed PostId={PostId}", capturedPostId);
+                        }
+                    });
+                }
+
                 var data = new DynamicRow();
                 data["commentId"] = commentId;
                 data["message"]   = result.Message;

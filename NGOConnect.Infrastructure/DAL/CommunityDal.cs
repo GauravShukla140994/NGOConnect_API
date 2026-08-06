@@ -220,8 +220,43 @@ namespace NGOConnect.Infrastructure.DAL
                 if (!result.Succeeded)
                     return ApiResponse<DynamicRow>.Failure(result.Message, "LIKE_FAILED");
 
+                var isLiked      = Col<int>(result.Row!, "IsLiked") == 1;
+                var authorUserId = Col<int>(result.Row!, "PostAuthorUserId");
+                var actorName    = Col<string>(result.Row!, "ActorName")?.Trim() ?? "Someone";
+
+                // Only notify on a new like (toggle — not on unlike), and skip self-like
+                if (isLiked && authorUserId > 0 && authorUserId != userId)
+                {
+                    var capturedAuthor = authorUserId;
+                    var capturedActor  = actorName;
+                    var capturedId     = communityPostId;
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await _notif.CreateAsync(capturedAuthor,
+                                "❤️ New Like",
+                                $"{capturedActor} liked your community post.",
+                                "COMMUNITY_POST_LIKED",
+                                refId: capturedId);
+
+                            var tokens = await _notif.GetTokensByUserIdAsync(capturedAuthor);
+                            if (tokens.Count > 0)
+                                await _fcm.SendAsync(tokens[0],
+                                    "❤️ New Like",
+                                    $"{capturedActor} liked your community post.",
+                                    "COMMUNITY_POST_LIKED",
+                                    refId: capturedId);
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Warning(ex, "LikePostAsync notification failed CommunityPostId={Id}", capturedId);
+                        }
+                    });
+                }
+
                 var data = new DynamicRow();
-                data["isLiked"]   = Col<int>(result.Row!, "IsLiked") == 1;
+                data["isLiked"]   = isLiked;
                 data["likeCount"] = Col<int>(result.Row!, "LikeCount");
                 return ApiResponse<DynamicRow>.Success(data, result.Message);
             }
@@ -244,6 +279,40 @@ namespace NGOConnect.Infrastructure.DAL
                 });
                 if (!result.Succeeded)
                     return ApiResponse<DynamicRow>.Failure(result.Message, "COMMENT_FAILED");
+
+                var authorUserId = Col<int>(result.Row!, "PostAuthorUserId");
+                var actorName    = Col<string>(result.Row!, "ActorName")?.Trim() ?? "Someone";
+
+                // Notify post author — skip self-comment
+                if (authorUserId > 0 && authorUserId != userId)
+                {
+                    var capturedAuthor = authorUserId;
+                    var capturedActor  = actorName;
+                    var capturedId     = communityPostId;
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await _notif.CreateAsync(capturedAuthor,
+                                "💬 New Comment",
+                                $"{capturedActor} commented on your community post.",
+                                "COMMUNITY_POST_COMMENTED",
+                                refId: capturedId);
+
+                            var tokens = await _notif.GetTokensByUserIdAsync(capturedAuthor);
+                            if (tokens.Count > 0)
+                                await _fcm.SendAsync(tokens[0],
+                                    "💬 New Comment",
+                                    $"{capturedActor} commented on your community post.",
+                                    "COMMUNITY_POST_COMMENTED",
+                                    refId: capturedId);
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Warning(ex, "AddCommentAsync notification failed CommunityPostId={Id}", capturedId);
+                        }
+                    });
+                }
 
                 var data = new DynamicRow();
                 data["communityCommentId"] = Col<int>(result.Row!, "CommunityCommentId");

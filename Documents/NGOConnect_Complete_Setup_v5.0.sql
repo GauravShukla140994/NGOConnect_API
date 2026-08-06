@@ -3710,7 +3710,13 @@ CREATE PROCEDURE Post_Like(IN p_PostId INT UNSIGNED, IN p_UserId INT UNSIGNED)
 BEGIN
     INSERT IGNORE INTO PostLikes (PostId, UserId) VALUES (p_PostId, p_UserId);
     UPDATE Posts SET LikeCount = (SELECT COUNT(*) FROM PostLikes WHERE PostId = p_PostId) WHERE PostId = p_PostId;
-    SELECT 1 AS IsSuccess, 'Post liked.' AS Message;
+    SELECT 1 AS IsSuccess, 'Post liked.' AS Message,
+           p.UserId AS PostAuthorUserId,
+           CONCAT(COALESCE(up.FirstName, ''), ' ', COALESCE(up.LastName, '')) AS ActorName
+    FROM   Posts p
+    LEFT JOIN UserProfiles up ON up.UserId = p_UserId AND up.IsDeleted = 0
+    WHERE  p.PostId = p_PostId AND p.IsDeleted = 0
+    LIMIT  1;
 END //
 
 CREATE PROCEDURE Post_Unlike(IN p_PostId INT UNSIGNED, IN p_UserId INT UNSIGNED)
@@ -3721,15 +3727,17 @@ BEGIN
 END //
 
 -- Updated: enforces CanComment from OrgMembers for org-scoped posts (Permission Enforcement patch)
+-- Updated: returns PostAuthorUserId + ActorName for notification dispatch
 CREATE PROCEDURE Post_AddComment(IN p_PostId INT UNSIGNED, IN p_UserId INT UNSIGNED, IN p_Content TEXT, IN p_ParentCommentId INT UNSIGNED)
 BEGIN
     DECLARE v_OrgId         INT UNSIGNED DEFAULT 0;
+    DECLARE v_AuthorUserId  INT UNSIGNED DEFAULT 0;
     DECLARE v_ApprovedLkpId INT UNSIGNED DEFAULT 0;
     DECLARE v_IsMember      TINYINT(1)  DEFAULT 0;
     DECLARE v_CanComment    TINYINT(1)  DEFAULT 1;  -- default allow (no OrgId = public post)
 
-    -- Look up the post's OrgId
-    SELECT OrgId INTO v_OrgId
+    -- Look up the post's OrgId and author
+    SELECT OrgId, UserId INTO v_OrgId, v_AuthorUserId
     FROM   Posts WHERE PostId = p_PostId AND IsDeleted = 0 LIMIT 1;
 
     -- Enforce CanComment only for org-scoped posts
@@ -3751,12 +3759,19 @@ BEGIN
     IF v_CanComment = 0 THEN
         SELECT 0    AS IsSuccess,
                'You do not have permission to comment in this organisation.' AS Message,
-               NULL AS CommentId;
+               NULL AS CommentId,
+               NULL AS PostAuthorUserId,
+               NULL AS ActorName;
     ELSE
         INSERT INTO PostComments (PostId, UserId, ParentCommentId, Content)
         VALUES (p_PostId, p_UserId, p_ParentCommentId, p_Content);
         UPDATE Posts SET CommentCount = CommentCount + 1 WHERE PostId = p_PostId;
-        SELECT 1 AS IsSuccess, 'Comment added.' AS Message, LAST_INSERT_ID() AS CommentId;
+        SELECT 1 AS IsSuccess, 'Comment added.' AS Message, LAST_INSERT_ID() AS CommentId,
+               v_AuthorUserId AS PostAuthorUserId,
+               CONCAT(COALESCE(up.FirstName, ''), ' ', COALESCE(up.LastName, '')) AS ActorName
+        FROM   UserProfiles up
+        WHERE  up.UserId = p_UserId AND up.IsDeleted = 0
+        LIMIT  1;
     END IF;
 END //
 
@@ -5507,6 +5522,7 @@ BEGIN
 END //
 
 -- ── NEW SP: Community_LikePost ───────────────────────────────────
+-- Updated: returns PostAuthorUserId + ActorName for notification dispatch
 CREATE PROCEDURE Community_LikePost(
     IN p_CommunityPostId INT UNSIGNED,
     IN p_UserId          INT UNSIGNED
@@ -5534,11 +5550,16 @@ BEGIN
 
     SELECT
         CASE WHEN v_Exists > 0 THEN 0 ELSE 1 END AS IsLiked,
-        LikeCount
-    FROM CommunityPosts WHERE CommunityPostId = p_CommunityPostId;
+        cp.LikeCount,
+        cp.UserId AS PostAuthorUserId,
+        CONCAT(COALESCE(up.FirstName, ''), ' ', COALESCE(up.LastName, '')) AS ActorName
+    FROM CommunityPosts cp
+    LEFT JOIN UserProfiles up ON up.UserId = p_UserId AND up.IsDeleted = 0
+    WHERE cp.CommunityPostId = p_CommunityPostId;
 END //
 
 -- ── NEW SP: Community_AddComment ─────────────────────────────────
+-- Updated: returns PostAuthorUserId + ActorName for notification dispatch
 CREATE PROCEDURE Community_AddComment(
     IN p_CommunityPostId INT UNSIGNED,
     IN p_UserId          INT UNSIGNED,
@@ -5552,7 +5573,13 @@ BEGIN
     SET CommentCount = CommentCount + 1
     WHERE CommunityPostId = p_CommunityPostId;
 
-    SELECT 1 AS IsSuccess, 'Comment added.' AS Message, LAST_INSERT_ID() AS CommunityCommentId;
+    SELECT 1 AS IsSuccess, 'Comment added.' AS Message, LAST_INSERT_ID() AS CommunityCommentId,
+           cp.UserId AS PostAuthorUserId,
+           CONCAT(COALESCE(up.FirstName, ''), ' ', COALESCE(up.LastName, '')) AS ActorName
+    FROM   CommunityPosts cp
+    LEFT JOIN UserProfiles up ON up.UserId = p_UserId AND up.IsDeleted = 0
+    WHERE  cp.CommunityPostId = p_CommunityPostId
+    LIMIT  1;
 END //
 
 -- ── NEW SP: Community_GetComments ────────────────────────────────

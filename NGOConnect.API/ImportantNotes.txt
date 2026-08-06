@@ -11,6 +11,10 @@ firebase appdistribution:distribute android/app/build/outputs/apk/release/app-re
 
 Using Firebase for Notification FCM
 
+------------------------------------------
+https://resend.com/
+for Email becauase amazon SES has not worked
+
 
 ------------------------------------------
 Railway for Stage API & DB Hosting

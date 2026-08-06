@@ -281,6 +281,27 @@ When there is a conflict between files, this priority order applies:
 - **Railway staging action required**: set `EmailProvider = resend` + `Resend__ApiKey = <key>` as env vars; remove `EmailProvider = smtp`
 - **Documents to update**: API_Documentation (no new endpoints — internal infra change only); no DB/SP changes
 
+**Like/Comment Notifications — post author alert (2026-08-06)**
+- **SPs changed** (4) — all in `NGOConnect_Complete_Setup_v5.0.sql`, patch file `Documents/patch_like_comment_notifications.sql`:
+  - `Post_Like` — now returns `PostAuthorUserId` + `ActorName` (actor's full name) in SELECT result
+  - `Post_AddComment` — now returns `PostAuthorUserId` + `ActorName` in success SELECT result; also added `DECLARE v_AuthorUserId` to capture post owner's UserId
+  - `Community_LikePost` — now returns `PostAuthorUserId` + `ActorName` alongside existing `IsLiked` + `LikeCount`
+  - `Community_AddComment` — now returns `PostAuthorUserId` + `ActorName` alongside existing `CommunityCommentId`
+- **DAL changed** (2):
+  - `NGOConnect.Infrastructure/DAL/PostDal.cs` → `LikeAsync`: fires `_notif.CreateAsync` + `_fcm.SendAsync` to post author (notifType `POST_LIKED`, refId = postId) when author ≠ liker
+  - `NGOConnect.Infrastructure/DAL/PostDal.cs` → `AddCommentAsync`: fires `POST_COMMENTED` notification to post author when author ≠ commenter
+  - `NGOConnect.Infrastructure/DAL/CommunityDal.cs` → `LikePostAsync`: fires `COMMUNITY_POST_LIKED` notification only when `IsLiked = 1` (new like, not unlike) and author ≠ liker
+  - `NGOConnect.Infrastructure/DAL/CommunityDal.cs` → `AddCommentAsync`: fires `COMMUNITY_POST_COMMENTED` notification to community post author when author ≠ commenter
+- **Mobile changed** (4 files):
+  - `RootNavigator.tsx` → `resolveScreen`: added cases for `POST_LIKED`/`POST_COMMENTED` → `{ screen: 'Home', params: { focusPostId: refId } }`; `COMMUNITY_POST_LIKED`/`COMMUNITY_POST_COMMENTED` → `{ screen: 'Community', params: { focusCommunityPostId: refId } }`
+  - `NotificationsScreen.tsx` → `notifMeta`: added ❤️/💬 emoji+color for 4 new types; `resolveScreen`: same new cases as RootNavigator
+  - `HomeScreen.tsx`: added `focusPostId` route param support, `flatListRef`, `focusedPostId` state, `scrollToIndex` effect, primary-border highlight on focused post
+  - `CommunityScreen.tsx`: added `focusCommunityPostId` route param support, `flatListRef`, `focusedCommunityPostId` state, `scrollToIndex` effect, primary-border highlight on focused post
+- **Patch file to apply to Railway**: `Documents/patch_like_comment_notifications.sql`
+- **Documents to update when "update documents" is called**:
+  - `NGOConnect_Complete_Setup_v5.0.sql` ✅ already updated (4 SPs fixed in-place)
+  - `Database_Documentation_v5.0.md` → update `Post_Like`, `Post_AddComment`, `Community_LikePost`, `Community_AddComment` SP result columns
+
 **v5.0 Release Summary (2026-08-05)**
 All 4 documents bumped from v4.9 → v5.0. All Railway staging patches through 2026-08-05 absorbed. Documents:
 - `NGOConnect_Complete_Setup_v5.0.sql` — ✅ Created (all SPs and tables current)
