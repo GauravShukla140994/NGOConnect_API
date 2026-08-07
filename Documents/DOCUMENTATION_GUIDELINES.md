@@ -272,6 +272,36 @@ When there is a conflict between files, this priority order applies:
 
 ## Current Pending Document Updates
 
+**Certificate verify page — height-reporting ratchet bug (2026-08-07)**
+- Website-only, no SP/API/DB changes.
+- `Website/src/assets/certificate-template.html` → `reportHeight()`: was measuring `document.body.scrollHeight`, but body has `min-height: 100vh` and inside an iframe `100vh` == the iframe's own current CSS height — so the reported height could only ratchet upward, never shrink back down once the iframe grew to its 900px default. Left a permanent gap between the certificate card and the buttons below it whenever the real certificate was shorter than 900px. Fixed by measuring the `.certificate` element's own `getBoundingClientRect().height` (+ body padding) instead.
+- `Documents/ripplehub_volunteer_certificate_template.html` (master copy) has no height-reporting code at all — that logic is served-copy-only (parent/iframe glue), so nothing to sync there.
+- No documents to update (template is a design artefact, not tracked in DB/API docs).
+
+**Browser tab favicon — regenerated then reverted (2026-08-07)**
+- Website-only, no SP/API/DB changes.
+- `public/favicon-32x32.png` + `public/favicon.ico` regenerated from a transparent-background RippleHub logo (user-reported dark-square favicon in the browser tab), then reverted back to the original "Logo updated" version (`git checkout 1b38bd2`) after the user said the new one didn't look good. Net effect: no change from before this session — flagging only so a future session doesn't rediscover/redo this.
+- No documents to update.
+
+**Visibility & Audience enforcement — SP + DAL fix (2026-08-07)**
+- `NGOConnect_Complete_Setup_v5.0.sql` → `Post_GetFeed`: added `LEFT JOIN LookupValues lv_vis` + visibility filter in both main SELECT WHERE and TotalCount WHERE; added `lv_vis.ValueCode` to GROUP BY.
+- `NGOConnect_Complete_Setup_v5.0.sql` → `Feed_GetPersonalized`: same `lv_vis` JOIN + visibility AND clause in inner WHERE; added `lv_vis.ValueCode` to GROUP BY.
+- `NGOConnect_Complete_Setup_v5.0.sql` → `Community_GetFeed`: added audience AND clause (using already-joined `av`) in main WHERE + TotalCount WHERE (with `av2` join).
+- `NGOConnect_Complete_Setup_v5.0.sql` → `Community_CreatePost`: failure and success SELECTs both now return `AudienceCode`; success row adds subquery `(SELECT lv.ValueCode FROM LookupValues lv WHERE lv.LookupValueId = p_AudienceLkpId LIMIT 1)`.
+- `NGOConnect.Infrastructure/DAL/CommunityDal.cs` → `CreatePostAsync`: reads `AudienceCode` from SP result; branches notification fan-out — `ADMINS_ONLY` calls `GetAdminsWithTokensAsync` (with manual author-exclusion), all others call `GetMembersWithTokensAsync`.
+- Patch file: `Documents/NGOConnect_Patch_VisibilityAudienceFilter.sql`
+- **API Documentation** (`API_Documentation_v4.6.docx`): no endpoint signature changes — internal SP/DAL change only.
+- **Database Documentation** (`Database_Documentation_v4.6.md`): note visibility enforcement in `Post_GetFeed`, `Feed_GetPersonalized`, `Community_GetFeed` SP descriptions; note `AudienceCode` added to `Community_CreatePost` result row.
+
+**Mobile — "Apply for Selected Sessions" shown on completed/cancelled/expired projects (2026-08-07)**
+- Mobile-only, no SP/API/DB changes.
+- Root cause: neither `screens/volunteer/ProjectDetailScreen.tsx` (the app-wide `ProjectDetail` stack route) nor the separate local `ProjectDetailModal` component inside `screens/ngo/NgoProfileScreen.tsx` (used by the NGO profile's Projects/Volunteer tabs — a different code path, easy to miss) checked project status before showing the Apply button.
+- Fix (both places): added `isClosed = ['COMPLETED','CANCELLED','EXPIRED'].includes(project.statusCode) || isProjectExpired(project)` — gates the footer to show "Applications Closed" instead of the Apply button. Reuses the existing `isProjectExpired` helper from `utils/dateUtils.ts` (same one `AllOpportunitiesScreen`/`AdminProjectsScreen` already use) since projects can stay `statusCode = 'ACTIVE'` past their end date — nothing auto-transitions status to `COMPLETED`.
+- `screens/projects/ProjectDetailScreen.tsx` has the same unguarded button text but is dead code (not imported/wired into any navigator) — left untouched.
+- No documents to update.
+
+---
+
 **Resend email provider added (2026-08-05)**
 - NEW `NGOConnect.Infrastructure/Services/ResendEmailService.cs` — implements `IEmailService` via Resend HTTPS API (not SMTP; Railway-compatible)
 - `SmtpEmailService.cs` — added `internal static` HTML builder methods (`BuildOtpHtmlInternal`, `BuildInviteHtmlInternal`, `BuildSupportHtmlInternal`) so both services share the same email templates

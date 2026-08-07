@@ -35,26 +35,40 @@ namespace NGOConnect.Infrastructure.DAL
                 if (!result.Succeeded)
                     return ApiResponse<DynamicRow>.Failure(result.Message, "COMMUNITY_POST_FAILED");
 
-                var postId = Col<int>(result.Row!, "CommunityPostId");
+                var postId       = Col<int>(result.Row!, "CommunityPostId");
+                var audienceCode = Col<string>(result.Row!, "AudienceCode") ?? "ALL_MEMBERS";
                 var data = new DynamicRow();
                 data["communityPostId"] = postId;
                 data["message"]         = result.Message;
 
-                // Fan-out to org members (exclude author) — DB record + FCM push
+                // Fan-out notification — scope recipients by audience
+                // ADMINS_ONLY → notify FOUNDER + ADMIN members only
+                // ALL_MEMBERS / VOLUNTEERS / fallback → notify all approved members (exclude author)
                 if (request.OrgId > 0)
+                {
+                    var capturedPostId  = postId;
+                    var capturedCode    = audienceCode;
+                    var capturedOrgId   = request.OrgId;
+                    var capturedUserId  = userId;
                     _ = Task.Run(async () =>
                     {
                         try
                         {
-                            var members = await _notif.GetMembersWithTokensAsync(request.OrgId, userId);
+                            var isAdminOnly = capturedCode == "ADMINS_ONLY";
+                            var members = isAdminOnly
+                                ? (await _notif.GetAdminsWithTokensAsync(capturedOrgId))
+                                    .Where(m => m.UserId != capturedUserId).ToList()
+                                : await _notif.GetMembersWithTokensAsync(capturedOrgId, capturedUserId);
+
                             const string title = "📢 New Community Post";
                             const string body  = "A new post has been shared in your community.";
                             foreach (var m in members)
-                                await _notif.CreateAsync(m.UserId, title, body, "COMMUNITY_POST", postId, "COMMUNITY_POST", request.OrgId);
-                            await _fcm.SendMulticastAsync(members.Select(m => m.Token), title, body, "COMMUNITY_POST", postId, "COMMUNITY_POST");
+                                await _notif.CreateAsync(m.UserId, title, body, "COMMUNITY_POST", capturedPostId, "COMMUNITY_POST", capturedOrgId);
+                            await _fcm.SendMulticastAsync(members.Select(m => m.Token), title, body, "COMMUNITY_POST", capturedPostId, "COMMUNITY_POST");
                         }
                         catch (Exception ex) { Log.Error(ex, "CommunityDal.CreatePostAsync notify failed"); }
                     });
+                }
 
                 return ApiResponse<DynamicRow>.Success(data, result.Message);
             }

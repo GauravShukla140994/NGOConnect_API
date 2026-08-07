@@ -5413,7 +5413,9 @@ BEGIN
 
         SELECT 1                    AS IsSuccess,
                'Post created.'      AS Message,
-               LAST_INSERT_ID()     AS CommunityPostId;
+               LAST_INSERT_ID()     AS CommunityPostId,
+               (SELECT lv.ValueCode FROM LookupValues lv
+                WHERE lv.LookupValueId = p_AudienceLkpId LIMIT 1) AS AudienceCode;
     END IF;
 END //
 
@@ -6212,13 +6214,45 @@ BEGIN
 
     WHERE  cp.OrgId    = p_OrgId
       AND  cp.IsDeleted = 0
+      -- Audience enforcement: ALL_MEMBERS = any approved member;
+      -- ADMINS_ONLY = FOUNDER or ADMIN role only;
+      -- VOLUNTEERS = any approved member; NULL/unknown = treat as ALL_MEMBERS.
+      AND (
+          av.ValueCode IS NULL OR av.ValueCode IN ('ALL_MEMBERS', 'VOLUNTEERS')
+          OR (av.ValueCode = 'ADMINS_ONLY'
+              AND EXISTS (
+                  SELECT 1 FROM OrgMembers om_a
+                  JOIN LookupValues lv_ms ON om_a.StatusLkpId = lv_ms.LookupValueId
+                  JOIN LookupValues lv_mr ON om_a.RoleLkpId   = lv_mr.LookupValueId
+                  WHERE om_a.OrgId     = cp.OrgId
+                    AND om_a.UserId    = p_UserId
+                    AND om_a.IsDeleted = 0
+                    AND lv_ms.ValueCode = 'APPROVED'
+                    AND lv_mr.ValueCode IN ('FOUNDER', 'ADMIN')
+              ))
+      )
     ORDER  BY cp.IsPinned DESC, cp.CreatedAt DESC
     LIMIT  p_PageSize OFFSET v_Offset;
 
     SELECT COUNT(*) AS TotalCount
-    FROM   CommunityPosts
-    WHERE  OrgId      = p_OrgId
-      AND  IsDeleted  = 0;
+    FROM   CommunityPosts cp2
+    LEFT   JOIN LookupValues av2 ON av2.LookupValueId = cp2.AudienceLkpId
+    WHERE  cp2.OrgId     = p_OrgId
+      AND  cp2.IsDeleted = 0
+      AND (
+          av2.ValueCode IS NULL OR av2.ValueCode IN ('ALL_MEMBERS', 'VOLUNTEERS')
+          OR (av2.ValueCode = 'ADMINS_ONLY'
+              AND EXISTS (
+                  SELECT 1 FROM OrgMembers om_a
+                  JOIN LookupValues lv_ms ON om_a.StatusLkpId = lv_ms.LookupValueId
+                  JOIN LookupValues lv_mr ON om_a.RoleLkpId   = lv_mr.LookupValueId
+                  WHERE om_a.OrgId     = cp2.OrgId
+                    AND om_a.UserId    = p_UserId
+                    AND om_a.IsDeleted = 0
+                    AND lv_ms.ValueCode = 'APPROVED'
+                    AND lv_mr.ValueCode IN ('FOUNDER', 'ADMIN')
+              ))
+      );
 END //
 
 -- ── NEW SP: Sos_GetOrgAlerts (v4.3)
@@ -8280,21 +8314,54 @@ BEGIN
     LEFT JOIN LookupValues lv_type  ON lv_type.LookupValueId = p.PostTypeLkpId
     LEFT JOIN PostMedia pm           ON pm.PostId             = p.PostId
     LEFT JOIN LookupValues lv_mt    ON lv_mt.LookupValueId   = pm.MediaTypeLkpId
+    LEFT JOIN LookupValues lv_vis   ON lv_vis.LookupValueId  = p.VisibilityLkpId
     WHERE  p.IsDeleted = 0
       AND  (p_OrgId IS NULL OR p.OrgId = p_OrgId)
+      -- Visibility enforcement
+      AND (
+          lv_vis.ValueCode IS NULL OR lv_vis.ValueCode = 'PUBLIC'
+          OR (lv_vis.ValueCode = 'ORG_MEMBERS'
+              AND EXISTS (
+                  SELECT 1 FROM OrgMembers om_v
+                  JOIN LookupValues lv_s ON om_v.StatusLkpId = lv_s.LookupValueId
+                  WHERE om_v.OrgId = p.OrgId AND om_v.UserId = p_UserId
+                    AND om_v.IsDeleted = 0 AND lv_s.ValueCode = 'APPROVED'
+              ))
+          OR (lv_vis.ValueCode = 'FOLLOWERS'
+              AND EXISTS (
+                  SELECT 1 FROM OrgFollowers of_v
+                  WHERE of_v.OrgId = p.OrgId AND of_v.UserId = p_UserId AND of_v.IsFollowing = 1
+              ))
+      )
     GROUP BY
         p.PostId,    p.Content,    p.IsPinned,
         lv_type.ValueCode, lv_type.ValueName,
         p.LikeCount, p.CommentCount,
         p.UserId,    up.FirstName, up.LastName, up.ProfilePhoto,
-        p.OrgId,     o.OrgName,   p.CreatedAt
+        p.OrgId,     o.OrgName,   lv_vis.ValueCode, p.CreatedAt
     ORDER BY p.IsPinned DESC, p.CreatedAt DESC
     LIMIT  p_PageSize OFFSET v_Offset;
 
     SELECT COUNT(*) AS TotalCount
     FROM   Posts p
+    LEFT JOIN LookupValues lv_vis ON lv_vis.LookupValueId = p.VisibilityLkpId
     WHERE  p.IsDeleted = 0
-      AND  (p_OrgId IS NULL OR p.OrgId = p_OrgId);
+      AND  (p_OrgId IS NULL OR p.OrgId = p_OrgId)
+      AND (
+          lv_vis.ValueCode IS NULL OR lv_vis.ValueCode = 'PUBLIC'
+          OR (lv_vis.ValueCode = 'ORG_MEMBERS'
+              AND EXISTS (
+                  SELECT 1 FROM OrgMembers om_v
+                  JOIN LookupValues lv_s ON om_v.StatusLkpId = lv_s.LookupValueId
+                  WHERE om_v.OrgId = p.OrgId AND om_v.UserId = p_UserId
+                    AND om_v.IsDeleted = 0 AND lv_s.ValueCode = 'APPROVED'
+              ))
+          OR (lv_vis.ValueCode = 'FOLLOWERS'
+              AND EXISTS (
+                  SELECT 1 FROM OrgFollowers of_v
+                  WHERE of_v.OrgId = p.OrgId AND of_v.UserId = p_UserId AND of_v.IsFollowing = 1
+              ))
+      );
 END //
 
 
@@ -9340,8 +9407,26 @@ BEGIN
         LEFT JOIN LookupValues lv_type ON lv_type.LookupValueId = p.PostTypeLkpId
         LEFT JOIN PostMedia pm      ON pm.PostId             = p.PostId
         LEFT JOIN LookupValues lv_mt ON lv_mt.LookupValueId  = pm.MediaTypeLkpId
+        LEFT JOIN LookupValues lv_vis ON lv_vis.LookupValueId = p.VisibilityLkpId
 
         WHERE p.IsDeleted = 0
+          -- Visibility enforcement: PUBLIC = everyone; ORG_MEMBERS = approved members only;
+          -- FOLLOWERS = org followers only; NULL/unknown = treat as PUBLIC.
+          AND (
+              lv_vis.ValueCode IS NULL OR lv_vis.ValueCode = 'PUBLIC'
+              OR (lv_vis.ValueCode = 'ORG_MEMBERS'
+                  AND EXISTS (
+                      SELECT 1 FROM OrgMembers om_v
+                      JOIN LookupValues lv_s ON om_v.StatusLkpId = lv_s.LookupValueId
+                      WHERE om_v.OrgId = p.OrgId AND om_v.UserId = p_UserId
+                        AND om_v.IsDeleted = 0 AND lv_s.ValueCode = 'APPROVED'
+                  ))
+              OR (lv_vis.ValueCode = 'FOLLOWERS'
+                  AND EXISTS (
+                      SELECT 1 FROM OrgFollowers of_v
+                      WHERE of_v.OrgId = p.OrgId AND of_v.UserId = p_UserId AND of_v.IsFollowing = 1
+                  ))
+          )
 
         GROUP BY
             p.PostId,      p.Content,    p.IsPinned,   p.IsEmergency, p.IsEvergreen,
@@ -9349,6 +9434,7 @@ BEGIN
             lv_type.ValueCode, lv_type.ValueName,
             p.UserId,      up.FirstName, up.LastName,  up.ProfilePhoto,
             p.OrgId,       o.OrgName,   o.LogoUrl,    cands.FeedSource,
+            lv_vis.ValueCode,
             p.CreatedAt
 
     ) sf
