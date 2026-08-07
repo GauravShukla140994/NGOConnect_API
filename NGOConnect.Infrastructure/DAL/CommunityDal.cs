@@ -343,6 +343,24 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
+        public async Task<ApiResponse> DeletePostAsync(int communityPostId, int userId)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("Community_DeletePost", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_CommunityPostId", communityPostId);
+                    _db.AddParameter(cmd, "p_UserId",          userId);
+                });
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "DeletePostAsync failed CommunityPostId={Id}", communityPostId);
+                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
         public async Task<ApiResponse<DynamicRow>> LikeCommentAsync(int communityCommentId, int userId)
         {
             try

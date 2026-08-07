@@ -11,6 +11,8 @@ namespace NGOConnect.Core.Interfaces
         Task<ApiResponse<DynamicRow>>              CreatePollAsync(int userId, CreatePollRequest request);
         Task<ApiResponse>                          VoteAsync(int pollId, int userId, VoteRequest request);
 
+        Task<ApiResponse>                          DeletePostAsync(int communityPostId, int userId);
+
         // Likes + Comments
         Task<ApiResponse<DynamicRow>>              LikePostAsync(int communityPostId, int userId);
         Task<ApiResponse<DynamicRow>>              AddCommentAsync(int communityPostId, int userId, AddCommentRequest request);

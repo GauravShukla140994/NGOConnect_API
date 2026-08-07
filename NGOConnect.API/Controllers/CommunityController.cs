@@ -38,6 +38,10 @@ namespace NGOConnect.API.Controllers
         public async Task<ApiResponse> Vote(int pollId, [FromBody] VoteRequest request)
             => await _community.VoteAsync(pollId, GetUserId(), request);
 
+        [HttpDelete("post/{communityPostId:int}")] [Authorize]
+        public async Task<ApiResponse> DeletePost(int communityPostId)
+            => await _community.DeletePostAsync(communityPostId, GetUserId());
+
         [HttpPost("post/{communityPostId:int}/like")] [Authorize]
         public async Task<ApiResponse<DynamicRow>> LikePost(int communityPostId)
             => await _community.LikePostAsync(communityPostId, GetUserId());

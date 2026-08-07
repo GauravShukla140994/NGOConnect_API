@@ -1,0 +1,145 @@
+-- ============================================================
+-- Patch: Project_GetNearbyFeed — add ScheduleType / ScheduleTypeCode
+-- ============================================================
+-- BUG: ApplyModal (Home screen "Apply for Opportunity") displayed
+--      "One-time" for ALL projects — Recurring and Flexible included.
+--
+-- ROOT CAUSE: Project_GetNearbyFeed returned the project type as
+--   ProjectTypeCode / ProjectType but NOT as ScheduleType or
+--   ScheduleTypeCode. ApplyModal reads project.scheduleType; when
+--   that field is absent the badge defaults to "One-time".
+--
+--   ProjectTypeLkpId → LookupType PROJECT_TYPE
+--   Values: ONE_TIME | RECURRING | FLEXIBLE
+--   This IS the schedule type (the column just has a legacy name).
+--
+-- FIX: Expose two additional aliases in the SELECT so every mobile
+--   consumer reads a consistent field name regardless of which SP
+--   sourced the project:
+--     ptv.ValueCode AS ScheduleType       → project.scheduleType
+--     ptv.ValueCode AS ScheduleTypeCode   → project.scheduleTypeCode
+--
+-- Apply to: local dev DB, Railway staging, Railway production.
+-- ============================================================
+
+DELIMITER //
+
+DROP PROCEDURE IF EXISTS Project_GetNearbyFeed //
+CREATE PROCEDURE Project_GetNearbyFeed(
+    IN p_UserId     INT UNSIGNED,
+    IN p_UserLat    DECIMAL(10,7),   -- NULL = no GPS (distance skipped)
+    IN p_UserLon    DECIMAL(10,7),
+    IN p_PageNumber INT,
+    IN p_PageSize   INT
+)
+BEGIN
+    DECLARE v_Offset        INT         DEFAULT (p_PageNumber - 1) * p_PageSize;
+    DECLARE v_ActiveLkpId   INT UNSIGNED DEFAULT 0;
+    DECLARE v_UpcomingLkpId INT UNSIGNED DEFAULT 0;
+
+    SELECT LookupValueId INTO v_ActiveLkpId
+    FROM   LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE  lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'ACTIVE'   LIMIT 1;
+
+    SELECT LookupValueId INTO v_UpcomingLkpId
+    FROM   LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE  lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'UPCOMING' LIMIT 1;
+
+    SELECT
+        p.ProjectId,
+        p.OrgId,
+        o.OrgName,
+        o.LogoUrl           AS OrgLogoUrl,
+        p.ProjectName,
+        p.Description,
+        p.Category          AS CategoryName,
+        ptv.ValueCode       AS ProjectTypeCode,
+        ptv.ValueName       AS ProjectType,
+        -- ScheduleType / ScheduleTypeCode mirror ProjectType so mobile consumers
+        -- (ApplyModal, AllOpportunitiesScreen) can read a consistent field name
+        -- regardless of which SP sourced the project.
+        ptv.ValueCode       AS ScheduleType,
+        ptv.ValueCode       AS ScheduleTypeCode,
+        ltv.ValueCode       AS LocationTypeCode,
+        p.Landmark          AS LocationName,
+        p.AddressLine       AS Address,
+        p.City,
+        p.State,
+        sv.ValueCode        AS StatusCode,
+        sv.ValueName        AS Status,
+        p.Latitude,
+        p.Longitude,
+        p.MaxVolunteers,
+        p.OneTimeDate,
+        p.RecurStart,
+        p.RecurEnd,
+        p.RecurDays,
+        p.SessionStartTime,
+        p.SessionEndTime,
+        p.FlexFromDate,
+        p.FlexToDate,
+        p.CreatedAt,
+        -- Approved volunteer count (for "X / Y spots" display)
+        (SELECT COUNT(*) FROM ProjectApplications pa2
+         JOIN LookupValues alv2 ON pa2.StatusLkpId = alv2.LookupValueId
+         WHERE pa2.ProjectId = p.ProjectId
+           AND alv2.ValueCode = 'APPROVED'
+           AND pa2.IsDeleted  = 0
+        ) AS ApprovedCount,
+        -- Haversine distance (km); NULL only when user has no GPS.
+        CASE
+            WHEN p_UserLat IS NOT NULL AND p_UserLon IS NOT NULL
+            THEN ROUND(6371 * ACOS(LEAST(1.0,
+                    COS(RADIANS(p_UserLat)) * COS(RADIANS(p.Latitude))
+                    * COS(RADIANS(p.Longitude) - RADIANS(p_UserLon))
+                    + SIN(RADIANS(p_UserLat)) * SIN(RADIANS(p.Latitude))
+                 )), 2)
+            ELSE NULL
+        END AS DistanceKm
+    FROM   Projects p
+    JOIN   Organisations o       ON o.OrgId               = p.OrgId AND o.IsDeleted = 0
+    JOIN   LookupValues  sv      ON sv.LookupValueId       = p.StatusLkpId
+    LEFT JOIN LookupValues ptv   ON ptv.LookupValueId      = p.ProjectTypeLkpId
+    LEFT JOIN LookupValues ltv   ON ltv.LookupValueId      = p.LocationTypeLkpId
+    WHERE  p.IsDeleted = 0
+      AND  p.IsPublic  = 1
+      AND  p.StatusLkpId IN (v_ActiveLkpId, v_UpcomingLkpId)
+      AND  p.Latitude  IS NOT NULL
+      AND  p.Longitude IS NOT NULL
+      AND  NOT EXISTS(
+               SELECT 1 FROM ProjectApplications pa
+               WHERE pa.ProjectId = p.ProjectId
+                 AND pa.UserId    = p_UserId
+                 AND pa.IsDeleted = 0
+           )
+      AND (
+            p_UserLat IS NULL OR p_UserLon IS NULL
+            OR 6371 * ACOS(LEAST(1.0,
+                   COS(RADIANS(p_UserLat)) * COS(RADIANS(p.Latitude))
+                   * COS(RADIANS(p.Longitude) - RADIANS(p_UserLon))
+                   + SIN(RADIANS(p_UserLat)) * SIN(RADIANS(p.Latitude))
+               )) <= 1000
+          )
+      AND (
+            p.MaxVolunteers IS NULL
+            OR p.MaxVolunteers = 0
+            OR (SELECT COUNT(*) FROM ProjectApplications pa2
+                JOIN LookupValues alv2 ON pa2.StatusLkpId = alv2.LookupValueId
+                WHERE pa2.ProjectId    = p.ProjectId
+                  AND alv2.ValueCode   = 'APPROVED'
+                  AND pa2.IsDeleted    = 0
+               ) < p.MaxVolunteers
+          )
+    ORDER BY
+        CASE WHEN p_UserLat IS NOT NULL AND p_UserLon IS NOT NULL THEN
+            6371 * ACOS(LEAST(1.0,
+                COS(RADIANS(p_UserLat)) * COS(RADIANS(p.Latitude))
+                * COS(RADIANS(p.Longitude) - RADIANS(p_UserLon))
+                + SIN(RADIANS(p_UserLat)) * SIN(RADIANS(p.Latitude))
+            ))
+        ELSE 0 END ASC,
+        p.CreatedAt DESC
+    LIMIT  p_PageSize OFFSET v_Offset;
+END //
+
+DELIMITER ;

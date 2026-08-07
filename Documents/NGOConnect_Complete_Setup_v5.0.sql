@@ -7156,6 +7156,11 @@ BEGIN
         p.Category          AS CategoryName,
         ptv.ValueCode       AS ProjectTypeCode,
         ptv.ValueName       AS ProjectType,
+        -- ScheduleType / ScheduleTypeCode mirror ProjectType so mobile consumers
+        -- (ApplyModal, AllOpportunitiesScreen) can read a consistent field name
+        -- regardless of which SP sourced the project.
+        ptv.ValueCode       AS ScheduleType,
+        ptv.ValueCode       AS ScheduleTypeCode,
         ltv.ValueCode       AS LocationTypeCode,
         p.Landmark          AS LocationName,
         p.AddressLine       AS Address,
