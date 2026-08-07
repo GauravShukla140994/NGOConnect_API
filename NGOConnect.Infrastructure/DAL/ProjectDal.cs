@@ -349,6 +349,31 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
+        public async Task<ApiResponse> SelfCheckInAsync(int projectId, int userId)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("Project_SelfCheckIn", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_ProjectId", projectId);
+                    _db.AddParameter(cmd, "p_UserId",    userId);
+                });
+                if (result.Succeeded)
+                {
+                    _ = FireUserNotifAsync(userId,
+                        "Attendance Confirmed",
+                        "Your attendance has been recorded. Thank you for showing up!",
+                        "SELF_CHECKIN", projectId, "PROJECT");
+                }
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "SelfCheckInAsync failed ProjectId={ProjectId} UserId={UserId}", projectId, userId);
+                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
         public async Task<ApiResponse> ApplyAsync(int projectId, int userId)
         {
             try

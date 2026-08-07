@@ -19,6 +19,7 @@ namespace NGOConnect.Core.Interfaces
         Task<ApiResponse<List<DynamicRow>>>        GetSessionsAsync(int projectId);
         Task<ApiResponse<DynamicRow>>              GetSessionQrAsync(int sessionId, int userId);
         Task<ApiResponse>                          CheckInAsync(int userId, CheckInRequest request);
+        Task<ApiResponse>                          SelfCheckInAsync(int projectId, int userId);
 
         // Applications
         Task<ApiResponse>                          ApplyAsync(int projectId, int userId);

@@ -293,12 +293,39 @@ When there is a conflict between files, this priority order applies:
 - **API Documentation** (`API_Documentation_v4.6.docx`): no endpoint signature changes — internal SP/DAL change only.
 - **Database Documentation** (`Database_Documentation_v4.6.md`): note visibility enforcement in `Post_GetFeed`, `Feed_GetPersonalized`, `Community_GetFeed` SP descriptions; note `AudienceCode` added to `Community_CreatePost` result row.
 
+**Project_Create SP — duplicate project prevention (2026-08-07)**
+- Backend-only, no mobile/API contract change (SP returns IsSuccess=0 + message, DAL surfaces it as an Alert already).
+- `NGOConnect_Complete_Setup_v5.0.sql` → `Project_Create`: added two duplicate guards before INSERT:
+  1. Same OrgId + same ProjectName (LOWER+TRIM, IsDeleted=0) → "A project with this title already exists…"
+  2. Same OrgId + same Category + same date range (OneTimeDate / RecurStart+RecurEnd / FlexFromDate+FlexToDate per schedule type) + same SessionStartTime + same SessionEndTime → "A project in this category is already scheduled for the same date and time…"
+- Patch file: `Documents/NGOConnect_Patch_ProjectDuplicateCheck.sql`
+- **Database Documentation**: note duplicate-check logic in `Project_Create` SP description.
+
+**Create Project wizard — Date and Time now mandatory for all schedule types (2026-08-07)**
+- Mobile-only, no SP/API/DB changes.
+- `screens/admin/CreateProjectScreen.tsx` → `validate()` (step 2): added `startTime` and `endTime` checks for ONE_TIME, RECURRING, and FLEXIBLE schedule types — each fires its own Alert before returning false.
+- `renderStep2()` — ONE_TIME: "Start Time" → "Start Time *", "End Time" → "End Time *"; RECURRING: same label update; FLEXIBLE: added Start Time * + End Time * time-picker row + duration badge (was missing entirely).
+- No documents to update (UI-only change, no API contract change).
+
 **Mobile — "Apply for Selected Sessions" shown on completed/cancelled/expired projects (2026-08-07)**
 - Mobile-only, no SP/API/DB changes.
 - Root cause: neither `screens/volunteer/ProjectDetailScreen.tsx` (the app-wide `ProjectDetail` stack route) nor the separate local `ProjectDetailModal` component inside `screens/ngo/NgoProfileScreen.tsx` (used by the NGO profile's Projects/Volunteer tabs — a different code path, easy to miss) checked project status before showing the Apply button.
 - Fix (both places): added `isClosed = ['COMPLETED','CANCELLED','EXPIRED'].includes(project.statusCode) || isProjectExpired(project)` — gates the footer to show "Applications Closed" instead of the Apply button. Reuses the existing `isProjectExpired` helper from `utils/dateUtils.ts` (same one `AllOpportunitiesScreen`/`AdminProjectsScreen` already use) since projects can stay `statusCode = 'ACTIVE'` past their end date — nothing auto-transitions status to `COMPLETED`.
 - `screens/projects/ProjectDetailScreen.tsx` has the same unguarded button text but is dead code (not imported/wired into any navigator) — left untouched.
 - No documents to update.
+
+**Self-attendance for OPEN_SIGNUP projects (2026-08-07)**
+- NEW SP: `Project_SelfCheckIn(p_ProjectId, p_UserId)` — volunteer marks own attendance without QR scan. Validates: project is OPEN_SIGNUP, user has APPROVED application, today is a valid session day for the schedule type, current IST time is within [sessionStart - QR_BUFFER_MINUTES, sessionEnd]. Auto-creates a `ProjectSessions` row for today if none exists (same pattern as `Project_ManualAttendance`). Inserts into `ProjectAttendance` with ATTENDED status.
+- `NGOConnect_Complete_Setup_v5.0.sql` → SP appended.
+- NEW `NGOConnect.Core/Interfaces/IProjectDal.cs` → `SelfCheckInAsync(int projectId, int userId)` added.
+- NEW `NGOConnect.Infrastructure/DAL/ProjectDal.cs` → `SelfCheckInAsync` calls `Project_SelfCheckIn`; fires `SELF_CHECKIN` push notification on success.
+- NEW `NGOConnect.API/Controllers/ProjectController.cs` → `POST {projectId}/self-checkin` endpoint (Authorize).
+- NEW `App/NGOConnectApp/src/api/project.api.ts` → `selfCheckIn(projectId)` method.
+- `App/NGOConnectApp/src/screens/profile/ImpactScreen.tsx` → `UpcomingCard` now accepts `onSelfCheckIn` prop; when `!app.requiresApproval && !app.isCheckedIn` shows "✅ Mark My Attendance" button instead of QR scan; `handleSelfCheckIn` handler added.
+- Patch file: `Documents/NGOConnect_Patch_SelfCheckIn.sql`
+- **API Documentation**: NEW endpoint `POST /project/{projectId}/self-checkin` — no request body; returns `ApiResponse` with IsSuccess + Message.
+- **Database Documentation**: Add `Project_SelfCheckIn` SP description with parameters and validation logic.
+- **Postman Collection**: Add `POST self-checkin` request under Project folder.
 
 ---
 

@@ -5768,98 +5768,139 @@ BEGIN
     DECLARE v_JoinTypeLkpId     INT UNSIGNED DEFAULT NULL;
     DECLARE v_StatusLkpId       INT UNSIGNED DEFAULT NULL;
 
-    -- Resolve ProjectTypeLkpId from ScheduleType string if not supplied directly
-    IF p_ProjectTypeLkpId IS NOT NULL THEN
-        SET v_ProjectTypeLkpId = p_ProjectTypeLkpId;
+    -- Duplicate check 1: same org + same title (case-insensitive, trimmed)
+    IF EXISTS (
+        SELECT 1 FROM Projects
+        WHERE OrgId                    = p_OrgId
+          AND LOWER(TRIM(ProjectName)) = LOWER(TRIM(p_Title))
+          AND IsDeleted                = 0
+    ) THEN
+        SELECT 0    AS IsSuccess,
+               'A project with this title already exists in your organisation. Please use a different name.' AS Message,
+               NULL AS ProjectId;
+
+    -- Duplicate check 2: same org + same category + same date range + same session times
+    ELSEIF p_Category IS NOT NULL AND p_StartDate IS NOT NULL
+        AND p_StartTime IS NOT NULL   AND p_EndTime IS NOT NULL
+        AND EXISTS (
+            SELECT 1 FROM Projects
+            WHERE OrgId                   = p_OrgId
+              AND IsDeleted               = 0
+              AND LOWER(TRIM(Category))   = LOWER(TRIM(p_Category))
+              AND SessionStartTime        = p_StartTime
+              AND SessionEndTime          = p_EndTime
+              AND (
+                  (p_ScheduleType = 'ONE_TIME'
+                        AND OneTimeDate  = p_StartDate)
+               OR (p_ScheduleType = 'RECURRING'
+                        AND RecurStart  = p_StartDate
+                        AND RecurEnd    = p_EndDate)
+               OR (p_ScheduleType = 'FLEXIBLE'
+                        AND FlexFromDate = p_StartDate
+                        AND FlexToDate   = p_EndDate)
+              )
+        )
+    THEN
+        SELECT 0    AS IsSuccess,
+               'A project in this category is already scheduled for the same date and time. Please choose a different schedule.' AS Message,
+               NULL AS ProjectId;
+
     ELSE
-        SELECT lv.LookupValueId INTO v_ProjectTypeLkpId
-        FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
-        WHERE lt.TypeCode = 'PROJECT_TYPE' AND lv.ValueCode = COALESCE(p_ScheduleType, 'ONE_TIME')
-        LIMIT 1;
-    END IF;
 
-    -- Resolve LocationTypeLkpId
-    IF p_LocationTypeLkpId IS NOT NULL THEN
-        SET v_LocationTypeLkpId = p_LocationTypeLkpId;
-    ELSEIF p_LocationTypeCode IS NOT NULL THEN
-        SELECT lv.LookupValueId INTO v_LocationTypeLkpId
-        FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
-        WHERE lt.TypeCode = 'LOCATION_TYPE' AND lv.ValueCode = p_LocationTypeCode
-        LIMIT 1;
-    END IF;
-    IF v_LocationTypeLkpId IS NULL THEN
-        SELECT lv.LookupValueId INTO v_LocationTypeLkpId
-        FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
-        WHERE lt.TypeCode = 'LOCATION_TYPE' AND lv.ValueCode = 'IN_PERSON'
-        LIMIT 1;
-    END IF;
+        -- Resolve ProjectTypeLkpId from ScheduleType string if not supplied directly
+        IF p_ProjectTypeLkpId IS NOT NULL THEN
+            SET v_ProjectTypeLkpId = p_ProjectTypeLkpId;
+        ELSE
+            SELECT lv.LookupValueId INTO v_ProjectTypeLkpId
+            FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+            WHERE lt.TypeCode = 'PROJECT_TYPE' AND lv.ValueCode = COALESCE(p_ScheduleType, 'ONE_TIME')
+            LIMIT 1;
+        END IF;
 
-    -- Resolve JoinTypeLkpId
-    IF p_JoinTypeLkpId IS NOT NULL THEN
-        SET v_JoinTypeLkpId = p_JoinTypeLkpId;
-    ELSE
-        SELECT lv.LookupValueId INTO v_JoinTypeLkpId
-        FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
-        WHERE lt.TypeCode = 'PROJECT_JOIN_TYPE'
-          AND lv.ValueCode = IF(COALESCE(p_RequiresApproval, 0) = 1, 'APPROVE_REQ', 'OPEN_SIGNUP')
-        LIMIT 1;
+        -- Resolve LocationTypeLkpId
+        IF p_LocationTypeLkpId IS NOT NULL THEN
+            SET v_LocationTypeLkpId = p_LocationTypeLkpId;
+        ELSEIF p_LocationTypeCode IS NOT NULL THEN
+            SELECT lv.LookupValueId INTO v_LocationTypeLkpId
+            FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+            WHERE lt.TypeCode = 'LOCATION_TYPE' AND lv.ValueCode = p_LocationTypeCode
+            LIMIT 1;
+        END IF;
+        IF v_LocationTypeLkpId IS NULL THEN
+            SELECT lv.LookupValueId INTO v_LocationTypeLkpId
+            FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+            WHERE lt.TypeCode = 'LOCATION_TYPE' AND lv.ValueCode = 'IN_PERSON'
+            LIMIT 1;
+        END IF;
+
+        -- Resolve JoinTypeLkpId
+        IF p_JoinTypeLkpId IS NOT NULL THEN
+            SET v_JoinTypeLkpId = p_JoinTypeLkpId;
+        ELSE
+            SELECT lv.LookupValueId INTO v_JoinTypeLkpId
+            FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+            WHERE lt.TypeCode = 'PROJECT_JOIN_TYPE'
+              AND lv.ValueCode = IF(COALESCE(p_RequiresApproval, 0) = 1, 'APPROVE_REQ', 'OPEN_SIGNUP')
+            LIMIT 1;
+        END IF;
+
+        -- Resolve StatusLkpId
+        IF p_StatusLkpId IS NOT NULL THEN
+            SET v_StatusLkpId = p_StatusLkpId;
+        ELSEIF COALESCE(p_IsDraft, 0) = 1 THEN
+            SELECT lv.LookupValueId INTO v_StatusLkpId
+            FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+            WHERE lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'DRAFT' LIMIT 1;
+        ELSE
+            SELECT lv.LookupValueId INTO v_StatusLkpId
+            FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+            WHERE lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'UPCOMING' LIMIT 1;
+        END IF;
+
+        INSERT INTO Projects (
+            OrgId, ProjectName, Category, Description,
+            ProjectTypeLkpId,
+            OneTimeDate, RecurStart, RecurEnd, RecurDays,
+            FlexFromDate, FlexToDate,
+            MinHoursRequired,
+            SessionStartTime, SessionEndTime,
+            LocationTypeLkpId, AddressLine, Landmark, City, State,
+            Latitude, Longitude, GoogleMapsUrl,
+            MaxVolunteers, JoinTypeLkpId, IsPublic,
+            AgeRestriction, IdVerRequired, MinReliability,
+            StatusLkpId, CreatedBy
+        ) VALUES (
+            p_OrgId,
+            p_Title,
+            p_Category,
+            p_Description,
+            v_ProjectTypeLkpId,
+            IF(p_ScheduleType = 'ONE_TIME',  p_StartDate, NULL),
+            IF(p_ScheduleType = 'RECURRING', p_StartDate, NULL),
+            IF(p_ScheduleType = 'RECURRING', p_EndDate,   NULL),
+            IF(p_ScheduleType = 'RECURRING', p_RecurrenceDays, NULL),
+            IF(p_ScheduleType = 'FLEXIBLE',  p_StartDate, NULL),
+            IF(p_ScheduleType = 'FLEXIBLE',  p_EndDate,   NULL),
+            IF(p_DurationMinutes IS NOT NULL, GREATEST(1, ROUND(p_DurationMinutes / 60)), NULL),
+            p_StartTime, p_EndTime,
+            v_LocationTypeLkpId,
+            p_Address,
+            p_LocationName,
+            p_City, p_State,
+            p_Latitude, p_Longitude, p_GoogleMapsUrl,
+            p_MaxVolunteers,
+            v_JoinTypeLkpId,
+            COALESCE(p_IsPublic, 1),
+            IF(COALESCE(p_MinAge, 0) >= 18, 1, 0),
+            0,
+            0.00,
+            v_StatusLkpId,
+            p_UserId
+        );
+
+        SELECT 1 AS IsSuccess, 'Project created successfully.' AS Message, LAST_INSERT_ID() AS ProjectId;
+
     END IF;
-
-    -- Resolve StatusLkpId
-    IF p_StatusLkpId IS NOT NULL THEN
-        SET v_StatusLkpId = p_StatusLkpId;
-    ELSEIF COALESCE(p_IsDraft, 0) = 1 THEN
-        SELECT lv.LookupValueId INTO v_StatusLkpId
-        FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
-        WHERE lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'DRAFT' LIMIT 1;
-    ELSE
-        SELECT lv.LookupValueId INTO v_StatusLkpId
-        FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
-        WHERE lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'UPCOMING' LIMIT 1;
-    END IF;
-
-    INSERT INTO Projects (
-        OrgId, ProjectName, Category, Description,
-        ProjectTypeLkpId,
-        OneTimeDate, RecurStart, RecurEnd, RecurDays,
-        FlexFromDate, FlexToDate,
-        MinHoursRequired,
-        SessionStartTime, SessionEndTime,
-        LocationTypeLkpId, AddressLine, Landmark, City, State,
-        Latitude, Longitude, GoogleMapsUrl,
-        MaxVolunteers, JoinTypeLkpId, IsPublic,
-        AgeRestriction, IdVerRequired, MinReliability,
-        StatusLkpId, CreatedBy
-    ) VALUES (
-        p_OrgId,
-        p_Title,
-        p_Category,
-        p_Description,
-        v_ProjectTypeLkpId,
-        IF(p_ScheduleType = 'ONE_TIME',  p_StartDate, NULL),
-        IF(p_ScheduleType = 'RECURRING', p_StartDate, NULL),
-        IF(p_ScheduleType = 'RECURRING', p_EndDate,   NULL),
-        IF(p_ScheduleType = 'RECURRING', p_RecurrenceDays, NULL),
-        IF(p_ScheduleType = 'FLEXIBLE',  p_StartDate, NULL),
-        IF(p_ScheduleType = 'FLEXIBLE',  p_EndDate,   NULL),
-        IF(p_DurationMinutes IS NOT NULL, GREATEST(1, ROUND(p_DurationMinutes / 60)), NULL),
-        p_StartTime, p_EndTime,
-        v_LocationTypeLkpId,
-        p_Address,
-        p_LocationName,
-        p_City, p_State,
-        p_Latitude, p_Longitude, p_GoogleMapsUrl,
-        p_MaxVolunteers,
-        v_JoinTypeLkpId,
-        COALESCE(p_IsPublic, 1),
-        IF(COALESCE(p_MinAge, 0) >= 18, 1, 0),
-        0,
-        0.00,
-        v_StatusLkpId,
-        p_UserId
-    );
-
-    SELECT 1 AS IsSuccess, 'Project created successfully.' AS Message, LAST_INSERT_ID() AS ProjectId;
 END //
 
 -- ── Project_Update: rebuilt to match C# DAL params ──────────
@@ -11290,5 +11331,167 @@ BEGIN
         (SELECT COUNT(*) FROM Campaigns c JOIN LookupValues lv ON lv.LookupValueId = c.StatusLkpId WHERE lv.ValueCode = 'RUNNING'   AND c.IsDeleted = 0) AS ActiveCampaigns,
         (SELECT COUNT(*) FROM Campaigns c JOIN LookupValues lv ON lv.LookupValueId = c.StatusLkpId WHERE lv.ValueCode = 'SCHEDULED' AND c.IsDeleted = 0) AS ScheduledCampaigns,
         (SELECT COUNT(*) FROM Campaigns c JOIN LookupValues lv ON lv.LookupValueId = c.StatusLkpId WHERE lv.ValueCode = 'DRAFT'     AND c.IsDeleted = 0) AS DraftCampaigns;
+END //
+DELIMITER ;
+
+
+-- ── 3.27 Project_SelfCheckIn ─────────────────────────────────────────────────
+-- v5.0 NEW: Self-attendance for OPEN_SIGNUP projects.
+-- Volunteer marks their own attendance without QR scan.
+-- Same time-window enforcement as QR scan (QR_BUFFER_MINUTES before start → session end).
+-- Finds or auto-creates a ProjectSessions row for today's date.
+DELIMITER //
+DROP PROCEDURE IF EXISTS Project_SelfCheckIn //
+CREATE PROCEDURE Project_SelfCheckIn(
+    IN p_ProjectId INT UNSIGNED,
+    IN p_UserId    INT UNSIGNED
+)
+BEGIN
+    DECLARE v_ScheduleTypeCode VARCHAR(20)  DEFAULT NULL;
+    DECLARE v_JoinTypeCode     VARCHAR(20)  DEFAULT NULL;
+    DECLARE v_StartTime        TIME         DEFAULT NULL;
+    DECLARE v_EndTime          TIME         DEFAULT NULL;
+    DECLARE v_OneTimeDate      DATE         DEFAULT NULL;
+    DECLARE v_RecurStart       DATE         DEFAULT NULL;
+    DECLARE v_RecurEnd         DATE         DEFAULT NULL;
+    DECLARE v_RecurDays        VARCHAR(200) DEFAULT NULL;
+    DECLARE v_FlexFromDate     DATE         DEFAULT NULL;
+    DECLARE v_FlexToDate       DATE         DEFAULT NULL;
+    DECLARE v_HasApproval      INT          DEFAULT 0;
+    DECLARE v_IsCheckedIn      INT          DEFAULT 0;
+    DECLARE v_Buffer           INT          DEFAULT 15;
+    DECLARE v_NowIST           DATETIME;
+    DECLARE v_TodayIST         DATE;
+    DECLARE v_SessionDate      DATE         DEFAULT NULL;
+    DECLARE v_WindowStart      DATETIME;
+    DECLARE v_WindowEnd        DATETIME;
+    DECLARE v_SessionId        INT UNSIGNED DEFAULT NULL;
+    DECLARE v_AttendedLkpId    INT UNSIGNED DEFAULT NULL;
+
+    -- Fetch project schedule + join type
+    SELECT ptv.ValueCode, jtv.ValueCode,
+           p.SessionStartTime, p.SessionEndTime,
+           p.OneTimeDate, p.RecurStart, p.RecurEnd, p.RecurDays,
+           p.FlexFromDate, p.FlexToDate
+    INTO   v_ScheduleTypeCode, v_JoinTypeCode,
+           v_StartTime, v_EndTime,
+           v_OneTimeDate, v_RecurStart, v_RecurEnd, v_RecurDays,
+           v_FlexFromDate, v_FlexToDate
+    FROM   Projects p
+    LEFT JOIN LookupValues ptv ON p.ProjectTypeLkpId = ptv.LookupValueId
+    LEFT JOIN LookupValues jtv ON p.JoinTypeLkpId    = jtv.LookupValueId
+    WHERE  p.ProjectId = p_ProjectId AND p.IsDeleted = 0
+    LIMIT  1;
+
+    IF v_ScheduleTypeCode IS NULL THEN
+        SELECT 0 AS IsSuccess, 'Project not found.' AS Message, NULL AS SessionId;
+
+    ELSEIF v_JoinTypeCode != 'OPEN_SIGNUP' THEN
+        SELECT 0 AS IsSuccess, 'This project requires a QR scan for attendance.' AS Message, NULL AS SessionId;
+
+    ELSE
+        -- Verify APPROVED application
+        SELECT COUNT(*) INTO v_HasApproval
+        FROM   ProjectApplications pa
+        JOIN   LookupValues lv ON pa.StatusLkpId = lv.LookupValueId
+        WHERE  pa.ProjectId = p_ProjectId AND pa.UserId = p_UserId
+          AND  lv.ValueCode = 'APPROVED' AND pa.IsDeleted = 0;
+
+        IF v_HasApproval = 0 THEN
+            SELECT 0 AS IsSuccess, 'You are not registered for this project.' AS Message, NULL AS SessionId;
+
+        ELSE
+            SET v_NowIST   = CONVERT_TZ(NOW(), '+00:00', '+05:30');
+            SET v_TodayIST = DATE(v_NowIST);
+
+            -- Determine effective session date for today
+            IF v_ScheduleTypeCode = 'ONE_TIME' THEN
+                SET v_SessionDate = v_OneTimeDate;
+
+            ELSEIF v_ScheduleTypeCode = 'RECURRING' THEN
+                IF v_TodayIST BETWEEN v_RecurStart AND v_RecurEnd
+                   AND FIND_IN_SET(DAYNAME(v_TodayIST), v_RecurDays) > 0 THEN
+                    SET v_SessionDate = v_TodayIST;
+                END IF;
+
+            ELSEIF v_ScheduleTypeCode = 'FLEXIBLE' THEN
+                IF v_TodayIST BETWEEN v_FlexFromDate AND v_FlexToDate THEN
+                    SET v_SessionDate = v_TodayIST;
+                END IF;
+            END IF;
+
+            IF v_SessionDate IS NULL THEN
+                SELECT 0 AS IsSuccess,
+                       'There is no scheduled session for today.' AS Message,
+                       NULL AS SessionId;
+
+            ELSE
+                -- Read buffer from Settings (default 15 min, same as QR)
+                SELECT CAST(SettingValue AS UNSIGNED) INTO v_Buffer
+                FROM   Settings
+                WHERE  SettingKey = 'QR_BUFFER_MINUTES' AND IsDeleted = 0
+                LIMIT  1;
+                IF v_Buffer IS NULL THEN SET v_Buffer = 15; END IF;
+
+                -- Time window: [sessionStart - buffer, sessionEnd] in IST
+                SET v_WindowStart = DATE_SUB(TIMESTAMP(v_SessionDate, v_StartTime), INTERVAL v_Buffer MINUTE);
+                SET v_WindowEnd   = TIMESTAMP(v_SessionDate, v_EndTime);
+
+                IF v_NowIST < v_WindowStart THEN
+                    SELECT 0 AS IsSuccess,
+                           CONCAT('Check-in opens at ',
+                                  TIME_FORMAT(TIME(v_WindowStart), '%h:%i %p'),
+                                  '. Please return when the session is about to start.') AS Message,
+                           NULL AS SessionId;
+
+                ELSEIF v_NowIST > v_WindowEnd THEN
+                    SELECT 0 AS IsSuccess,
+                           CONCAT('Session ended at ',
+                                  TIME_FORMAT(v_EndTime, '%h:%i %p'),
+                                  '. Check-in is no longer available.') AS Message,
+                           NULL AS SessionId;
+
+                ELSE
+                    -- Find or create session row for today
+                    SELECT SessionId INTO v_SessionId
+                    FROM   ProjectSessions
+                    WHERE  ProjectId = p_ProjectId AND SessionDate = v_SessionDate AND IsDeleted = 0
+                    LIMIT  1;
+
+                    IF v_SessionId IS NULL THEN
+                        INSERT INTO ProjectSessions (ProjectId, SessionDate, StartTime, EndTime, CreatedBy)
+                        VALUES (p_ProjectId, v_SessionDate, v_StartTime, v_EndTime, p_UserId);
+                        SET v_SessionId = LAST_INSERT_ID();
+                    END IF;
+
+                    -- Already checked in?
+                    SELECT COUNT(*) INTO v_IsCheckedIn
+                    FROM   ProjectAttendance
+                    WHERE  SessionId = v_SessionId AND UserId = p_UserId;
+
+                    IF v_IsCheckedIn > 0 THEN
+                        SELECT 0 AS IsSuccess,
+                               'You have already marked your attendance for this session.' AS Message,
+                               v_SessionId AS SessionId;
+
+                    ELSE
+                        SELECT LookupValueId INTO v_AttendedLkpId
+                        FROM   LookupValues lv
+                        JOIN   LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
+                        WHERE  lt.TypeCode = 'ATTENDANCE_STATUS' AND lv.ValueCode = 'ATTENDED'
+                        LIMIT  1;
+
+                        INSERT INTO ProjectAttendance
+                               (SessionId, UserId, CheckInTime, AttendStatusLkpId, CreatedBy)
+                        VALUES (v_SessionId, p_UserId, NOW(), v_AttendedLkpId, p_UserId);
+
+                        SELECT 1 AS IsSuccess,
+                               'Attendance marked successfully! Thank you for being there.' AS Message,
+                               v_SessionId AS SessionId;
+                    END IF;
+                END IF;
+            END IF;
+        END IF;
+    END IF;
 END //
 DELIMITER ;

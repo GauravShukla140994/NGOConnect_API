@@ -78,6 +78,10 @@ namespace NGOConnect.API.Controllers
         public async Task<ApiResponse> CheckIn(int projectId, [FromBody] CheckInRequest request)
             => await _project.CheckInAsync(GetUserId(), request);
 
+        [HttpPost("{projectId:int}/self-checkin")] [Authorize]
+        public async Task<ApiResponse> SelfCheckIn(int projectId)
+            => await _project.SelfCheckInAsync(projectId, GetUserId());
+
         // Applications — Apply is handled by ApplicationController (POST api/v1/project/{projectId}/apply)
         [HttpPut("{projectId:int}/applications/review")] [Authorize]
         public async Task<ApiResponse> ReviewApplication(int projectId, [FromBody] ReviewApplicationRequest request)
