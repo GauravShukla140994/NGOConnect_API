@@ -28,7 +28,9 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: userclaudesession
           key: ${{ secrets.VPS_SSH_KEY }}
-          script: sudo systemctl stop ripplehub-api
+          script: |
+            sudo systemctl stop ripplehub-api
+            find /var/www/ripplehub-api -mindepth 1 -delete
 
       - name: Copy build to VPS
         uses: appleboy/scp-action@v0.1.7
@@ -38,7 +40,6 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           source: "./publish/*"
           target: "/var/www/ripplehub-api"
-          rm: true
 
       - name: Start API service
         uses: appleboy/ssh-action@v1
