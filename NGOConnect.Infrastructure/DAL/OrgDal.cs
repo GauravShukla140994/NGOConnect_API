@@ -517,9 +517,9 @@ namespace NGOConnect.Infrastructure.DAL
                 });
                 if (result.Succeeded)
                 {
-                    var userId    = Col<int?>(result.Row!, "UserId");
-                    var projectId = Col<int?>(result.Row!, "ProjectId");
-                    if (userId.HasValue)
+                    var userId    = result.Row != null ? ColNullable<int>(result.Row, "UserId")    : null;
+                    var projectId = result.Row != null ? ColNullable<int>(result.Row, "ProjectId") : null;
+                    if (userId.HasValue && userId.Value > 0)
                         _ = FireUserNotifAsync(userId.Value, "✅ No-Show Excused",
                             "Your no-show has been excused by the admin. Your reliability score will not be affected.",
                             "NO_SHOW_EXCUSED", projectId, "PROJECT");
@@ -546,9 +546,11 @@ namespace NGOConnect.Infrastructure.DAL
                 });
                 if (result.Succeeded)
                 {
-                    var userId = Col<uint?>(result.Row!, "UserId");
-                    if (userId.HasValue)
-                        _ = FireUserNotifAsync((int)userId.Value, "🔄 Role Updated",
+                    // ColNullable<int> must be used here — Col<int?> / Col<uint?> both fail at
+                    // runtime because Convert.ChangeType cannot convert to nullable types.
+                    var userId = result.Row != null ? ColNullable<int>(result.Row, "UserId") : null;
+                    if (userId.HasValue && userId.Value > 0)
+                        _ = FireUserNotifAsync(userId.Value, "🔄 Role Updated",
                             $"Your role in the organisation has been updated to {request.RoleCode.ToLower().Replace("_", " ")}.",
                             "MEMBER_ROLE_CHANGED", orgId, "ORG", orgId);
                 }

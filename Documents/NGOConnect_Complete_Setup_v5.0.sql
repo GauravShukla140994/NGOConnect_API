@@ -7640,15 +7640,10 @@ DROP PROCEDURE IF EXISTS Org_GetDashboard //
 CREATE PROCEDURE Org_GetDashboard(IN p_OrgId INT UNSIGNED)
 BEGIN
     DECLARE v_ApprovedMemberStatusId INT UNSIGNED;
-    DECLARE v_ActiveProjectStatusId  INT UNSIGNED;
 
     SELECT lv.LookupValueId INTO v_ApprovedMemberStatusId
     FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
     WHERE lt.TypeCode = 'MEMBER_STATUS' AND lv.ValueCode = 'APPROVED' LIMIT 1;
-
-    SELECT lv.LookupValueId INTO v_ActiveProjectStatusId
-    FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
-    WHERE lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'ACTIVE' LIMIT 1;
 
     SELECT
         (SELECT COUNT(*) FROM OrgMembers
@@ -7699,8 +7694,25 @@ BEGIN
                     AND YEAR(pa.CreatedAt) = YEAR(NOW()) AND MONTH(pa.CreatedAt) = MONTH(NOW())
         ), 0) AS VolunteerHoursMonth,
 
-        (SELECT COUNT(*) FROM Projects
-         WHERE OrgId = p_OrgId AND StatusLkpId = v_ActiveProjectStatusId AND IsDeleted = 0
+        -- Counts ACTIVE + UPCOMING projects that have NOT expired.
+        -- DB status is never auto-transitioned (Hangfire not yet wired), so projects
+        -- remain UPCOMING/ACTIVE past their end date. We exclude expired projects using
+        -- the same date fields that the mobile isProjectExpired() helper checks:
+        --   ONE_TIME  → OneTimeDate < CURDATE()
+        --   RECURRING → RecurEnd    < CURDATE()
+        --   FLEXIBLE  → FlexToDate  < CURDATE()
+        -- Projects with no end date set are treated as not expired.
+        (SELECT COUNT(*) FROM Projects p
+         JOIN LookupValues lv ON p.StatusLkpId = lv.LookupValueId
+         JOIN LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
+         WHERE p.OrgId = p_OrgId AND p.IsDeleted = 0
+           AND lt.TypeCode = 'PROJECT_STATUS'
+           AND lv.ValueCode IN ('ACTIVE', 'UPCOMING')
+           AND NOT (
+               (p.OneTimeDate IS NOT NULL AND p.OneTimeDate < CURDATE())
+            OR (p.RecurEnd    IS NOT NULL AND p.RecurEnd    < CURDATE())
+            OR (p.FlexToDate  IS NOT NULL AND p.FlexToDate  < CURDATE())
+           )
         ) AS ActiveProjects,
 
         (SELECT COUNT(*)

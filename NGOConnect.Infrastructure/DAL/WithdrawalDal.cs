@@ -78,7 +78,7 @@ namespace NGOConnect.Infrastructure.DAL
 
                 if (result.Succeeded && result.Row is not null)
                 {
-                    var orgId = Col<int?>(result.Row, "OrgId");
+                    var orgId = ColNullable<int>(result.Row, "OrgId");
                     if (orgId.HasValue)
                     {
                         if (request.StatusCode == "APPROVED")           // #16

@@ -229,8 +229,8 @@ namespace NGOConnect.Infrastructure.DAL
                     await _hub.Clients.Group($"sos-{sosIncidentId}")
                         .SendAsync("NewResponder", new { sosIncidentId });
                     // #36 — Notify the SOS victim that someone is coming to help
-                    var victimUserId = Col<int?>(result.Row!, "VictimUserId");
-                    if (victimUserId.HasValue)
+                    var victimUserId = result.Row != null ? ColNullable<int>(result.Row, "VictimUserId") : null;
+                    if (victimUserId.HasValue && victimUserId.Value > 0)
                         _ = FireUserNotifAsync(victimUserId.Value,
                             "🙋 Someone Is Responding!",
                             "A member has offered to help you. Hang on — they are on their way.",

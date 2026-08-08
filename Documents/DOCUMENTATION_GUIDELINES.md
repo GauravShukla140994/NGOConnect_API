@@ -1410,4 +1410,21 @@ DB schema fixes + new SPs + new API endpoints + React Native UI. Patch file: `pa
 - Documents to update when "update documents" is called:
   - `Database_Documentation_v4.9.md` → `User_GetImpactSummary` RS2 (new `HoursLogged` column); `Application_GetByUser` (new `HoursLogged` + `HasCertificate` columns)
 
+---
+
+**Org_GetDashboard — ActiveProjects count fix** (2026-08-08)
+
+- **Root issue**: `ActiveProjects` KPI on the Admin Dashboard was counting only projects with `PROJECT_STATUS = ACTIVE`. Since Hangfire status auto-transition (UPCOMING → ACTIVE) is not implemented, projects remain `UPCOMING` even after their start date passes. The count was therefore lower than the real number of projects currently in play.
+
+- **All other KPI counts audited and confirmed correct**: TotalMembers, NewMembersThisMonth, ActiveVolunteers, ActiveRatePct, VolunteerHoursMonth, PendingApplications, PendingProjectApplications, FollowerCount.
+
+- **SP `Org_GetDashboard`** — `ActiveProjects` subquery changed from `StatusLkpId = v_ActiveProjectStatusId` (ACTIVE only) to `ValueCode IN ('ACTIVE', 'UPCOMING')` **plus** an expiry exclusion filter mirroring the mobile `isProjectExpired()` helper: projects where `OneTimeDate < CURDATE()`, `RecurEnd < CURDATE()`, or `FlexToDate < CURDATE()` are excluded (treated as cancelled). The now-unused `DECLARE v_ActiveProjectStatusId` variable removed. Fixed in `NGOConnect_Complete_Setup_v5.0.sql`.
+
+- **Patch file `Documents/NGOConnect_Patch_DashboardActiveCounts.sql`** — NEW; full DROP+CREATE of `Org_GetDashboard`. Apply to Railway staging → production.
+
+- No C# or mobile changes needed — SP column name `ActiveProjects` unchanged; DynamicRow maps it to `activeProjects` as before.
+
+- Documents to update when "update documents" is called:
+  - `Database_Documentation_v5.0.md` → `Org_GetDashboard` SP: note that `ActiveProjects` now counts ACTIVE + UPCOMING statuses
+
 -->

@@ -498,9 +498,9 @@ namespace NGOConnect.Infrastructure.DAL
                 // #22 — notify the specific volunteer that admin marked their attendance
                 if (result.Succeeded)
                 {
-                    var volunteerId = Col<int?>(result.Row!, "UserId");
-                    var projectId   = Col<int?>(result.Row!, "ProjectId");
-                    if (volunteerId.HasValue)
+                    var volunteerId = result.Row != null ? ColNullable<int>(result.Row, "UserId")    : null;
+                    var projectId   = result.Row != null ? ColNullable<int>(result.Row, "ProjectId") : null;
+                    if (volunteerId.HasValue && volunteerId.Value > 0)
                         _ = FireUserNotifAsync(volunteerId.Value,
                             "Attendance Marked",
                             "Your attendance has been manually marked by the admin.",
