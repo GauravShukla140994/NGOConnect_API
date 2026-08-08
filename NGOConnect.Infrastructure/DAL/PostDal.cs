@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using NGOConnect.Core.Interfaces;
 using NGOConnect.Core.Models.Common;
 using NGOConnect.Core.Models.Post;
@@ -9,11 +10,15 @@ namespace NGOConnect.Infrastructure.DAL
     {
         private readonly INotificationDal _notif;
         private readonly IFCMService      _fcm;
+        private readonly IEmailService    _email;
+        private readonly IConfiguration   _config;
 
-        public PostDal(IDbProvider db, INotificationDal notif, IFCMService fcm) : base(db)
+        public PostDal(IDbProvider db, INotificationDal notif, IFCMService fcm, IEmailService email, IConfiguration config) : base(db)
         {
-            _notif = notif;
-            _fcm   = fcm;
+            _notif  = notif;
+            _fcm    = fcm;
+            _email  = email;
+            _config = config;
         }
 
         public async Task<ApiResponse<PostPermissionsModel>> GetPermissionsAsync(int orgId, int userId)
@@ -357,12 +362,115 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_ReasonCode",  request.ReasonCode);
                     _db.AddParameter(cmd, "p_Details",     request.Details);
                 });
+
+                if (result.Succeeded && result.Row != null)
+                {
+                    var reportCount   = ColNullable<int>(result.Row, "ReportCount")      ?? 0;
+                    var authorUserId  = ColNullable<int>(result.Row, "PostAuthorUserId") ?? 0;
+                    var orgId         = ColNullable<int>(result.Row, "OrgId");
+
+                    // Fire notifications on 1st report and every 5th thereafter (5, 10, 15 …)
+                    if (reportCount == 1 || (reportCount > 0 && reportCount % 5 == 0))
+                    {
+                        _ = FirePostReportNotificationsAsync(postId, authorUserId, orgId, reportCount);
+                    }
+                }
+
                 return result.ToApiResponse();
             }
             catch (Exception ex)
             {
                 Log.Error(ex, "ReportAsync failed PostId={PostId}", postId);
                 return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        // ── Private notification helpers ─────────────────────────────────────────
+
+        private async Task FirePostReportNotificationsAsync(
+            int postId, int authorUserId, int? orgId, int reportCount)
+        {
+            try
+            {
+                var countLabel = reportCount == 1 ? "reported for the first time"
+                                                  : $"reported {reportCount} times";
+
+                // 1. Notify the post author
+                if (authorUserId > 0)
+                {
+                    var authorTokens = await _notif.GetTokensByUserIdAsync(authorUserId);
+                    await _notif.CreateAsync(
+                        authorUserId,
+                        "⚠️ Your post has been reported",
+                        $"Your post has been {countLabel}. Our team will review it shortly.",
+                        "POST_REPORTED", postId, "POST");
+                    if (authorTokens.Count > 0)
+                        await _fcm.SendMulticastAsync(
+                            authorTokens,
+                            "⚠️ Your post has been reported",
+                            $"Your post has been {countLabel}. Our team will review it.",
+                            "POST_REPORTED", postId, "POST");
+                }
+
+                // 2. Notify org admins (if post is linked to an org)
+                if (orgId.HasValue && orgId.Value > 0)
+                {
+                    var admins = await _notif.GetAdminsWithTokensAsync(orgId.Value);
+                    if (admins.Count > 0)
+                    {
+                        var adminTitle = "🚨 Post reported in your organisation";
+                        var adminBody  = $"A post has been {countLabel}. Review it in Admin → Posts tab.";
+                        await Task.WhenAll(admins.Select(a =>
+                            _notif.CreateAsync(a.UserId, adminTitle, adminBody,
+                                "POST_REPORTED_ADMIN", postId, "POST", orgId.Value)));
+                        var adminTokens = admins.Select(a => a.Token).Where(t => !string.IsNullOrEmpty(t)).ToList();
+                        if (adminTokens.Count > 0)
+                            await _fcm.SendMulticastAsync(
+                                adminTokens, adminTitle, adminBody,
+                                "POST_REPORTED_ADMIN", postId, "POST");
+                    }
+                }
+
+                // 3. Email all active super admins
+                _ = EmailSuperAdminsPostReportAsync(postId, orgId, reportCount, countLabel);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "FirePostReportNotificationsAsync failed PostId={PostId}", postId);
+            }
+        }
+
+        private async Task EmailSuperAdminsPostReportAsync(
+            int postId, int? orgId, int reportCount, string countLabel)
+        {
+            try
+            {
+                var supportAddress = _config["Email:SupportAddress"] ?? "support@ripplehub.app";
+
+                var subject = $"[NGO Connect] Post Report Alert — {reportCount} report(s) on Post #{postId}";
+                var html = $@"
+<div style=""font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px"">
+  <h2 style=""color:#DC2626"">⚠️ Post Report Alert</h2>
+  <p>A feed post has been <strong>{countLabel}</strong> and requires your review.</p>
+  <table style=""width:100%;border-collapse:collapse;margin:16px 0"">
+    <tr><td style=""padding:8px;background:#F3F4F6;font-weight:bold;width:140px"">Post ID</td>
+        <td style=""padding:8px;border:1px solid #E5E7EB"">#{postId}</td></tr>
+    <tr><td style=""padding:8px;background:#F3F4F6;font-weight:bold"">Organisation ID</td>
+        <td style=""padding:8px;border:1px solid #E5E7EB"">{(orgId.HasValue ? orgId.Value.ToString() : "Not linked")}</td></tr>
+    <tr><td style=""padding:8px;background:#F3F4F6;font-weight:bold"">Total Reports</td>
+        <td style=""padding:8px;border:1px solid #E5E7EB"">{reportCount}</td></tr>
+  </table>
+  <p style=""color:#6B7280;font-size:13px"">Log in to the Super Admin portal to review and take action (remove the post if it violates community guidelines).</p>
+  <p style=""color:#9CA3AF;font-size:12px;margin-top:24px"">This is an automated alert from NGO Connect.</p>
+</div>";
+
+                await _email.SendCampaignEmailAsync(supportAddress, subject, html);
+                Log.Information("Post report email sent to support inbox <{Email}> PostId={PostId} Count={Count}",
+                    supportAddress, postId, reportCount);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "EmailSuperAdminsPostReportAsync failed PostId={PostId}", postId);
             }
         }
     }

@@ -427,6 +427,17 @@ When there is a conflict between files, this priority order applies:
 - **Apply to Railway**: Run `NGOConnect_Patch_CommunityPollAudience.sql` on Railway staging → production (after `NGOConnect_Patch_VisibilityAudienceFilter.sql` if not already applied).
 - **Database Documentation**: Update `Community_CreatePoll` SP description — add `p_AudienceLkpId` parameter, audience resolution logic, `AudienceCode` result column.
 
+**Post Report Notifications — SP + DAL + Email (2026-08-08)**
+- `NGOConnect_Complete_Setup_v5.0.sql` → `Post_Report`: now returns three extra columns on success — `ReportCount` (total reports on this post), `PostAuthorUserId`, `OrgId`. Failure paths (unknown reason code, duplicate report) still return NULL for all three so the DAL can distinguish.
+- `NGOConnect.Infrastructure/DAL/PostDal.cs` → constructor now injects `IEmailService _email` + `IConfiguration _config`. `ReportAsync` reads `ReportCount`, `PostAuthorUserId`, `OrgId` via `ColNullable<int>`. Threshold check: `reportCount == 1 || reportCount % 5 == 0`. On threshold:
+  - Fires FCM + inbox notification → post author (`POST_REPORTED`, refId = postId)
+  - Fires FCM + inbox notification → all org admins (`POST_REPORTED_ADMIN`, refId = postId, orgId)
+  - Sends HTML email to `Email:SupportAddress` from appsettings (same address used by Help & Support feature) via `_email.SendCampaignEmailAsync`. No DB lookup — config-driven.
+- Patch file: `Documents/NGOConnect_Patch_PostReportNotifications.sql` (Post_Report SP only — no new SPs)
+- **Apply to Railway**: Run `NGOConnect_Patch_PostReportNotifications.sql` on Railway staging → production; redeploy C# backend to pick up PostDal constructor change.
+- **Database Documentation**: Update `Post_Report` SP result columns (add ReportCount, PostAuthorUserId, OrgId).
+- **API Documentation**: No endpoint change — internal DAL behaviour only.
+
 **v5.0 Release Summary (2026-08-05)**
 All 4 documents bumped from v4.9 → v5.0. All Railway staging patches through 2026-08-05 absorbed. Documents:
 - `NGOConnect_Complete_Setup_v5.0.sql` — ✅ Created (all SPs and tables current)

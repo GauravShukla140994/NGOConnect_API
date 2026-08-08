@@ -7415,23 +7415,28 @@ CREATE PROCEDURE Post_Report(
     IN p_Details    TEXT
 )
 BEGIN
-    DECLARE v_ReasonLkpId  INT UNSIGNED;
-    DECLARE v_StatusLkpId  INT UNSIGNED;
+    DECLARE v_ReasonLkpId   INT UNSIGNED;
+    DECLARE v_StatusLkpId   INT UNSIGNED;
     DECLARE v_AlreadyExists INT DEFAULT 0;
+    DECLARE v_ReportCount   INT DEFAULT 0;
+    DECLARE v_AuthorUserId  INT UNSIGNED DEFAULT NULL;
+    DECLARE v_OrgId         INT UNSIGNED DEFAULT NULL;
 
     SELECT lv.LookupValueId INTO v_ReasonLkpId
     FROM   LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
     WHERE  lt.TypeCode = 'REPORT_REASON' AND lv.ValueCode = p_ReasonCode LIMIT 1;
 
     IF v_ReasonLkpId IS NULL THEN
-        SELECT 0 AS IsSuccess, CONCAT('Unknown reason code: ', p_ReasonCode) AS Message;
+        SELECT 0 AS IsSuccess, CONCAT('Unknown reason code: ', p_ReasonCode) AS Message,
+               NULL AS ReportCount, NULL AS PostAuthorUserId, NULL AS OrgId;
     ELSE
         SELECT COUNT(*) INTO v_AlreadyExists
         FROM   PostReports
         WHERE  PostId = p_PostId AND ReportedByUserId = p_UserId;
 
         IF v_AlreadyExists > 0 THEN
-            SELECT 0 AS IsSuccess, 'You have already reported this post.' AS Message;
+            SELECT 0 AS IsSuccess, 'You have already reported this post.' AS Message,
+                   NULL AS ReportCount, NULL AS PostAuthorUserId, NULL AS OrgId;
         ELSE
             SELECT lv.LookupValueId INTO v_StatusLkpId
             FROM   LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
@@ -7440,7 +7445,18 @@ BEGIN
             INSERT INTO PostReports (PostId, ReportedByUserId, ReasonLkpId, Details, StatusLkpId)
             VALUES (p_PostId, p_UserId, v_ReasonLkpId, p_Details, v_StatusLkpId);
 
-            SELECT 1 AS IsSuccess, 'Post reported.' AS Message;
+            -- Total reports on this post (including the one just inserted)
+            SELECT COUNT(*) INTO v_ReportCount FROM PostReports WHERE PostId = p_PostId;
+
+            -- Post author + org for notification fan-out
+            SELECT UserId, OrgId INTO v_AuthorUserId, v_OrgId
+            FROM   Posts WHERE PostId = p_PostId LIMIT 1;
+
+            SELECT 1            AS IsSuccess,
+                   'Post reported.' AS Message,
+                   v_ReportCount   AS ReportCount,
+                   v_AuthorUserId  AS PostAuthorUserId,
+                   v_OrgId         AS OrgId;
         END IF;
     END IF;
 END //
@@ -11567,4 +11583,5 @@ BEGIN
         END IF;
     END IF;
 END //
+
 DELIMITER ;
