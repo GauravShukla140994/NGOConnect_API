@@ -28,6 +28,7 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: userclaudesession
           key: ${{ secrets.VPS_SSH_KEY }}
+          request_pty: true
           script: |
             sudo systemctl stop ripplehub-api
             find /var/www/ripplehub-api -mindepth 1 -delete
@@ -47,7 +48,8 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: userclaudesession
           key: ${{ secrets.VPS_SSH_KEY }}
+          request_pty: true
           script: |
             sudo systemctl start ripplehub-api
             sleep 5
-            sudo systemctl is-active ripplehub-api
+            systemctl is-active ripplehub-api
