@@ -31,7 +31,7 @@ jobs:
           request_pty: true
           script: |
             sudo systemctl stop ripplehub-api
-            find /var/www/ripplehub-api -mindepth 1 -delete
+            find /var/www/ripplehub-api/publish -mindepth 1 -delete 2>/dev/null || true
 
       - name: Copy build to VPS
         uses: appleboy/scp-action@v0.1.7
@@ -51,5 +51,5 @@ jobs:
           request_pty: true
           script: |
             sudo systemctl start ripplehub-api
-            sleep 5
-            systemctl is-active ripplehub-api
+            sleep 15
+            systemctl status ripplehub-api --no-pager

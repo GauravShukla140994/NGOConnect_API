@@ -10,8 +10,10 @@ namespace NGOConnect.Infrastructure.Services
 {
     /// <summary>
     /// Firebase Cloud Messaging service — registered as Singleton.
-    /// Reads credentials from Railway env var Firebase__CredentialsJson
-    /// (the service-account JSON string — never committed to source control).
+    /// Credentials are resolved in priority order:
+    ///   1. Firebase:CredentialsFilePath — path to a JSON file on disk (production VPS).
+    ///      If the value is not a valid file path, it is treated as raw JSON (Railway fallback).
+    ///   2. Firebase:CredentialsJson    — inline JSON string (legacy Railway env var).
     /// Uses IServiceScopeFactory to resolve scoped INotificationDal for stale-token cleanup.
     /// </summary>
     public class FCMService : IFCMService
@@ -31,10 +33,10 @@ namespace NGOConnect.Infrastructure.Services
                     return;
                 }
 
-                var credJson = config["Firebase:CredentialsJson"];
+                var credJson = ResolveCredentialJson(config);
                 if (string.IsNullOrWhiteSpace(credJson))
                 {
-                    Log.Warning("FCMService: Firebase:CredentialsJson not configured — push notifications disabled.");
+                    Log.Warning("FCMService: no Firebase credentials configured (Firebase:CredentialsFilePath or Firebase:CredentialsJson) — push notifications disabled.");
                     return;
                 }
 
@@ -50,6 +52,61 @@ namespace NGOConnect.Infrastructure.Services
             {
                 Log.Error(ex, "FCMService failed to initialise.");
             }
+        }
+
+        /// <summary>
+        /// Resolves the Firebase service-account JSON from configuration.
+        /// Priority:
+        ///   1. Firebase:CredentialsFilePath — if the value is an existing file path, reads the file.
+        ///      If the file does not exist (e.g. Railway has the full JSON stored in this var),
+        ///      the value itself is returned as raw JSON.
+        ///   2. Firebase:CredentialsJson    — legacy inline JSON env var.
+        /// </summary>
+        private static string? ResolveCredentialJson(IConfiguration config)
+        {
+            var filePath = config["Firebase:CredentialsFilePath"];
+            if (!string.IsNullOrWhiteSpace(filePath))
+            {
+                if (File.Exists(filePath))
+                {
+                    try
+                    {
+                        var json = File.ReadAllText(filePath);
+                        if (string.IsNullOrWhiteSpace(json))
+                        {
+                            Log.Error("FCMService: credentials file exists but is empty — Path={Path}", filePath);
+                            return null;
+                        }
+                        Log.Information("FCMService: credentials loaded from file — Path={Path}, Size={Bytes}B", filePath, json.Length);
+                        return json;
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error(ex, "FCMService: failed to read credentials file — Path={Path}", filePath);
+                        return null;
+                    }
+                }
+
+                // Value is not a file path — treat it as inline JSON (Railway pattern).
+                if (filePath.TrimStart().StartsWith("{"))
+                {
+                    Log.Information("FCMService: Firebase:CredentialsFilePath is not a file path — treating as inline JSON (length={Len})", filePath.Length);
+                    return filePath;
+                }
+
+                // Value looks like a path but the file is missing — likely a misconfiguration.
+                Log.Error("FCMService: Firebase:CredentialsFilePath looks like a file path but file was not found — Path={Path}. Push notifications disabled.", filePath);
+                return null;
+            }
+
+            var credJson = config["Firebase:CredentialsJson"];
+            if (!string.IsNullOrWhiteSpace(credJson))
+            {
+                Log.Information("FCMService: credentials loaded from Firebase:CredentialsJson (length={Len})", credJson.Length);
+                return credJson;
+            }
+
+            return null;
         }
 
         public async Task<bool> SendAsync(
