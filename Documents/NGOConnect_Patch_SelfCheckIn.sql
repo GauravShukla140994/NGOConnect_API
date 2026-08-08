@@ -48,6 +48,7 @@ BEGIN
     DECLARE v_WindowEnd        DATETIME;
     DECLARE v_SessionId        INT UNSIGNED DEFAULT NULL;
     DECLARE v_AttendedLkpId    INT UNSIGNED DEFAULT NULL;
+    DECLARE v_StatusLkpId      INT UNSIGNED DEFAULT NULL;
 
     -- Fetch project schedule + join type
     SELECT ptv.ValueCode, jtv.ValueCode,
@@ -140,8 +141,15 @@ BEGIN
                     LIMIT  1;
 
                     IF v_SessionId IS NULL THEN
-                        INSERT INTO ProjectSessions (ProjectId, SessionDate, StartTime, EndTime, CreatedBy)
-                        VALUES (p_ProjectId, v_SessionDate, v_StartTime, v_EndTime, p_UserId);
+                        SELECT LookupValueId INTO v_StatusLkpId
+                        FROM   LookupValues lv
+                        JOIN   LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
+                        WHERE  lt.TypeCode = 'SESSION_STATUS' AND lv.ValueCode = 'UPCOMING'
+                        LIMIT  1;
+
+                        INSERT INTO ProjectSessions
+                               (ProjectId, SessionDate, StartTime, EndTime, SessionStatusLkpId, CreatedBy)
+                        VALUES (p_ProjectId, v_SessionDate, v_StartTime, v_EndTime, v_StatusLkpId, p_UserId);
                         SET v_SessionId = LAST_INSERT_ID();
                     END IF;
 

@@ -73,6 +73,9 @@ namespace NGOConnect.Core.Models.Community
 
         /// <summary>When true, voters may select multiple options. Stored as CommunityPosts.PollIsMultiChoice.</summary>
         public bool IsMultiChoice { get; set; } = false;
+
+        /// <summary>LookupValueId from TypeCode='AUDIENCE_TYPE' (ALL_MEMBERS / ADMINS_ONLY / VOLUNTEERS). Defaults to ALL_MEMBERS if not provided.</summary>
+        public int? AudienceLkpId { get; set; }
     }
 
     public class VoteRequest

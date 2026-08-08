@@ -34,7 +34,7 @@ from pathlib import Path
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 ROOT            = Path(__file__).parent.parent
-SETUP_SQL       = ROOT / "Documents" / "NGOConnect_Complete_Setup_v4.9.sql"
+SETUP_SQL       = ROOT / "Documents" / "NGOConnect_Complete_Setup_v5.0.sql"
 DAL_DIR         = ROOT / "NGOConnect.Infrastructure" / "DAL"
 MODELS_DIR      = ROOT / "NGOConnect.Core" / "Models"
 CONTROLLERS_DIR = ROOT / "NGOConnect.API" / "Controllers"

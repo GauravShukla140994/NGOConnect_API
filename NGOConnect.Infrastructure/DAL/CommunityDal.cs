@@ -169,30 +169,44 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_OptionsJson",    optionsJson);
                     _db.AddParameter(cmd, "p_ExpiresInHours", request.ExpiresInHours);
                     _db.AddParameter(cmd, "p_IsMultiChoice",  request.IsMultiChoice ? 1 : 0);
+                    _db.AddParameter(cmd, "p_AudienceLkpId",  request.AudienceLkpId);
                 });
 
                 if (!result.Succeeded)
                     return ApiResponse<DynamicRow>.Failure(result.Message, "POLL_CREATE_FAILED");
 
-                var pollId = Col<int>(result.Row!, "PollId");
+                var pollId       = Col<int>(result.Row!, "PollId");
+                var audienceCode = Col<string>(result.Row!, "AudienceCode") ?? "ALL_MEMBERS";
                 var data = new DynamicRow();
                 data["pollId"]  = pollId;
                 data["message"] = result.Message;
 
                 if (request.OrgId > 0)
+                {
+                    var capturedPollId    = pollId;
+                    var capturedCode      = audienceCode;
+                    var capturedOrgId     = request.OrgId;
+                    var capturedUserId    = userId;
                     _ = Task.Run(async () =>
                     {
                         try
                         {
-                            var members = await _notif.GetMembersWithTokensAsync(request.OrgId, userId);
+                            // Fan-out by audience — ADMINS_ONLY polls notify only founders/admins
+                            var isAdminOnly = capturedCode == "ADMINS_ONLY";
+                            var members = isAdminOnly
+                                ? (await _notif.GetAdminsWithTokensAsync(capturedOrgId))
+                                    .Where(m => m.UserId != capturedUserId).ToList()
+                                : await _notif.GetMembersWithTokensAsync(capturedOrgId, capturedUserId);
+
                             const string title = "📊 New Poll";
                             const string body  = "A new poll has been posted in your community. Cast your vote!";
                             foreach (var m in members)
-                                await _notif.CreateAsync(m.UserId, title, body, "NEW_POLL", pollId, "POLL", request.OrgId);
-                            await _fcm.SendMulticastAsync(members.Select(m => m.Token), title, body, "NEW_POLL", pollId, "POLL");
+                                await _notif.CreateAsync(m.UserId, title, body, "NEW_POLL", capturedPollId, "POLL", capturedOrgId);
+                            await _fcm.SendMulticastAsync(members.Select(m => m.Token), title, body, "NEW_POLL", capturedPollId, "POLL");
                         }
                         catch (Exception ex) { Log.Error(ex, "CommunityDal.CreatePollAsync notify failed"); }
                     });
+                }
 
                 return ApiResponse<DynamicRow>.Success(data, result.Message);
             }

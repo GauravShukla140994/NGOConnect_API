@@ -3367,6 +3367,28 @@ BEGIN
         UpdatedAt         = NOW(),
         UpdatedBy         = p_CompletedBy;
 
+    -- 8. Backfill HoursLogged for volunteers who checked in via QR or self-check-in
+    --    BEFORE project completion. They already had ATTENDED status so step 7 skipped
+    --    them, leaving HoursLogged = NULL.
+    --    Formula: CheckInTime (UTC stored) → LEAST(completion NOW(), session end IST→UTC).
+    --    Minimum 0.50h to avoid zero-duration edge cases.
+    UPDATE ProjectAttendance att
+    JOIN   ProjectSessions   ps ON att.SessionId = ps.SessionId
+    SET    att.HoursLogged = GREATEST(
+             ROUND(
+               TIMESTAMPDIFF(MINUTE, att.CheckInTime,
+                 LEAST(
+                   NOW(),
+                   CONVERT_TZ(TIMESTAMP(ps.SessionDate, ps.EndTime), '+05:30', '+00:00')
+                 )
+               ) / 60.0,
+             2),
+             0.50)
+    WHERE  ps.ProjectId          = p_ProjectId
+      AND  att.HoursLogged       IS NULL
+      AND  att.AttendStatusLkpId = v_AttendedLkpId
+      AND  ps.IsDeleted          = 0;
+
     SELECT 1 AS IsSuccess, 'Project marked as completed.' AS Message;
 END //
 
@@ -5423,6 +5445,8 @@ END //
 -- v4.3: Fixed TypeCode COMMUNITY_POST_TYPE → POST_TYPE_COMMUNITY; AUDIENCE_TYPE fix;
 --       added p_IsMultiChoice; JSON_TABLE for options; PollIsMultiChoice in INSERT.
 -- Updated: enforces CanCommunityPost from OrgMembers (Permission Enforcement patch)
+-- v5.1: Added p_AudienceLkpId — polls now respect ADMINS_ONLY / VOLUNTEERS audience.
+--       Returns AudienceCode so DAL can scope notification fan-out correctly.
 DROP PROCEDURE IF EXISTS Community_CreatePoll //
 CREATE PROCEDURE Community_CreatePoll(
     IN p_UserId         INT UNSIGNED,
@@ -5430,13 +5454,15 @@ CREATE PROCEDURE Community_CreatePoll(
     IN p_Question       VARCHAR(300),
     IN p_OptionsJson    JSON,
     IN p_ExpiresInHours INT,
-    IN p_IsMultiChoice  TINYINT(1)
+    IN p_IsMultiChoice  TINYINT(1),
+    IN p_AudienceLkpId  INT UNSIGNED   -- NULL/0 = default to ALL_MEMBERS
 )
 BEGIN
     DECLARE v_ApprovedLkpId    INT UNSIGNED DEFAULT 0;
     DECLARE v_CanCommunityPost TINYINT(1)  DEFAULT 0;
     DECLARE v_PollTypeLkpId    INT UNSIGNED DEFAULT 0;
     DECLARE v_AudienceLkpId    INT UNSIGNED DEFAULT 0;
+    DECLARE v_AudienceCode     VARCHAR(50)  DEFAULT 'ALL_MEMBERS';
 
     SELECT lv.LookupValueId INTO v_ApprovedLkpId
     FROM   LookupValues lv JOIN LookupTypes lt ON lt.LookupTypeId = lv.LookupTypeId
@@ -5451,15 +5477,29 @@ BEGIN
     IF v_CanCommunityPost = 0 THEN
         SELECT 0    AS IsSuccess,
                'You do not have permission to create polls in this community.' AS Message,
-               NULL AS PollId;
+               NULL AS PollId,
+               NULL AS AudienceCode;
     ELSE
         SELECT lv.LookupValueId INTO v_PollTypeLkpId
         FROM   LookupValues lv JOIN LookupTypes lt ON lt.LookupTypeId = lv.LookupTypeId
         WHERE  lt.TypeCode = 'POST_TYPE_COMMUNITY' AND lv.ValueCode = 'POLL' LIMIT 1;
 
-        SELECT lv.LookupValueId INTO v_AudienceLkpId
-        FROM   LookupValues lv JOIN LookupTypes lt ON lt.LookupTypeId = lv.LookupTypeId
-        WHERE  lt.TypeCode = 'AUDIENCE_TYPE' AND lv.ValueCode = 'ALL_MEMBERS' LIMIT 1;
+        -- Use caller-supplied audience if it resolves to a valid AUDIENCE_TYPE entry;
+        -- otherwise fall back to ALL_MEMBERS.
+        IF p_AudienceLkpId IS NOT NULL AND p_AudienceLkpId > 0 THEN
+            SELECT lv.LookupValueId, lv.ValueCode
+            INTO   v_AudienceLkpId, v_AudienceCode
+            FROM   LookupValues lv JOIN LookupTypes lt ON lt.LookupTypeId = lv.LookupTypeId
+            WHERE  lt.TypeCode = 'AUDIENCE_TYPE' AND lv.LookupValueId = p_AudienceLkpId LIMIT 1;
+        END IF;
+
+        -- If nothing was resolved (NULL/0 input OR supplied ID not found), default to ALL_MEMBERS
+        IF v_AudienceLkpId = 0 THEN
+            SELECT lv.LookupValueId, lv.ValueCode
+            INTO   v_AudienceLkpId, v_AudienceCode
+            FROM   LookupValues lv JOIN LookupTypes lt ON lt.LookupTypeId = lv.LookupTypeId
+            WHERE  lt.TypeCode = 'AUDIENCE_TYPE' AND lv.ValueCode = 'ALL_MEMBERS' LIMIT 1;
+        END IF;
 
         IF v_PollTypeLkpId = 0 THEN SET v_PollTypeLkpId = 1; END IF;
         IF v_AudienceLkpId = 0 THEN SET v_AudienceLkpId = 1; END IF;
@@ -5486,7 +5526,7 @@ BEGIN
         )) AS jt
         WHERE TRIM(jt.opt) != '';
 
-        SELECT 1 AS IsSuccess, 'Poll created successfully.' AS Message, @PollId AS PollId;
+        SELECT 1 AS IsSuccess, 'Poll created successfully.' AS Message, @PollId AS PollId, v_AudienceCode AS AudienceCode;
     END IF;
 END //
 
@@ -9259,7 +9299,17 @@ CREATE PROCEDURE Feed_GetPersonalized(
     IN p_PageSize     INT
 )
 BEGIN
-    DECLARE v_FetchSize INT DEFAULT p_PageSize * 3;
+    DECLARE v_FetchSize   INT          DEFAULT p_PageSize * 3;
+    DECLARE v_PublicLkpId INT UNSIGNED DEFAULT 0;
+
+    -- Resolve the 'PUBLIC' visibility LkpId once — used to pre-filter candidate
+    -- sources (TRENDING / RECENT / INTEREST) so ORG_MEMBERS posts never enter
+    -- the global-discovery buckets in the first place.
+    SELECT lv.LookupValueId INTO v_PublicLkpId
+    FROM   LookupValues lv
+    JOIN   LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE  lt.TypeCode = 'POST_VISIBILITY' AND lv.ValueCode = 'PUBLIC'
+    LIMIT  1;
 
     SELECT sf.* FROM (
 
@@ -9403,6 +9453,7 @@ BEGIN
                 FROM Posts p3
                 WHERE p3.IsDeleted = 0
                   AND p3.CreatedAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+                  AND p3.VisibilityLkpId = v_PublicLkpId  -- global trending: PUBLIC only
                 ORDER BY (p3.LikeCount * 1 + p3.CommentCount * 2 + p3.ShareCount * 3 + p3.SaveCount * 2) DESC
                 LIMIT 100)
 
@@ -9422,6 +9473,7 @@ BEGIN
                 INNER JOIN LookupValues pt5 ON pt5.LookupValueId = p5.PostTypeLkpId
                 WHERE p5.IsDeleted = 0
                   AND p5.CreatedAt >= DATE_SUB(NOW(), INTERVAL 14 DAY)
+                  AND p5.VisibilityLkpId = v_PublicLkpId  -- interest matching: PUBLIC only
                   AND EXISTS(
                       SELECT 1 FROM UserInterests ui5
                       JOIN LookupValues li5 ON ui5.InterestLkpId = li5.LookupValueId
@@ -9437,6 +9489,7 @@ BEGIN
                 FROM Posts p6
                 WHERE p6.IsDeleted = 0
                   AND p6.CreatedAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+                  AND p6.VisibilityLkpId = v_PublicLkpId  -- global recent: PUBLIC only
                 ORDER BY p6.CreatedAt DESC LIMIT 100)
 
             ) all_sources
@@ -11367,6 +11420,7 @@ BEGIN
     DECLARE v_WindowEnd        DATETIME;
     DECLARE v_SessionId        INT UNSIGNED DEFAULT NULL;
     DECLARE v_AttendedLkpId    INT UNSIGNED DEFAULT NULL;
+    DECLARE v_StatusLkpId      INT UNSIGNED DEFAULT NULL;
 
     -- Fetch project schedule + join type
     SELECT ptv.ValueCode, jtv.ValueCode,
@@ -11459,8 +11513,15 @@ BEGIN
                     LIMIT  1;
 
                     IF v_SessionId IS NULL THEN
-                        INSERT INTO ProjectSessions (ProjectId, SessionDate, StartTime, EndTime, CreatedBy)
-                        VALUES (p_ProjectId, v_SessionDate, v_StartTime, v_EndTime, p_UserId);
+                        SELECT LookupValueId INTO v_StatusLkpId
+                        FROM   LookupValues lv
+                        JOIN   LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
+                        WHERE  lt.TypeCode = 'SESSION_STATUS' AND lv.ValueCode = 'UPCOMING'
+                        LIMIT  1;
+
+                        INSERT INTO ProjectSessions
+                               (ProjectId, SessionDate, StartTime, EndTime, SessionStatusLkpId, CreatedBy)
+                        VALUES (p_ProjectId, v_SessionDate, v_StartTime, v_EndTime, v_StatusLkpId, p_UserId);
                         SET v_SessionId = LAST_INSERT_ID();
                     END IF;
 

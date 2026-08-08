@@ -327,6 +327,37 @@ When there is a conflict between files, this priority order applies:
 - **Database Documentation**: Add `Project_SelfCheckIn` SP description with parameters and validation logic.
 - **Postman Collection**: Add `POST self-checkin` request under Project folder.
 
+**Project_SelfCheckIn SP — SessionStatusLkpId bug fix (2026-08-07)**
+- `NGOConnect_Complete_Setup_v5.0.sql` → `Project_SelfCheckIn`: `ProjectSessions` INSERT was missing `SessionStatusLkpId` (NOT NULL, no default) causing MySQL error on first use. Added `DECLARE v_StatusLkpId INT UNSIGNED DEFAULT NULL` and a lookup (`SESSION_STATUS / UPCOMING`) before the INSERT — identical pattern to `Project_ManualAttendance`.
+- `Documents/NGOConnect_Patch_SelfCheckIn.sql` → same fix applied to the patch file.
+- **Database Documentation**: Update `Project_SelfCheckIn` SP description to reflect the corrected INSERT.
+
+**ParticipantsScreen — skill ratings persistence + certificate lock (2026-08-07)**
+- Mobile-only, no SP/API/DB changes.
+- `App/NGOConnectApp/src/screens/admin/ParticipantsScreen.tsx`:
+  1. **Ratings not persisting on re-visit**: `skillRatings` and `submittedRatings` were reset to `{}` on every mount. Fix: in `load()`, after apps resolve, call `projectApi.getSkillRatings(projectId, a.userId)` for each ATTENDED app in parallel; pre-populate `skillRatings` (projectSkillId → rating) and set `submittedRatings[appId] = true` for any app that already has ratings (`rating > 0`). SP `Project_GetSkillRatings` returns all project skills with existing rating (0 if not yet rated).
+  2. **Stars + Save button not locked when `hasCertificate`**: Added `|| hasCertificate` to `disabled` condition on star `TouchableOpacity`; changed Save button guard from `!submittedRatings` to `!submittedRatings && !hasCertificate`; added "🔒 Locked — certificate issued" message when `!submittedRatings && hasCertificate`.
+  3. **Badge buttons not locked when `hasCertificate`**: Added `|| hasCertificate` to `disabled` on badge `TouchableOpacity`.
+- No documents to update.
+
+**Admin ProjectDetailScreen — QR Attendance section hidden for OPEN_SIGNUP projects (2026-08-07)**
+- Mobile-only, no SP/API/DB changes.
+- `App/NGOConnectApp/src/screens/admin/AdminProjectDetailScreen.tsx`: QR Attendance card was already hidden for read-only (completed/cancelled) projects. Added second condition: also hidden when `project?.joinTypeCode?.toUpperCase() === 'OPEN_SIGNUP'`. These projects use volunteer self-check-in — no QR is needed or generated.
+- No documents to update.
+
+**ProjectDetailModal + MyProjectsScreen — QR button shown for OPEN_SIGNUP projects (2026-08-07)**
+- Mobile-only, no SP/API/DB changes.
+- `App/NGOConnectApp/src/screens/profile/ProjectDetailModal.tsx`: added `onSelfCheckIn?: () => void` to Props; CTA section now branches on `app.isCheckedIn` → "Attendance Marked" badge (no button), `app.requiresApproval` → QR button (existing), else → "Mark My Attendance" button (calls `onSelfCheckIn`). Previously showed QR button unconditionally for all upcoming/active APPROVED projects.
+- `App/NGOConnectApp/src/screens/profile/ImpactScreen.tsx`: passes `onSelfCheckIn={() => handleSelfCheckIn(detailApp)}` to `ProjectDetailModal`.
+- `App/NGOConnectApp/src/screens/volunteer/MyProjectsScreen.tsx`: added `projectApi` import; added `handleSelfCheckIn(app)` handler (calls `projectApi.selfCheckIn`, shows Alert, refreshes list); passes `onSelfCheckIn` to `ProjectDetailModal`.
+- No documents to update.
+
+**Project expiry — timezone fix + time picker 24-hour fix (2026-08-07)**
+- Mobile-only, no SP/API/DB changes.
+- `App/NGOConnectApp/src/utils/dateUtils.ts` → `isProjectExpired`: `sessionEndTime` is stored in IST (not UTC); was using `Z` suffix (`new Date(\`..T..Z\`)`) which shifted the expiry 5.5 hours late. Changed to `+05:30` suffix (`new Date(\`..T..+05:30\`)`). Also corrected the JSDoc comment (removed "stored as UTC" — was wrong) and changed the default fallback from `'18:29:59'` (UTC 23:59 IST) to `'23:59:59'` (IST end of day directly).
+- `App/NGOConnectApp/src/screens/admin/CreateProjectScreen.tsx` → Both `DateTimePicker` instances (Android `display="default"` and iOS `display="spinner"`): added `is24Hour={pickerMode === 'time'}` to switch the time picker to 24-hour format. Prevents the AM/PM confusion where selecting "12:00" on the clock could silently save as midnight (00:00) instead of noon (12:00).
+- No documents to update (mobile-only, no API contract change).
+
 ---
 
 **Resend email provider added (2026-08-05)**
@@ -358,6 +389,43 @@ When there is a conflict between files, this priority order applies:
 - **Documents to update when "update documents" is called**:
   - `NGOConnect_Complete_Setup_v5.0.sql` ✅ already updated (4 SPs fixed in-place)
   - `Database_Documentation_v5.0.md` → update `Post_Like`, `Post_AddComment`, `Community_LikePost`, `Community_AddComment` SP result columns
+
+**HoursLogged backfill — QR / self-check-in volunteers (2026-08-07)**
+- Root cause: `Project_CheckIn` and `Project_SelfCheckIn` insert into `ProjectAttendance` without `HoursLogged` (NULL). `Project_Complete` skips already-ATTENDED volunteers (NOT EXISTS guard), so QR/self-check-in volunteers never get hours calculated. Impact screen showed "—" for completed projects.
+- `NGOConnect_Complete_Setup_v5.0.sql` → `Project_Complete`: added step 8 after the main ATTENDED INSERT — UPDATE to backfill `HoursLogged` for already-ATTENDED rows where `HoursLogged IS NULL`. Formula: `GREATEST(ROUND(TIMESTAMPDIFF(MINUTE, att.CheckInTime, LEAST(NOW(), CONVERT_TZ(TIMESTAMP(ps.SessionDate, ps.EndTime), '+05:30', '+00:00'))) / 60.0, 2), 0.50)`. `CheckInTime` is UTC (stored as `NOW()`); session `EndTime` is IST (entered by admin) → converted to UTC via `CONVERT_TZ`.
+- NEW patch file: `Documents/NGOConnect_Patch_HoursLogged.sql` — Part A: updated `Project_Complete` SP; Part B: one-time backfill UPDATE for existing records already in DB.
+- `App/NGOConnectApp/src/screens/profile/ImpactScreen.tsx` → changed `app.hoursLogged ? ...` to `(app.hoursLogged ?? 0) > 0 ? ...` (explicit guard against falsy 0).
+- `App/NGOConnectApp/src/screens/volunteer/MyProjectsScreen.tsx` → same guard fix on `item.hoursLogged`.
+- **Database Documentation**: Update `Project_Complete` SP description — add step 8 (backfill HoursLogged for QR/self-check-in attendees).
+- **Apply to Railway**: Run `NGOConnect_Patch_HoursLogged.sql` (Part A updates the SP; Part B one-time backfill fixes existing NULL records).
+
+**FCMService — Firebase:CredentialsFilePath support added (2026-08-08)**
+- `NGOConnect.Infrastructure/Services/FCMService.cs`: added `ResolveCredentialJson(IConfiguration)` private method. Credentials now resolved in priority order:
+  1. `Firebase:CredentialsFilePath` — if the value is an existing file path on disk, reads the file (production VPS: `/etc/ripplehub/firebase.json`). If the file does not exist (e.g. Railway storing the full JSON in this var), the value is used as raw inline JSON.
+  2. `Firebase:CredentialsJson` — legacy inline JSON fallback (unchanged).
+- **Railway action**: rename env var `Firebase__CredentialsFilePath` → keep as-is (value = full JSON string). Code now handles it correctly without needing a rename.
+- **Production server**: no change needed — `Firebase__CredentialsFilePath=/etc/ripplehub/firebase.json` is already correct and will now be read from file.
+- No SP/DB/API changes.
+
+**Feed_GetPersonalized — Members-Only post visibility fix (2026-08-07)**
+- Root cause: `Feed_GetPersonalized` SP's TRENDING, RECENT, and INTEREST candidate sources selected posts from ALL orgs with no visibility filter. A Members-Only (`ORG_MEMBERS`) post created by any NGO would enter these global-discovery buckets and appear in the Home feed of users who are not members of that NGO.
+- Fix — two layers of defence:
+  - Layer 1 (candidate-source filtering): Added `DECLARE v_PublicLkpId INT UNSIGNED DEFAULT 0` and a single lookup of the `PUBLIC` LkpId at SP start. TRENDING, RECENT, and INTEREST candidate sources now filter `p.VisibilityLkpId = v_PublicLkpId` — ORG_MEMBERS posts never enter global-discovery buckets. MY_ORG and FOLLOWED_ORG are left unrestricted (outer WHERE handles their visibility checks).
+  - Layer 2 (outer WHERE gate): Already present in the SP — retained as safety net for FOLLOWED_ORG posts with ORG_MEMBERS visibility and any future candidate sources.
+- `NGOConnect_Complete_Setup_v5.0.sql` → `Feed_GetPersonalized`: updated with both layers.
+- NEW patch file: `Documents/NGOConnect_Patch_FeedVisibility.sql` — full DROP + CREATE of updated SP for Railway.
+- **Database Documentation**: Update `Feed_GetPersonalized` SP description — note `v_PublicLkpId` variable, candidate-source visibility pre-filter on TRENDING/RECENT/INTEREST, and outer WHERE gate.
+- **Apply to Railway**: Run `NGOConnect_Patch_FeedVisibility.sql` on Railway staging → production.
+
+**Community_CreatePoll — audience support added (2026-08-08)**
+- Root cause: `Community_CreatePoll` SP had no `p_AudienceLkpId` parameter — polls were always saved with the `ALL_MEMBERS` lookup ID regardless of user selection. Mobile was already sending `audienceLkpId` in the request body, but both the C# model (`CreatePollRequest`) and the SP silently discarded it. Notification fan-out also always notified ALL members, leaking ADMINS_ONLY poll alerts to regular members.
+- `NGOConnect_Complete_Setup_v5.0.sql` → `Community_CreatePoll`: added `p_AudienceLkpId INT UNSIGNED` parameter (NULL/0 = ALL_MEMBERS fallback). Validates supplied ID against `AUDIENCE_TYPE` LookupType; falls back to ALL_MEMBERS if not found. Returns `AudienceCode` in both success and failure result rows.
+- `NGOConnect.Core/Models/Community/CommunityModels.cs` → `CreatePollRequest`: added `public int? AudienceLkpId { get; set; }`. Fixed stale comment (`POST_VISIBILITY` → `AUDIENCE_TYPE`).
+- `NGOConnect.Infrastructure/DAL/CommunityDal.cs` → `CreatePollAsync`: added `p_AudienceLkpId` to SP call; reads `AudienceCode` from result; scopes notification fan-out — ADMINS_ONLY → `GetAdminsWithTokensAsync` (author excluded), all others → `GetMembersWithTokensAsync`.
+- NEW patch file: `Documents/NGOConnect_Patch_CommunityPollAudience.sql` — DROP + CREATE of updated SP for Railway.
+- **NOTE**: If `NGOConnect_Patch_VisibilityAudienceFilter.sql` has NOT yet been applied to Railway, apply it FIRST — it contains the `Community_GetFeed` SP with the ADMINS_ONLY read filter. Without it, polls are saved correctly but still returned to all members on read.
+- **Apply to Railway**: Run `NGOConnect_Patch_CommunityPollAudience.sql` on Railway staging → production (after `NGOConnect_Patch_VisibilityAudienceFilter.sql` if not already applied).
+- **Database Documentation**: Update `Community_CreatePoll` SP description — add `p_AudienceLkpId` parameter, audience resolution logic, `AudienceCode` result column.
 
 **v5.0 Release Summary (2026-08-05)**
 All 4 documents bumped from v4.9 → v5.0. All Railway staging patches through 2026-08-05 absorbed. Documents:
