@@ -1,0 +1,12 @@
+**/.vs
+**/bin
+**/obj
+**/logs
+**/.git
+**/.gitignore
+**/UploadFiles
+appsettings.Development.json
+appsettings.Production.json
+appsettings.*.Local.json
+**/Dockerfile
+**/.dockerignore

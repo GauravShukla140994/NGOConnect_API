@@ -1,0 +1,1248 @@
+{
+  "info": {
+    "_postman_id": "ngo-connect-api-v3-2026",
+    "name": "NGO Connect API v3.0",
+    "description": "Complete Postman collection for NGO Connect API. Covers all 64 APIs across 12 modules.\n\n**Setup:**\n1. Import this collection\n2. Create an environment with variables: `baseUrl`, `accessToken`, `refreshToken`\n3. Set `baseUrl` = `https://localhost:7001` (or your dev URL)\n4. Run **Auth > Send OTP** then **Auth > Verify OTP** — the test scripts auto-set `accessToken` and `refreshToken`\n5. All authenticated requests use `{{accessToken}}` from the Bearer Auth tab\n\n**Modules:** Auth, Lookup, User, Settings, Organisations, Projects, Applications, Posts/Feed, Community/Polls, Donations, SOS, Notifications",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl",       "value": "https://localhost:7001", "type": "string" },
+    { "key": "accessToken",   "value": "",                       "type": "string" },
+    { "key": "refreshToken",  "value": "",                       "type": "string" },
+    { "key": "userId",        "value": "1",                      "type": "string" },
+    { "key": "orgId",         "value": "1",                      "type": "string" },
+    { "key": "projectId",     "value": "1",                      "type": "string" },
+    { "key": "sessionId",     "value": "1",                      "type": "string" },
+    { "key": "applicationId", "value": "1",                      "type": "string" },
+    { "key": "postId",        "value": "1",                      "type": "string" },
+    { "key": "commentId",     "value": "1",                      "type": "string" },
+    { "key": "campaignId",    "value": "1",                      "type": "string" },
+    { "key": "donationRef",    "value": "DON-2026-000001",        "type": "string" },
+    { "key": "donationId",    "value": "1",                      "type": "string" },
+    { "key": "recurringId",   "value": "1",                      "type": "string" },
+    { "key": "sosIncidentId", "value": "1",                      "type": "string" },
+    { "key": "notificationId","value": "1",                      "type": "string" },
+    { "key": "pollId",        "value": "1",                      "type": "string" },
+    { "key": "pollOptionId",  "value": "1",                      "type": "string" },
+    { "key": "userSkillId",   "value": "1",                      "type": "string" },
+    { "key": "memberId",      "value": "1",                      "type": "string" },
+    { "key": "qrToken",       "value": "",                       "type": "string" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+  },
+  "item": [
+
+    {
+      "name": "🔐 Auth",
+      "description": "OTP-based passwordless authentication. JWT 15min + Refresh Token 30 days.",
+      "item": [
+        {
+          "name": "Send OTP",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/send-otp", "host": ["{{baseUrl}}"], "path": ["api","v1","auth","send-otp"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"recipient\": \"9876543210\",\n  \"countryCode\": \"+91\",\n  \"purposeLkpId\": 1\n}"
+            },
+            "description": "Send 6-digit OTP to mobile or email. Rate limited: max 3 per 10 min. recipient = mobile number or email address. purposeLkpId: 1=Login, 2=Register, 3=ForgotPassword, 4=ChangeEmail."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('isSuccess = 1', () => pm.expect(j.isSuccess).to.equal(1));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verify OTP",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/verify-otp", "host": ["{{baseUrl}}"], "path": ["api","v1","auth","verify-otp"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"recipient\": \"9876543210\",\n  \"countryCode\": \"+91\",\n  \"otpCode\": \"123456\",\n  \"purposeLkpId\": 1\n}"
+            },
+            "description": "Verify OTP. On success: returns accessToken + refreshToken. Sets collection variables automatically."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('isSuccess = 1', () => pm.expect(j.isSuccess).to.equal(1));",
+                  "if (j.isSuccess === 1 && j.data) {",
+                  "  pm.collectionVariables.set('accessToken',  j.data.accessToken);",
+                  "  pm.collectionVariables.set('refreshToken', j.data.refreshToken);",
+                  "  pm.collectionVariables.set('userId',       String(j.data.userId));",
+                  "  console.log('✅ Tokens saved. userId=' + j.data.userId + ' isNewUser=' + j.data.isNewUser);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/refresh-token", "host": ["{{baseUrl}}"], "path": ["api","v1","auth","refresh-token"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+            },
+            "description": "Rotate refresh token. Old token revoked. Returns new accessToken + refreshToken."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const j = pm.response.json();",
+                  "if (j.isSuccess === 1 && j.data) {",
+                  "  pm.collectionVariables.set('accessToken',  j.data.accessToken);",
+                  "  pm.collectionVariables.set('refreshToken', j.data.refreshToken);",
+                  "  console.log('✅ Tokens rotated');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Revoke Token (Logout)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/revoke-token", "host": ["{{baseUrl}}"], "path": ["api","v1","auth","revoke-token"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+            },
+            "description": "Logout. Revokes the refresh token.",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] }
+          },
+          "response": []
+        }
+      ]
+    },
+
+    {
+      "name": "📋 Lookup",
+      "description": "Reference data. Cache client-side — changes infrequently.",
+      "item": [
+        {
+          "name": "Get All Lookup Types",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/v1/lookup/types", "host": ["{{baseUrl}}"], "path": ["api","v1","lookup","types"] },
+            "description": "Returns all LookupType codes: GENDER, SKILL, USER_ROLE, OTP_PURPOSE, ORG_TYPE, etc."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Values by TypeCode",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/lookup/values/GENDER",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","lookup","values","GENDER"]
+            },
+            "description": "Replace GENDER with: SKILL, USER_ROLE, SKILL_PROFICIENCY, ORG_TYPE, OTP_PURPOSE, etc."
+          },
+          "response": []
+        }
+      ]
+    },
+
+    {
+      "name": "👤 User",
+      "description": "Profile management and skills.",
+      "item": [
+        {
+          "name": "Get My Profile",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/v1/user/profile", "host": ["{{baseUrl}}"], "path": ["api","v1","user","profile"] },
+            "description": "Full profile with PII (mobile, email). Own profile only."
+          },
+          "response": []
+        },
+        {
+          "name": "Update My Profile",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/user/profile", "host": ["{{baseUrl}}"], "path": ["api","v1","user","profile"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Gaurav\",\n  \"lastName\": \"Shukla\",\n  \"about\": \"Software Developer & NGO enthusiast.\",\n  \"city\": \"Pune\",\n  \"state\": \"Maharashtra\",\n  \"country\": \"India\"\n}"
+            },
+            "description": "PATCH semantics — null fields keep existing DB value (COALESCE in SP)."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Public Profile",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/user/{{userId}}/profile",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","user","{{userId}}","profile"]
+            },
+            "description": "Public profile — no PII. Works for any userId."
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Skills",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/v1/user/skills", "host": ["{{baseUrl}}"], "path": ["api","v1","user","skills"] }
+          },
+          "response": []
+        },
+        {
+          "name": "Add / Update Skill",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/user/skills", "host": ["{{baseUrl}}"], "path": ["api","v1","user","skills"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"skillName\": \"Community Outreach\"\n}"
+            },
+            "description": "Upsert by skill name — adds skill if new, restores if previously soft-deleted. DB: UserSkills.SkillName VARCHAR(100). No LkpId needed."
+          },
+          "response": []
+        },
+        {
+          "name": "Remove Skill",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/user/skills/{{userSkillId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","user","skills","{{userSkillId}}"]
+            },
+            "description": "Remove a skill from own profile."
+          },
+          "response": []
+        }
+      ]
+    },
+
+    {
+      "name": "⚙️ Settings",
+      "description": "Platform configuration. Admin-editable. Cache-backed (zero DB reads on GET).",
+      "item": [
+        {
+          "name": "Get Public Settings",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/v1/settings/public", "host": ["{{baseUrl}}"], "path": ["api","v1","settings","public"] },
+            "description": "No auth required. Returns only IsPublic=1 settings. Safe for frontend."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Settings by Group",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/settings/OTP",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","settings","OTP"]
+            },
+            "description": "Groups: OTP, AUTH, PAGINATION, FEATURE, DONATION, UPLOAD, PLATFORM, EMAIL."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Setting (Admin)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/settings/OTP_EXPIRY_MINUTES",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","settings","OTP_EXPIRY_MINUTES"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"settingValue\": \"10\"\n}"
+            },
+            "description": "Update any setting. Triggers SettingsCache refresh. Admin only."
+          },
+          "response": []
+        }
+      ]
+    },
+
+    {
+      "name": "🏢 Organisations",
+      "description": "NGO registration, profile, and member management.",
+      "item": [
+        {
+          "name": "Register Organisation",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/org", "host": ["{{baseUrl}}"], "path": ["api","v1","org"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orgName\": \"Helping Hands Foundation\",\n  \"registrationNo\": \"MH-2024-NGO-001\",\n  \"category\": \"Education\",\n  \"about\": \"A foundation committed to rural education and healthcare.\",\n  \"website\": \"https://helpinghands.org\",\n  \"phone\": \"9800000001\",\n  \"email\": \"contact@helpinghands.org\",\n  \"city\": \"Pune\",\n  \"state\": \"Maharashtra\",\n  \"country\": \"India\",\n  \"orgTypeLkpId\": 1\n}"
+            },
+            "description": "Registering user is auto-added as FOUNDER (APPROVED). orgTypeLkpId: LookupValueId from TypeCode='ORG_TYPE'. Org starts with StatusLkpId=PENDING (awaiting verification)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const j = pm.response.json();",
+                  "if (j.isSuccess === 1 && j.data) {",
+                  "  pm.collectionVariables.set('orgId', String(j.data.orgId));",
+                  "  console.log('✅ orgId saved: ' + j.data.orgId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Org Profile",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/org/{{orgId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","org","{{orgId}}"]
+            },
+            "description": "Public. Returns org details with OrgType and MemberCount."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Org Profile",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/org/{{orgId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","org","{{orgId}}"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"about\": \"Updated mission: rural education, healthcare, and women empowerment.\",\n  \"website\": \"https://helpinghands.org/updated\",\n  \"city\": \"Pune\"\n}"
+            },
+            "description": "Org Admin/Staff only. PATCH semantics."
+          },
+          "response": []
+        },
+        {
+          "name": "List Organisations",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/org/list?search=&pageNumber=1&pageSize=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","org","list"],
+              "query": [
+                { "key": "search",     "value": "" },
+                { "key": "pageNumber", "value": "1" },
+                { "key": "pageSize",   "value": "20" }
+              ]
+            },
+            "description": "Public paged list. Filter by search text."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Org Members",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/org/{{orgId}}/members",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","org","{{orgId}}","members"]
+            },
+            "description": "Returns members with role, fullName, and avatarUrl."
+          },
+          "response": []
+        },
+        {
+          "name": "Add Member",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/org/{{orgId}}/members",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","org","{{orgId}}","members"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": 2,\n  \"roleLkpId\": 1\n}"
+            },
+            "description": "Org Admin/Founder only. roleLkpId: LookupValueId from TypeCode='MEMBER_ROLE' (FOUNDER/ADMIN/MODERATOR/MEMBER/VOLUNTEER). DB column: OrgMembers.RoleLkpId INT FK."
+          },
+          "response": []
+        },
+        {
+          "name": "Remove Member",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/org/{{orgId}}/members/{{memberId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","org","{{orgId}}","members","{{memberId}}"]
+            },
+            "description": "Soft-delete. Admin only."
+          },
+          "response": []
+        }
+      ]
+    },
+
+    {
+      "name": "📁 Projects",
+      "description": "Volunteer projects with QR-based session attendance.",
+      "item": [
+        {
+          "name": "Create Project",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/project", "host": ["{{baseUrl}}"], "path": ["api","v1","project"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orgId\": {{orgId}},\n  \"title\": \"Tree Plantation Drive 2026\",\n  \"description\": \"Plant 10,000 trees across Pune district.\",\n  \"category\": \"Environment\",\n  \"city\": \"Pune\",\n  \"state\": \"Maharashtra\",\n  \"projectTypeLkpId\": 1,\n  \"locationTypeLkpId\": 1,\n  \"joinTypeLkpId\": 1,\n  \"maxVolunteers\": 200\n}"
+            },
+            "description": "Org Admin/Moderator/Founder only. title maps to DB column ProjectName. projectTypeLkpId: TypeCode='PROJECT_TYPE'. locationTypeLkpId: TypeCode='LOCATION_TYPE'. joinTypeLkpId: TypeCode='JOIN_TYPE' (OPEN/INVITE_ONLY). No startDate/endDate on Projects — those are on ProjectSessions."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const j = pm.response.json();",
+                  "if (j.isSuccess === 1 && j.data) pm.collectionVariables.set('projectId', String(j.data.projectId));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Project by ID",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/project/{{projectId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","project","{{projectId}}"]
+            },
+            "description": "Public."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Project",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/project/{{projectId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","project","{{projectId}}"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Tree Plantation Drive 2026 (Updated)\",\n  \"maxVolunteers\": 300,\n  \"statusLkpId\": 1\n}"
+            },
+            "description": "Org Admin/Moderator only. PATCH semantics. statusLkpId: LookupValueId from TypeCode='PROJECT_STATUS' (ACTIVE/COMPLETED/CANCELLED). DB column: Projects.StatusLkpId INT FK."
+          },
+          "response": []
+        },
+        {
+          "name": "List Projects",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/project/list?search=&pageNumber=1&pageSize=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","project","list"],
+              "query": [
+                { "key": "orgId",      "value": "",   "disabled": true },
+                { "key": "search",     "value": "" },
+                { "key": "pageNumber", "value": "1" },
+                { "key": "pageSize",   "value": "20" }
+              ]
+            },
+            "description": "Public. OPEN projects only. Filter by orgId or search."
+          },
+          "response": []
+        },
+        {
+          "name": "Add Session",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/project/{{projectId}}/sessions",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","project","{{projectId}}","sessions"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionDate\": \"2026-07-15\",\n  \"startTime\": \"08:00\",\n  \"endTime\": \"12:00\",\n  \"maxVolunteers\": 50\n}"
+            },
+            "description": "Org Admin/Moderator only. sessionDate: DATE. startTime/endTime: HH:mm (24-hour format). DB columns: ProjectSessions.SessionDate DATE, StartTime TIME, EndTime TIME. No Title or Location columns on ProjectSessions. SP auto-generates UUID QR code. QrExpiresAt = EndTime + 30 min."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const j = pm.response.json();",
+                  "if (j.isSuccess === 1 && j.data) pm.collectionVariables.set('sessionId', String(j.data.sessionId));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Sessions",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/project/{{projectId}}/sessions",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","project","{{projectId}}","sessions"]
+            },
+            "description": "Returns sessions with attendeeCount."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Session QR",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/project/{{projectId}}/sessions/{{sessionId}}/qr",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","project","{{projectId}}","sessions","{{sessionId}}","qr"]
+            },
+            "description": "Returns QR token. Org Admin/Staff only. Encode this in a QR code image for volunteers to scan."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const j = pm.response.json();",
+                  "if (j.isSuccess !== 0 && j.data) {",
+                  "  pm.collectionVariables.set('qrToken', j.data.qrCode);",
+                  "  console.log('✅ qrToken saved');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Check In (QR Scan)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/project/{{projectId}}/sessions/{{sessionId}}/checkin",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","project","{{projectId}}","sessions","{{sessionId}}","checkin"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"qrToken\": \"{{qrToken}}\"\n}"
+            },
+            "description": "Volunteer check-in via QR scan. Prevents duplicate check-ins."
+          },
+          "response": []
+        }
+      ]
+    },
+
+    {
+      "name": "📝 Applications",
+      "description": "Volunteer applications to projects. Workflow: PENDING → APPROVED | REJECTED.",
+      "item": [
+        {
+          "name": "Apply to Project",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/project/{{projectId}}/apply",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","project","{{projectId}}","apply"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"I have 3 years of volunteering experience in tree plantation drives.\"\n}"
+            },
+            "description": "Project must be OPEN. Duplicate application rejected at DB level."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Applications for Project",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/project/{{projectId}}/applications?statusLkpId=&pageNumber=1&pageSize=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","project","{{projectId}}","applications"],
+              "query": [
+                { "key": "statusLkpId", "value": "", "description": "Optional. LookupValueId from TypeCode='APPLICATION_STATUS'. Leave empty to get all." },
+                { "key": "pageNumber",  "value": "1" },
+                { "key": "pageSize",    "value": "20" }
+              ]
+            },
+            "description": "Org Admin/Moderator only. statusLkpId: LookupValueId from TypeCode='APPLICATION_STATUS' (PENDING/APPROVED/REJECTED). DB column: ProjectApplications.StatusLkpId INT FK."
+          },
+          "response": []
+        },
+        {
+          "name": "Review Application (Approve/Reject)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/applications/{{applicationId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","applications","{{applicationId}}"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"statusLkpId\": 1,\n  \"note\": \"Welcome to the team! Please check the session schedule.\"\n}"
+            },
+            "description": "Org Admin/Moderator only. statusLkpId: LookupValueId from TypeCode='APPLICATION_STATUS'. note maps to DB column RejectionReason (stored for context on approval too). DB column: ProjectApplications.StatusLkpId INT FK."
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Applications",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/user/applications",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","user","applications"]
+            },
+            "description": "All applications by the authenticated user across all projects."
+          },
+          "response": []
+        }
+      ]
+    },
+
+    {
+      "name": "📰 Posts / Feed",
+      "description": "Social feed — posts, likes, threaded comments, reports.",
+      "item": [
+        {
+          "name": "Create Post",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/post", "host": ["{{baseUrl}}"], "path": ["api","v1","post"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Excited to announce our new tree plantation drive! Join us this July.\",\n  \"orgId\": {{orgId}},\n  \"mediaUrls\": \"\",\n  \"postTypeLkpId\": 1,\n  \"visibilityLkpId\": 1\n}"
+            },
+            "description": "mediaUrls: comma-separated Azure Blob URLs (stored to PostMedia.FileUrl). postTypeLkpId: LookupValueId from TypeCode='POST_TYPE_FEED'. visibilityLkpId: LookupValueId from TypeCode='POST_VISIBILITY'. DB columns: Posts.PostTypeLkpId + VisibilityLkpId INT FK."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const j = pm.response.json();",
+                  "if (j.isSuccess === 1 && j.data) pm.collectionVariables.set('postId', String(j.data.postId));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Feed",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/feed?pageNumber=1&pageSize=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","feed"],
+              "query": [
+                { "key": "pageNumber", "value": "1" },
+                { "key": "pageSize",   "value": "20" }
+              ]
+            },
+            "description": "Paged feed ordered by CreatedAt DESC. Includes isLikedByMe."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Post by ID",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/post/{{postId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","post","{{postId}}"]
+            },
+            "description": "Public. Single post detail."
+          },
+          "response": []
+        },
+        {
+          "name": "Like Post",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/post/{{postId}}/like",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","post","{{postId}}","like"]
+            },
+            "description": "Duplicate check at DB level."
+          },
+          "response": []
+        },
+        {
+          "name": "Unlike Post",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/post/{{postId}}/like",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","post","{{postId}}","like"]
+            },
+            "description": "Decrements LikeCount (min 0)."
+          },
+          "response": []
+        },
+        {
+          "name": "Add Comment",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/post/{{postId}}/comments",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","post","{{postId}}","comments"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"This is amazing! Count me in.\",\n  \"parentCommentId\": null\n}"
+            },
+            "description": "Set parentCommentId for threaded replies."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Comments",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/post/{{postId}}/comments?pageNumber=1&pageSize=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","post","{{postId}}","comments"],
+              "query": [
+                { "key": "pageNumber", "value": "1" },
+                { "key": "pageSize",   "value": "20" }
+              ]
+            },
+            "description": "Public. Returns parentCommentId for client to build threads."
+          },
+          "response": []
+        },
+        {
+          "name": "Report Post",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/post/{{postId}}/report",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","post","{{postId}}","report"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reasonLkpId\": 1,\n  \"details\": \"Misleading information about the campaign goals.\"\n}"
+            },
+            "description": "One report per user per post enforced at DB. reasonLkpId: LookupValueId from TypeCode='REPORT_REASON'. DB columns: PostReports.ReasonLkpId + StatusLkpId INT FK, ReportedByUserId (not UserId)."
+          },
+          "response": []
+        }
+      ]
+    },
+
+    {
+      "name": "💬 Community / Polls",
+      "description": "Discussion board with timed polls.",
+      "item": [
+        {
+          "name": "Create Community Post",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/community/post", "host": ["{{baseUrl}}"], "path": ["api","v1","community","post"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orgId\": {{orgId}},\n  \"title\": \"Best practices for volunteer onboarding in rural areas?\",\n  \"content\": \"Looking for insights on how to effectively onboard volunteers in remote locations with limited connectivity.\",\n  \"postTypeLkpId\": 1,\n  \"audienceLkpId\": 1\n}"
+            },
+            "description": "orgId is required (NOT NULL in DB). title is required (NOT NULL, max 300 chars). postTypeLkpId: LookupValueId from TypeCode='POST_TYPE_COMMUNITY' (DISCUSSION/QUESTION/ANNOUNCEMENT/RESOURCE). audienceLkpId: TypeCode='POST_VISIBILITY' (defaults to ORG_MEMBERS). No Tags column in DB."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Community Feed",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/community/feed?pageNumber=1&pageSize=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","community","feed"],
+              "query": [
+                { "key": "pageNumber", "value": "1" },
+                { "key": "pageSize",   "value": "20" }
+              ]
+            },
+            "description": "Public. All community posts and polls."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Poll",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/community/poll", "host": ["{{baseUrl}}"], "path": ["api","v1","community","poll"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orgId\": {{orgId}},\n  \"question\": \"Which volunteering area would you like NGO Connect to focus on next?\",\n  \"options\": [\"Education\", \"Healthcare\", \"Environment\", \"Women Empowerment\"],\n  \"expiresInHours\": 48\n}"
+            },
+            "description": "orgId required (NOT NULL in DB). options: array of strings (min 2). expiresInHours: poll expires via PollEndsAt = NOW() + hours (DB column: CommunityPosts.PollEndsAt). No IsPoll or ExpiresAt columns — type is determined by PostTypeLkpId=POLL."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const j = pm.response.json();",
+                  "if (j.isSuccess === 1 && j.data) pm.collectionVariables.set('pollId', String(j.data.pollId));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Vote on Poll",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/community/poll/{{pollId}}/vote",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","community","poll","{{pollId}}","vote"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pollOptionId\": {{pollOptionId}}\n}"
+            },
+            "description": "One vote per user per poll. Poll must not be expired."
+          },
+          "response": []
+        }
+      ]
+    },
+
+    {
+      "name": "💰 Donations",
+      "description": "Fundraising campaigns with Razorpay integration. Recurring donations. 80G receipts.",
+      "item": [
+        {
+          "name": "Create Campaign",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/donation/campaigns", "host": ["{{baseUrl}}"], "path": ["api","v1","donation","campaigns"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orgId\": {{orgId}},\n  \"title\": \"Flood Relief Fund — Maharashtra 2026\",\n  \"description\": \"Providing emergency relief to flood-affected families in Kolhapur district.\",\n  \"goalAmount\": 500000.00,\n  \"startDate\": \"2026-07-01\",\n  \"endDate\": \"2026-08-31\",\n  \"bannerUrl\": \"\",\n  \"campaignTypeLkpId\": 1\n}"
+            },
+            "description": "Org Admin/Founder only. title maps to DB column CampaignName. goalAmount maps to DB column TargetAmount. startDate required (DB column: DonationCampaigns.StartDate DATE). campaignTypeLkpId required: LookupValueId from TypeCode='CAMPAIGN_TYPE' (GENERAL/PROJECT/EMERGENCY/RECURRING)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const j = pm.response.json();",
+                  "if (j.isSuccess === 1 && j.data) pm.collectionVariables.set('campaignId', String(j.data.campaignId));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Campaigns",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/donation/campaigns?pageNumber=1&pageSize=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","donation","campaigns"],
+              "query": [
+                { "key": "orgId",      "value": "", "disabled": true },
+                { "key": "search",     "value": "", "disabled": true },
+                { "key": "pageNumber", "value": "1" },
+                { "key": "pageSize",   "value": "20" }
+              ]
+            },
+            "description": "Public. ACTIVE campaigns with progressPct."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Campaign by ID",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/donation/campaigns/{{campaignId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","donation","campaigns","{{campaignId}}"]
+            },
+            "description": "Public. Full detail with progressPct and donorCount."
+          },
+          "response": []
+        },
+        {
+          "name": "Initiate Donation (Step 1)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/donation/donate", "host": ["{{baseUrl}}"], "path": ["api","v1","donation","donate"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"campaignId\": {{campaignId}},\n  \"amount\": 500.00,\n  \"note\": \"Glad to help the flood victims.\",\n  \"isAnonymous\": false,\n  \"payMethodLkpId\": 1\n}"
+            },
+            "description": "Returns donationRef (DON-2026-000001) + razorpayOrderId + transactionId. payMethodLkpId: LookupValueId from TypeCode='PAYMENT_METHOD' (UPI/CARD/NET_BANKING/WALLET). SP returns DonationRef, RazorpayOrderId, Amount, TransactionId (no IsSuccess/Message). Use razorpayOrderId with Razorpay SDK to collect payment."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const j = pm.response.json();",
+                  "if (j.data) {",
+                  "  pm.collectionVariables.set('donationRef', j.data.donationRef);",
+                  "  console.log('✅ donationRef: ' + j.data.donationRef + ' | razorpayOrderId: ' + j.data.razorpayOrderId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verify Payment (Step 2)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/donation/verify-payment", "host": ["{{baseUrl}}"], "path": ["api","v1","donation","verify-payment"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"donationRef\": \"{{donationRef}}\",\n  \"razorpayOrderId\": \"order_mock_12345\",\n  \"razorpayPaymentId\": \"pay_mock_abc123\",\n  \"razorpaySignature\": \"mock_signature_here\"\n}"
+            },
+            "description": "C# layer verifies HMAC-SHA256 signature first. SP marks COMPLETED and increments RaisedAmount."
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Transactions",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/donation/transactions?pageNumber=1&pageSize=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","donation","transactions"],
+              "query": [
+                { "key": "pageNumber", "value": "1" },
+                { "key": "pageSize",   "value": "20" }
+              ]
+            },
+            "description": "Own donation history."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Receipt (80G)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/donation/receipts/{{donationId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","donation","receipts","{{donationId}}"]
+            },
+            "description": "80G receipt data. donationId: INT (auto-increment PK from DonationTransactions table). SP Donation_GetReceipt takes p_DonationId not p_DonationRef. Only COMPLETED donations. Only own receipts."
+          },
+          "response": []
+        },
+        {
+          "name": "Setup Recurring Donation",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/donation/recurring", "host": ["{{baseUrl}}"], "path": ["api","v1","donation","recurring"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orgId\": {{orgId}},\n  \"campaignId\": {{campaignId}},\n  \"amount\": 100.00,\n  \"frequencyLkpId\": 1,\n  \"startDate\": \"2026-08-01\"\n}"
+            },
+            "description": "orgId required (NOT NULL in SP). startDate required: first billing date (DATE). frequencyLkpId: LookupValueId from TypeCode='RECURRING_FREQUENCY' (WEEKLY/MONTHLY/QUARTERLY/YEARLY). DB column: RecurringDonations.FrequencyLkpId INT FK. SP returns RecurringDonId. Processed by Hangfire background job."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const j = pm.response.json();",
+                  "if (j.isSuccess === 1 && j.data) pm.collectionVariables.set('recurringId', String(j.data));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancel Recurring Donation",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/donation/recurring/{{recurringId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","donation","recurring","{{recurringId}}"]
+            },
+            "description": "Ownership check in SP."
+          },
+          "response": []
+        }
+      ]
+    },
+
+    {
+      "name": "🆘 SOS",
+      "description": "Emergency alert system with live GPS tracking. Live location updates via SignalR (not REST).",
+      "item": [
+        {
+          "name": "Trigger SOS",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/sos", "host": ["{{baseUrl}}"], "path": ["api","v1","sos"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": 18.5204,\n  \"longitude\": 73.8567,\n  \"description\": \"Volunteer injured at project site. Need immediate medical help.\",\n  \"alertTypeLkpId\": 1\n}"
+            },
+            "description": "Any existing ACTIVE SOS for this user is auto-resolved before creating new one. alertTypeLkpId: LookupValueId from TypeCode='SOS_ALERT_TYPE' (SOS/HELP_REQUEST/MISSING_VOL/SAFE_ARRIVAL). DB column: SosIncidents.AlertTypeLkpId INT FK (was SosType VARCHAR). SP returns SosIncidentId."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const j = pm.response.json();",
+                  "if (j.isSuccess === 1 && j.data) pm.collectionVariables.set('sosIncidentId', String(j.data));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Active SOS",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/sos/active",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","sos","active"]
+            },
+            "description": "Returns all active SOS incidents visible to the current user. DynamicRow — shape driven by SP."
+          },
+          "response": []
+        },
+        {
+          "name": "Resolve SOS",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/sos/{{sosIncidentId}}/resolve",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","sos","{{sosIncidentId}}","resolve"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"resolvedByLkpId\": 1\n}"
+            },
+            "description": "Only the triggering user can resolve their own SOS. resolvedByLkpId: LookupValueId from TypeCode='SOS_RESOLUTION_TYPE'. DB column: SosIncidents.ResolvedByLkpId INT FK (was ResolutionNote VARCHAR)."
+          },
+          "response": []
+        },
+        {
+          "name": "Respond to SOS",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/sos/{{sosIncidentId}}/respond",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","sos","{{sosIncidentId}}","respond"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": ""
+            },
+            "description": "No request body needed — SP Sos_Respond takes only p_SosIncidentId + p_UserId (from JWT). Cannot respond to own SOS. One response per user per SOS."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Location",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/sos/{{sosIncidentId}}/location",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","sos","{{sosIncidentId}}","location"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": 18.5210,\n  \"longitude\": 73.8571,\n  \"accuracy\": 12.5\n}"
+            },
+            "description": "High-frequency endpoint. Call every 10 seconds. accuracy: GPS accuracy in metres (optional). Writes to SosLocationLogs (BIGINT PK)."
+          },
+          "response": []
+        }
+      ]
+    },
+
+    {
+      "name": "🔔 Notifications",
+      "description": "In-app notifications and FCM device token management.",
+      "item": [
+        {
+          "name": "Get My Notifications",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/notifications?pageNumber=1&pageSize=30",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","notifications"],
+              "query": [
+                { "key": "pageNumber", "value": "1" },
+                { "key": "pageSize",   "value": "30" }
+              ]
+            },
+            "description": "Paged, most recent first."
+          },
+          "response": []
+        },
+        {
+          "name": "Mark Notification Read",
+          "request": {
+            "method": "PUT",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/notifications/{{notificationId}}/read",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","notifications","{{notificationId}}","read"]
+            },
+            "description": "Ownership check — can only mark own notifications."
+          },
+          "response": []
+        },
+        {
+          "name": "Mark All Notifications Read",
+          "request": {
+            "method": "PUT",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/notifications/read-all",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","notifications","read-all"]
+            },
+            "description": "Bulk update — marks all unread for the authenticated user."
+          },
+          "response": []
+        },
+        {
+          "name": "Register Device Token (FCM)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/notifications/device-token",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","v1","notifications","device-token"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"fcm_device_token_from_firebase_sdk_here\",\n  \"platform\": \"ANDROID\"\n}"
+            },
+            "description": "Upsert per (UserId, Platform). platform: ANDROID | IOS | WEB."
+          },
+          "response": []
+        }
+      ]
+    }
+
+  ]
+}

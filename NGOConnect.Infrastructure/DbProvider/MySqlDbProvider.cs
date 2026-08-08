@@ -1,6 +1,6 @@
 using System.Data;
 using Microsoft.Extensions.Configuration;
-using MySql.Data.MySqlClient;
+using MySqlConnector;
 using NGOConnect.Core.Interfaces;
 
 namespace NGOConnect.Infrastructure.DbProvider
@@ -51,10 +51,14 @@ namespace NGOConnect.Infrastructure.DbProvider
 
         public async Task<DataSet> FillDataSetAsync(IDbCommand command)
         {
+            // MySqlDataAdapter.Fill is synchronous — wrapping in Task.Run is an
+            // anti-pattern that moves execution to a thread-pool thread, causing
+            // cross-thread connection state issues with MySql.Data (DML executes
+            // but does not commit). Call Fill directly on the calling thread.
             var ds = new DataSet();
             using var adapter = new MySqlDataAdapter((MySqlCommand)command);
-            await Task.Run(() => adapter.Fill(ds));
-            return ds;
+            adapter.Fill(ds);
+            return await Task.FromResult(ds);
         }
 
         public async Task ExecuteNonQueryAsync(IDbCommand command)

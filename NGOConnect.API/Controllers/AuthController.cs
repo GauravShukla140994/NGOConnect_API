@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using NGOConnect.Core.Interfaces;
 using NGOConnect.Core.Models.Auth;
 using NGOConnect.Core.Models.Common;
@@ -17,7 +17,7 @@ namespace NGOConnect.API.Controllers
             _authDal = authDal;
         }
 
-        /// <summary>Send OTP to mobile or email</summary>
+        /// <summary>Send OTP to mobile or email </summary>
         [HttpPost("send-otp")]
         [ProducesResponseType(typeof(ApiResponse<SendOtpResponse>), 200)]
         public async Task<ApiResponse<SendOtpResponse>> SendOtp(

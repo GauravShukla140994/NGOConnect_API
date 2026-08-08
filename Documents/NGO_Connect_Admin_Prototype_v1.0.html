@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>NGO Connect — Super Admin Prototype v1.0</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+:root{--p:#6B4EFF;--pl:#EEF0FF;--tl:#2ECC71;--or:#FF8C42;--rd:#FF4444;--yw:#F59E0B;--tx:#1A1A2E;--t2:#666680;--t3:#999BB0;--bg:#F0F2F8;--bd:#E8E8F0;--cd:#FFFFFF;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--tx);min-height:100vh;}
+
+/* === VERSION BADGE === */
+.version-badge{position:fixed;top:10px;left:50%;transform:translateX(-50%);background:#1a1a2e;color:rgba(255,255,255,.85);font-size:11px;font-weight:500;padding:6px 16px;border-radius:20px;z-index:999;display:flex;gap:8px;align-items:center;}
+.version-badge span{color:#9B7BFF;font-weight:700;}
+
+/* === TYPOGRAPHY === */
+.h1{font-size:22px;font-weight:700;}
+.h2{font-size:17px;font-weight:700;}
+.h3{font-size:14px;font-weight:600;}
+.body{font-size:13px;line-height:1.6;}
+.sm{font-size:12px;color:var(--t2);}
+.xs{font-size:11px;color:var(--t3);}
+.slab{font-size:10px;font-weight:700;color:var(--t2);letter-spacing:.07em;text-transform:uppercase;margin-bottom:8px;}
+
+/* === LOGIN SCREEN === */
+#loginScreen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#1a1a2e,#2d2560);}
+.login-card{background:var(--cd);border-radius:20px;padding:40px 36px;width:380px;box-shadow:0 30px 80px rgba(0,0,0,.35);}
+.login-logo{width:52px;height:52px;border-radius:14px;background:linear-gradient(135deg,#6B4EFF,#9B7BFF);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:20px;margin-bottom:18px;}
+.login-title{font-size:20px;font-weight:700;margin-bottom:4px;}
+.login-sub{font-size:12px;color:var(--t2);margin-bottom:26px;}
+.login-err{background:#FFF0F0;border:1px solid #FECACA;color:var(--rd);font-size:12px;padding:9px 12px;border-radius:10px;margin-bottom:14px;display:none;}
+.login-err.on{display:block;}
+
+/* === FORM === */
+.fl{margin-bottom:16px;}
+.fl label{font-size:11px;font-weight:600;color:var(--t2);display:block;margin-bottom:6px;}
+.fi{width:100%;padding:11px 13px;border:1.5px solid var(--bd);border-radius:10px;font-size:13px;color:var(--tx);background:#F8F8FC;outline:none;font-family:inherit;}
+.fi:focus{border-color:var(--p);}
+.fs{width:100%;padding:9px 12px;border:1.5px solid var(--bd);border-radius:9px;font-size:12px;color:var(--tx);background:#F8F8FC;outline:none;font-family:inherit;}
+.fta{width:100%;padding:10px 13px;border:1.5px solid var(--bd);border-radius:10px;font-size:13px;color:var(--tx);background:#F8F8FC;outline:none;resize:none;min-height:70px;font-family:inherit;}
+
+/* === BUTTONS === */
+.btn-p{background:var(--p);color:#fff;border:none;border-radius:10px;padding:11px;font-size:13px;font-weight:600;cursor:pointer;width:100%;font-family:inherit;}
+.btn-o{background:transparent;border:1.5px solid var(--bd);color:var(--t2);border-radius:10px;padding:10px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit;}
+.btn-tl{background:#E8F8F0;color:#16A34A;border:1px solid #BBF7D0;border-radius:10px;padding:10px 16px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit;}
+.btn-rd{background:#FFF0F0;color:var(--rd);border:1px solid #FECACA;border-radius:10px;padding:10px 16px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit;}
+.btn-yw{background:#FFFBEB;color:#B45309;border:1px solid #FDE68A;border-radius:10px;padding:10px 16px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit;}
+.btn-sm{padding:6px 12px;font-size:11.5px;border-radius:8px;}
+.btn-link{background:none;border:none;color:var(--p);font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit;}
+
+/* === PILLS === */
+.pill{display:inline-flex;align-items:center;padding:4px 11px;border-radius:20px;font-size:10.5px;font-weight:700;gap:4px;letter-spacing:.02em;}
+.pp{background:var(--pl);color:var(--p);}
+.pg{background:#E8F8F0;color:#16A34A;}
+.po{background:#FFF4EE;color:var(--or);}
+.py{background:#FFFBEB;color:#B45309;}
+.pr{background:#FFF0F0;color:var(--rd);}
+.pgr{background:#F1EFE8;color:#5F5E5A;}
+.pb{background:#EFF6FF;color:#2563EB;}
+
+/* === APP SHELL === */
+#app{display:none;min-height:100vh;}
+#app.on{display:flex;}
+.sidebar{width:230px;background:#1a1a2e;flex-shrink:0;display:flex;flex-direction:column;padding:20px 14px;}
+.sb-logo{display:flex;align-items:center;gap:10px;padding:6px 8px 24px;}
+.sb-logo .mark{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,#6B4EFF,#9B7BFF);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:14px;}
+.sb-logo .name{color:#fff;font-size:14px;font-weight:700;}
+.sb-logo .tag{color:#9B7BFF;font-size:9.5px;font-weight:600;letter-spacing:.06em;}
+.nav-item{display:flex;align-items:center;gap:11px;padding:11px 12px;border-radius:10px;color:#B4B4CC;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:3px;}
+.nav-item:hover{background:rgba(255,255,255,.05);}
+.nav-item.on{background:var(--p);color:#fff;}
+.nav-item .ic{width:17px;text-align:center;}
+.nav-item .badge{margin-left:auto;background:var(--rd);color:#fff;font-size:10px;font-weight:700;padding:1px 7px;border-radius:10px;}
+.sb-foot{margin-top:auto;padding-top:14px;border-top:1px solid rgba(255,255,255,.08);}
+
+.main{flex:1;display:flex;flex-direction:column;min-width:0;}
+.topbar{background:var(--cd);padding:16px 28px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--bd);}
+.topbar .h1{font-size:19px;}
+.admin-chip{display:flex;align-items:center;gap:9px;}
+.av{width:34px;height:34px;border-radius:50%;background:var(--p);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;}
+.content{padding:24px 28px;flex:1;overflow-y:auto;}
+.page{display:none;}
+.page.on{display:block;}
+
+/* === KPI === */
+.kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px;}
+.kpi{background:var(--cd);border-radius:14px;padding:16px 18px;box-shadow:0 2px 10px rgba(0,0,0,.05);}
+.kpi .n{font-size:24px;font-weight:700;margin:4px 0 2px;}
+
+/* === CARD/TABLE === */
+.card{background:var(--cd);border-radius:14px;box-shadow:0 2px 10px rgba(0,0,0,.05);overflow:hidden;}
+.card-head{padding:16px 18px;border-bottom:1px solid var(--bd);display:flex;align-items:center;justify-content:space-between;}
+.tabs{display:flex;gap:4px;padding:12px 18px 0;}
+.tab{padding:9px 15px;font-size:12.5px;font-weight:600;color:var(--t2);cursor:pointer;border-bottom:2px solid transparent;}
+.tab.on{color:var(--p);border-bottom-color:var(--p);}
+table{width:100%;border-collapse:collapse;}
+th{text-align:left;font-size:10.5px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.04em;padding:11px 18px;border-bottom:1px solid var(--bd);}
+td{padding:13px 18px;font-size:13px;border-bottom:1px solid var(--bd);vertical-align:middle;}
+tr:last-child td{border-bottom:none;}
+.org-row{display:flex;align-items:center;gap:10px;}
+.org-logo{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#6B4EFF,#9B7BFF);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;flex-shrink:0;}
+.act-row{display:flex;gap:6px;}
+.row-avatar{width:28px;height:28px;border-radius:50%;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:10.5px;flex-shrink:0;overflow:hidden;}
+.row-avatar img{width:100%;height:100%;object-fit:cover;}
+.dr-org-logo{width:56px;height:56px;border-radius:16px;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;flex-shrink:0;overflow:hidden;}
+.dr-avatar{width:56px;height:56px;border-radius:50%;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;flex-shrink:0;overflow:hidden;}
+.dr-org-logo img, .dr-avatar img{width:100%;height:100%;object-fit:cover;}
+
+/* === MULTI-SELECT DROPDOWN === */
+.ms-dropdown{position:relative;}
+.ms-trigger{width:220px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;color:var(--tx);}
+.ms-caret{color:var(--t2);font-size:11px;margin-left:8px;}
+.ms-panel{display:none;position:absolute;top:calc(100% + 6px);left:0;z-index:150;background:var(--cd);border:1px solid var(--bd);border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,.14);padding:8px;width:220px;max-height:290px;overflow-y:auto;}
+.ms-panel.on{display:block;}
+.ms-search{width:100%;padding:8px 10px;border:1.5px solid var(--bd);border-radius:8px;font-size:12.5px;color:var(--tx);background:#F8F8FC;outline:none;font-family:inherit;margin-bottom:6px;}
+.ms-search:focus{border-color:var(--p);}
+.ms-option{display:flex;align-items:center;gap:9px;padding:8px;border-radius:8px;cursor:pointer;font-size:12.5px;color:var(--tx);}
+.ms-option:hover{background:#F8F8FC;}
+.ms-option input{accent-color:var(--p);width:14px;height:14px;flex-shrink:0;}
+
+/* === DRAWER === */
+.drawer-ov{position:fixed;inset:0;background:rgba(20,20,35,.5);display:none;align-items:stretch;justify-content:flex-end;z-index:200;}
+.drawer-ov.on{display:flex;}
+.drawer{width:440px;background:var(--cd);height:100%;overflow-y:auto;padding:24px 24px 30px;}
+.drawer-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;}
+.dr-close{cursor:pointer;color:var(--t2);font-size:20px;background:none;border:none;}
+.doc-row{display:flex;align-items:center;gap:10px;padding:10px 12px;background:#F8F8FC;border:1px solid var(--bd);border-radius:10px;margin-bottom:8px;}
+.doc-ic{width:30px;height:30px;border-radius:8px;background:var(--pl);color:var(--p);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0;}
+.divider{height:1px;background:var(--bd);margin:16px 0;}
+.reject-box{display:none;margin-top:12px;}
+.reject-box.on{display:block;}
+</style>
+</head>
+<body>
+
+<div class="version-badge">NGO Connect <span>SUPER ADMIN</span> · Clickable Prototype v1.0</div>
+
+<!-- ============ LOGIN SCREEN ============ -->
+<div id="loginScreen">
+  <div class="login-card">
+    <div class="login-logo">NC</div>
+    <div class="login-title">Super Admin</div>
+    <div class="login-sub">Internal access only — NGO Connect platform team</div>
+    <div class="login-err" id="loginErr">Invalid username or password.</div>
+    <div class="fl"><label>Username</label><input class="fi" id="loginUser" value="gaurav.admin" /></div>
+    <div class="fl"><label>Password</label><input class="fi" type="password" id="loginPass" value="••••••••" /></div>
+    <button class="btn-p" onclick="doLogin()">Log in</button>
+    <div style="text-align:center;margin-top:16px;" class="xs">No self-signup — accounts are created directly in the DB by the dev team.</div>
+  </div>
+</div>
+
+<!-- ============ APP SHELL ============ -->
+<div id="app">
+  <div class="sidebar">
+    <div class="sb-logo">
+      <div class="mark">NC</div>
+      <div><div class="name">NGO Connect</div><div class="tag">SUPER ADMIN</div></div>
+    </div>
+    <div class="nav-item on" data-page="pgOverview" onclick="nav(this)"><span class="ic">&#9635;</span> Overview</div>
+    <div class="nav-item" data-page="pgOrgs" onclick="nav(this)"><span class="ic">&#127970;</span> Organisations <span class="badge">4</span></div>
+    <div class="nav-item" data-page="pgMembers" onclick="nav(this)"><span class="ic">&#128101;</span> Members</div>
+    <div class="nav-item" data-page="pgSettings" onclick="nav(this)"><span class="ic">&#9881;</span> Settings</div>
+    <div class="nav-item" data-page="pgLookup" onclick="nav(this)"><span class="ic">&#128203;</span> Lookup management</div>
+    <div class="sb-foot">
+      <div class="nav-item" onclick="doLogout()"><span class="ic">&#8592;</span> Log out</div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="topbar">
+      <div class="h1" id="pageTitle">Overview</div>
+      <div class="admin-chip">
+        <div class="av">GS</div>
+        <div><div class="h3" style="font-size:13px;">Gaurav Shukla</div><div class="xs">Super Admin</div></div>
+      </div>
+    </div>
+
+    <div class="content">
+
+      <!-- ===== OVERVIEW ===== -->
+      <div class="page on" id="pgOverview">
+        <div class="kpi-grid">
+          <div class="kpi"><div class="sm">Total NGOs</div><div class="n">128</div><div class="xs">+6 this month</div></div>
+          <div class="kpi"><div class="sm">Pending approval</div><div class="n" style="color:var(--or);">4</div><div class="xs">Needs your review</div></div>
+          <div class="kpi"><div class="sm">Active volunteers</div><div class="n">3,412</div><div class="xs">+180 this month</div></div>
+          <div class="kpi"><div class="sm">Total donations</div><div class="n">₹18.4L</div><div class="xs">Across all NGOs</div></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><div class="h3">Recently submitted</div><button class="btn-link" onclick="nav(document.querySelector('[data-page=pgOrgs]'))">View all →</button></div>
+          <table>
+            <tr><th>Organisation</th><th>Submitted</th><th>Status</th></tr>
+            <tr><td><div class="org-row"><div class="org-logo">AK</div>Asha Kiran Foundation</div></td><td class="sm">2 hours ago</td><td><span class="pill po">Pending</span></td></tr>
+            <tr><td><div class="org-row"><div class="org-logo">GV</div>Green Vision Trust</div></td><td class="sm">1 day ago</td><td><span class="pill po">Pending</span></td></tr>
+            <tr><td><div class="org-row"><div class="org-logo">SS</div>Shiksha Sahayog</div></td><td class="sm">3 days ago</td><td><span class="pill pg">Approved</span></td></tr>
+          </table>
+        </div>
+      </div>
+
+      <!-- ===== ORGANISATIONS ===== -->
+      <div class="page" id="pgOrgs">
+        <div class="card">
+          <div class="tabs">
+            <div class="tab on" data-tab="tPending" onclick="orgTab(this)">Pending (4)</div>
+            <div class="tab" data-tab="tActive" onclick="orgTab(this)">Approved (118)</div>
+            <div class="tab" data-tab="tInactive" onclick="orgTab(this)">Suspended (5)</div>
+            <div class="tab" data-tab="tRejected" onclick="orgTab(this)">Rejected (1)</div>
+          </div>
+          <div class="xs" style="padding:10px 18px 0;">Status codes: PENDING → APPROVED / REJECTED (by you). An APPROVED org can be SUSPENDED for cause, and reactivated back to APPROVED later.</div>
+
+          <div class="orgtab on" id="tPending">
+            <table>
+              <tr><th>Organisation</th><th>Reg. number</th><th>City</th><th>Submitted</th><th>Status</th><th>Action</th></tr>
+              <tr><td><div class="org-row"><div class="org-logo">AK</div>Asha Kiran Foundation</div></td><td class="sm">MH/2026/00412</td><td class="sm">Pune</td><td class="sm">2 hours ago</td><td><span class="pill po">Pending</span></td>
+                <td><button class="btn-o btn-sm" onclick="openOrg('ashaKiran')">Review</button></td></tr>
+              <tr><td><div class="org-row"><div class="org-logo">GV</div>Green Vision Trust</div></td><td class="sm">DL/2026/00298</td><td class="sm">New Delhi</td><td class="sm">1 day ago</td><td><span class="pill po">Pending</span></td>
+                <td><button class="btn-o btn-sm" onclick="openOrg('greenVision')">Review</button></td></tr>
+              <tr><td><div class="org-row"><div class="org-logo">CS</div>Care &amp; Share Society</div></td><td class="sm">KA/2026/00187</td><td class="sm">Bengaluru</td><td class="sm">2 days ago</td><td><span class="pill po">Pending</span></td>
+                <td><button class="btn-o btn-sm" onclick="openOrg('careShare')">Review</button></td></tr>
+              <tr><td><div class="org-row"><div class="org-logo">RD</div>Rural Development Cell</div></td><td class="sm">UP/2026/00521</td><td class="sm">Lucknow</td><td class="sm">3 days ago</td><td><span class="pill po">Pending</span></td>
+                <td><button class="btn-o btn-sm" onclick="openOrg('ruralDev')">Review</button></td></tr>
+            </table>
+          </div>
+
+          <div class="orgtab" id="tActive" style="display:none;">
+            <table>
+              <tr><th>Organisation</th><th>Reg. number</th><th>City</th><th>Members</th><th>Status</th><th>Action</th></tr>
+              <tr><td><div class="org-row"><div class="org-logo">SS</div>Shiksha Sahayog</div></td><td class="sm">MH/2025/00119</td><td class="sm">Mumbai</td><td class="sm">64</td><td><span class="pill pg">Approved</span></td>
+                <td class="act-row"><button class="btn-o btn-sm" onclick="openOrg('shikshaSahayog')">View</button>
+                <button class="btn-yw btn-sm" onclick="alert('Would call SuperAdmin_Org_Suspend → StatusLkpId = SUSPENDED. Reason required, logged to OrgStatusHistory.')">Suspend</button></td></tr>
+              <tr><td><div class="org-row"><div class="org-logo">HH</div>Helping Hands India</div></td><td class="sm">TN/2024/00087</td><td class="sm">Chennai</td><td class="sm">211</td><td><span class="pill pg">Approved</span></td>
+                <td class="act-row"><button class="btn-o btn-sm" onclick="openOrg('helpingHands')">View</button>
+                <button class="btn-yw btn-sm" onclick="alert('Would call SuperAdmin_Org_Suspend → StatusLkpId = SUSPENDED. Reason required, logged to OrgStatusHistory.')">Suspend</button></td></tr>
+            </table>
+          </div>
+
+          <div class="orgtab" id="tInactive" style="display:none;">
+            <table>
+              <tr><th>Organisation</th><th>Reg. number</th><th>City</th><th>Reason</th><th>Status</th><th>Action</th></tr>
+              <tr><td><div class="org-row"><div class="org-logo">OF</div>Old Friends NGO</div></td><td class="sm">WB/2023/00044</td><td class="sm">Kolkata</td><td class="sm">Dormant 90+ days, no active projects</td><td><span class="pill pgr">Suspended</span></td>
+                <td class="act-row"><button class="btn-o btn-sm" onclick="openOrg('oldFriends')">View</button>
+                <button class="btn-tl btn-sm" onclick="alert('Would call SuperAdmin_Org_Reactivate → StatusLkpId back to APPROVED.')">Reactivate</button></td></tr>
+            </table>
+          </div>
+
+          <div class="orgtab" id="tRejected" style="display:none;">
+            <table>
+              <tr><th>Organisation</th><th>Reg. number</th><th>City</th><th>Rejection reason</th><th>Status</th><th>Action</th></tr>
+              <tr><td><div class="org-row"><div class="org-logo">QW</div>Quick Wins Foundation</div></td><td class="sm">MH/2026/00355</td><td class="sm">Nagpur</td><td class="sm">Registration certificate unreadable / mismatched name</td><td><span class="pill pr">Rejected</span></td>
+                <td><button class="btn-o btn-sm" onclick="openOrg('quickWins')">View</button></td></tr>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== MEMBERS ===== -->
+      <div class="page" id="pgMembers">
+        <div class="card" style="overflow:visible;">
+          <div class="card-head" style="flex-wrap:wrap;gap:10px;position:relative;z-index:2;">
+            <div class="h3">All members — cross-NGO oversight</div>
+            <div style="display:flex;gap:8px;">
+              <div class="ms-dropdown" id="orgMsDropdown">
+                <button type="button" class="fs ms-trigger" id="orgMsTrigger" onclick="toggleOrgMs(event)">
+                  <span id="orgMsLabel">All organisations</span>
+                  <span class="ms-caret">&#9662;</span>
+                </button>
+                <div class="ms-panel" id="orgMsPanel">
+                  <input type="text" class="ms-search" id="orgMsSearch" placeholder="Search organisations..." oninput="filterOrgOptions()" onclick="event.stopPropagation()">
+                  <label class="ms-option" id="orgMsAllRow"><input type="checkbox" id="orgMsAll" checked onchange="toggleOrgAll(this)"><span>All organisations</span></label>
+                  <div class="divider" style="margin:6px 0;"></div>
+                  <div id="orgMsItemList">
+                    <label class="ms-option"><input type="checkbox" class="org-ms-item" value="Shiksha Sahayog" checked onchange="onOrgItemChange()"><span>Shiksha Sahayog</span></label>
+                    <label class="ms-option"><input type="checkbox" class="org-ms-item" value="Helping Hands India" checked onchange="onOrgItemChange()"><span>Helping Hands India</span></label>
+                    <label class="ms-option"><input type="checkbox" class="org-ms-item" value="Asha Kiran Foundation" checked onchange="onOrgItemChange()"><span>Asha Kiran Foundation</span></label>
+                    <label class="ms-option"><input type="checkbox" class="org-ms-item" value="Green Vision Trust" checked onchange="onOrgItemChange()"><span>Green Vision Trust</span></label>
+                  </div>
+                  <div id="orgMsNoResults" class="xs" style="display:none;padding:10px 8px;">No organisations match your search.</div>
+                </div>
+              </div>
+              <input class="fs" id="memberSearch" style="width:220px;" placeholder="Search by name, email..." oninput="filterMembers()">
+            </div>
+          </div>
+          <table id="memberTable">
+            <tr><th>Member</th><th>Organisation</th><th>Role</th><th>Membership</th><th>Account</th><th>Profile verification</th><th>Joined</th><th>Action</th></tr>
+            <tr data-org="Shiksha Sahayog"><td><div style="display:flex;align-items:center;gap:9px;"><div class="row-avatar" style="background:#6B4EFF;">RM</div>Rahul Mehta</div></td><td class="sm">Shiksha Sahayog</td><td><span class="pill pp">Coordinator</span></td><td><span class="pill pg">Approved</span></td><td><span class="pill pg">Active</span></td><td><span class="pill pg">Verified</span></td><td class="sm">12 Jun 2026</td>
+              <td><button class="btn-o btn-sm" onclick="openMember('rahulMehta')">Review</button></td></tr>
+            <tr data-org="Helping Hands India"><td><div style="display:flex;align-items:center;gap:9px;"><div class="row-avatar" style="background:#16A34A;">PN</div>Priya Nair</div></td><td class="sm">Helping Hands India</td><td><span class="pill pp">Volunteer</span></td><td><span class="pill pg">Approved</span></td><td><span class="pill pg">Active</span></td><td><span class="pill pgr">Not reviewed</span></td><td class="sm">28 May 2026</td>
+              <td><button class="btn-o btn-sm" onclick="openMember('priyaNair')">Review</button></td></tr>
+            <tr data-org="Helping Hands India"><td><div style="display:flex;align-items:center;gap:9px;"><div class="row-avatar" style="background:#FF8C42;">AD</div>Arjun Desai</div></td><td class="sm">Helping Hands India</td><td><span class="pill pp">Admin</span></td><td><span class="pill py">Pending (org-level)</span></td><td><span class="pill pr">Suspended</span></td><td><span class="pill pgr">Not reviewed</span></td><td class="sm">2 Jul 2026</td>
+              <td><button class="btn-o btn-sm" onclick="openMember('arjunDesai')">Review</button></td></tr>
+            <tr data-org="Asha Kiran Foundation"><td><div style="display:flex;align-items:center;gap:9px;"><div class="row-avatar" style="background:#2563EB;">SK</div>Sneha Kapoor</div></td><td class="sm">Asha Kiran Foundation</td><td><span class="pill pp">Volunteer</span></td><td><span class="pill pg">Approved</span></td><td><span class="pill pg">Active</span></td><td><span class="pill pr">Needs update</span></td><td class="sm">30 Jun 2026</td>
+              <td><button class="btn-o btn-sm" onclick="openMember('snehaKapoor')">Review</button></td></tr>
+          </table>
+          <div style="padding:14px 18px;" class="xs">Three separate things, on purpose: <b>Membership</b> (Approved/Pending, set by the NGO's own admin), <b>Account</b> (Active/Suspended — this is you, platform-wide, for policy violations/fraud — a suspended account can't log in at all), and <b>Profile verification</b> (your document check).</div>
+        </div>
+      </div>
+
+      <!-- ===== SETTINGS ===== -->
+      <div class="page" id="pgSettings">
+        <div class="card" style="margin-bottom:16px;">
+          <div class="card-head"><div class="h3">OTP</div></div>
+          <table>
+            <tr><th>Key</th><th>Value</th><th>Description</th><th></th></tr>
+            <tr><td class="sm">OTP_EXPIRY_MINUTES</td><td style="width:110px;"><input class="fs" value="10"></td><td class="sm">Minutes before OTP expires</td><td><button class="btn-p btn-sm" style="width:auto;">Save</button></td></tr>
+            <tr><td class="sm">OTP_MAX_ATTEMPTS</td><td style="width:110px;"><input class="fs" value="3"></td><td class="sm">Failed attempts before lock</td><td><button class="btn-p btn-sm" style="width:auto;">Save</button></td></tr>
+          </table>
+        </div>
+        <div class="card" style="margin-bottom:16px;">
+          <div class="card-head"><div class="h3">Donation</div></div>
+          <table>
+            <tr><th>Key</th><th>Value</th><th>Description</th><th></th></tr>
+            <tr><td class="sm">PLATFORM_FEE_PCT</td><td style="width:110px;"><input class="fs" value="2.5"></td><td class="sm">Platform fee on each donation</td><td><button class="btn-p btn-sm" style="width:auto;">Save</button></td></tr>
+            <tr><td class="sm">MIN_WITHDRAWAL_AMT</td><td style="width:110px;"><input class="fs" value="500"></td><td class="sm">Minimum NGO withdrawal amount</td><td><button class="btn-p btn-sm" style="width:auto;">Save</button></td></tr>
+          </table>
+        </div>
+        <div class="card">
+          <div class="card-head"><div class="h3">Feature flags</div></div>
+          <table>
+            <tr><th>Key</th><th>Value</th><th>Description</th><th></th></tr>
+            <tr><td class="sm">FEATURE_SOS_ENABLED</td><td style="width:110px;">
+              <div class="toggle-track on" style="width:38px;height:22px;border-radius:11px;background:var(--p);position:relative;cursor:pointer;"><div style="position:absolute;top:3px;left:19px;width:16px;height:16px;background:#fff;border-radius:50%;"></div></div>
+            </td><td class="sm">Toggle SOS module platform-wide</td><td><button class="btn-p btn-sm" style="width:auto;">Save</button></td></tr>
+          </table>
+        </div>
+      </div>
+
+      <!-- ===== LOOKUP MANAGEMENT ===== -->
+      <div class="page" id="pgLookup">
+        <div style="display:flex;gap:16px;">
+          <div class="card" style="width:280px;flex-shrink:0;">
+            <div class="card-head"><div class="h3">Lookup types</div></div>
+            <div id="lkTypeList">
+              <div class="lk-type-row on" onclick="selectLkType(this,'ORG_STATUS')" style="padding:12px 18px;cursor:pointer;border-bottom:1px solid var(--bd);background:var(--pl);"><div class="h3" style="font-size:13px;color:var(--p);">ORG_STATUS</div><div class="xs">5 values</div></div>
+              <div class="lk-type-row" onclick="selectLkType(this,'GENDER')" style="padding:12px 18px;cursor:pointer;border-bottom:1px solid var(--bd);"><div class="h3" style="font-size:13px;">GENDER</div><div class="xs">3 values</div></div>
+              <div class="lk-type-row" onclick="selectLkType(this,'MEMBER_ROLE')" style="padding:12px 18px;cursor:pointer;border-bottom:1px solid var(--bd);"><div class="h3" style="font-size:13px;">MEMBER_ROLE</div><div class="xs">4 values</div></div>
+              <div class="lk-type-row" onclick="selectLkType(this,'DOCUMENT_TYPE')" style="padding:12px 18px;cursor:pointer;"><div class="h3" style="font-size:13px;">DOCUMENT_TYPE</div><div class="xs">6 values</div></div>
+            </div>
+            <div style="padding:12px 18px;"><button class="btn-o btn-sm" style="width:100%;">+ Add lookup type</button></div>
+          </div>
+
+          <div class="card" style="flex:1;">
+            <div class="card-head"><div class="h3" id="lkValuesTitle">ORG_STATUS — values</div><button class="btn-p btn-sm" style="width:auto;" onclick="alert('Would open Add Value form — ValueCode, ValueName, OrderNo, IsDefault.')">+ Add value</button></div>
+            <table>
+              <tr><th>Order</th><th>Value code</th><th>Value name</th><th>Default</th><th>System</th><th>Active</th><th></th></tr>
+              <tr><td class="sm">1</td><td class="sm">PENDING</td><td>Pending</td><td class="sm">✓</td><td class="sm">🔒 System</td><td>
+                <div style="width:34px;height:19px;border-radius:10px;background:var(--p);position:relative;"><div style="position:absolute;top:2px;left:17px;width:15px;height:15px;background:#fff;border-radius:50%;"></div></div>
+              </td><td class="xs">Locked</td></tr>
+              <tr><td class="sm">2</td><td class="sm">UNDER_REVIEW</td><td>Under Review</td><td class="sm">—</td><td class="sm">🔒 System</td><td>
+                <div style="width:34px;height:19px;border-radius:10px;background:var(--p);position:relative;"><div style="position:absolute;top:2px;left:17px;width:15px;height:15px;background:#fff;border-radius:50%;"></div></div>
+              </td><td class="xs">Locked</td></tr>
+              <tr><td class="sm">3</td><td class="sm">APPROVED</td><td>Approved</td><td class="sm">—</td><td class="sm">🔒 System</td><td>
+                <div style="width:34px;height:19px;border-radius:10px;background:var(--p);position:relative;"><div style="position:absolute;top:2px;left:17px;width:15px;height:15px;background:#fff;border-radius:50%;"></div></div>
+              </td><td class="xs">Locked</td></tr>
+              <tr><td class="sm">4</td><td class="sm">REJECTED</td><td>Rejected</td><td class="sm">—</td><td class="sm">🔒 System</td><td>
+                <div style="width:34px;height:19px;border-radius:10px;background:var(--p);position:relative;"><div style="position:absolute;top:2px;left:17px;width:15px;height:15px;background:#fff;border-radius:50%;"></div></div>
+              </td><td class="xs">Locked</td></tr>
+              <tr><td class="sm">5</td><td class="sm">SUSPENDED</td><td>Suspended</td><td class="sm">—</td><td class="sm">🔒 System</td><td>
+                <div style="width:34px;height:19px;border-radius:10px;background:var(--p);position:relative;"><div style="position:absolute;top:2px;left:17px;width:15px;height:15px;background:#fff;border-radius:50%;"></div></div>
+              </td><td class="xs">Locked</td></tr>
+            </table>
+            <div style="padding:12px 18px;" class="xs">IsSystemValue=1 rows can be reordered/renamed but never deleted — they're referenced by SP logic.</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ============ ORG REVIEW DRAWER ============ -->
+<div class="drawer-ov" id="orgDrawer">
+  <div class="drawer">
+    <div class="drawer-head">
+      <div style="display:flex;gap:12px;align-items:flex-start;">
+        <div class="dr-org-logo" id="drOrgLogo"></div>
+        <div>
+          <div class="h2" id="drOrgName">Asha Kiran Foundation</div>
+          <div class="sm" id="drOrgMeta">MH/2026/00412 · Pune, Maharashtra · Education</div>
+        </div>
+      </div>
+      <button class="dr-close" onclick="closeDrawer()">×</button>
+    </div>
+
+    <div class="slab">Quick facts</div>
+    <div style="display:flex;gap:20px;margin-bottom:16px;flex-wrap:wrap;">
+      <div><div class="xs">Org type</div><div class="h3" style="font-size:13px;" id="drOrgType">—</div></div>
+      <div><div class="xs">Members</div><div class="h3" style="font-size:13px;" id="drOrgMemberCount">—</div></div>
+      <div><div class="xs">Rating</div><div class="h3" style="font-size:13px;" id="drOrgRating">—</div></div>
+      <div><div class="xs">Registered on</div><div class="h3" style="font-size:13px;" id="drOrgRegisteredOn">—</div></div>
+    </div>
+
+    <div class="slab">Founder & contact</div>
+    <div class="body" style="margin-bottom:16px;" id="drOrgContact">—</div>
+
+    <div class="slab">Address</div>
+    <div class="body" style="margin-bottom:16px;" id="drOrgAddress">—</div>
+
+    <div class="slab">About</div>
+    <div class="body" style="margin-bottom:12px;" id="drOrgAbout">—</div>
+    <div class="slab">Mission</div>
+    <div class="body" style="margin-bottom:12px;" id="drOrgMission">—</div>
+    <div class="slab">Vision</div>
+    <div class="body" style="margin-bottom:16px;" id="drOrgVision">—</div>
+
+    <div class="slab">Submitted documents</div>
+    <div class="doc-row"><div class="doc-ic">RC</div><div style="flex:1;"><div class="h3" style="font-size:12.5px;">Registration Certificate</div><div class="xs">reg_certificate.pdf</div></div><button class="btn-o btn-sm">View</button></div>
+    <div class="doc-row"><div class="doc-ic">80G</div><div style="flex:1;"><div class="h3" style="font-size:12.5px;">80G Certificate</div><div class="xs">80g_cert.pdf</div></div><button class="btn-o btn-sm">View</button></div>
+    <div class="doc-row"><div class="doc-ic">PAN</div><div style="flex:1;"><div class="h3" style="font-size:12.5px;">Organisation PAN</div><div class="xs">pan_card.pdf</div></div><button class="btn-o btn-sm">View</button></div>
+
+    <div class="slab">Status history</div>
+    <div id="drOrgHistory" style="margin-bottom:8px;"></div>
+
+    <div class="divider"></div>
+
+    <div id="drPendingActions">
+      <div class="slab">Decision</div>
+      <div style="display:flex;gap:10px;">
+        <button class="btn-tl" style="flex:1;" onclick="alert('Would call SuperAdmin_Org_Approve → StatusLkpId = APPROVED, notify founder.')">Approve</button>
+        <button class="btn-rd" style="flex:1;" onclick="toggleReject()">Reject</button>
+      </div>
+      <div class="reject-box" id="rejectBox">
+        <div class="fl" style="margin-top:12px;"><label>Reason for rejection (shown to founder)</label><textarea class="fta" placeholder="e.g. Registration certificate unreadable, please re-upload a clear scan."></textarea></div>
+        <button class="btn-rd" style="width:100%;" onclick="alert('Would call SuperAdmin_Org_Reject → StatusLkpId = REJECTED, store reason, notify founder. Founder can resubmit via Org_Resubmit.')">Confirm rejection</button>
+      </div>
+    </div>
+
+    <div id="drApprovedActions" style="display:none;">
+      <div class="slab">Actions</div>
+      <button class="btn-yw" style="width:100%;" onclick="alert('Would call SuperAdmin_Org_Suspend → StatusLkpId = SUSPENDED, reason logged to OrgStatusHistory.')">Suspend organisation</button>
+    </div>
+
+    <div id="drSuspendedActions" style="display:none;">
+      <div class="slab">Actions</div>
+      <button class="btn-tl" style="width:100%;" onclick="alert('Would call SuperAdmin_Org_Reactivate → StatusLkpId back to APPROVED.')">Reactivate organisation</button>
+    </div>
+
+    <div id="drRejectedActions" style="display:none;">
+      <div class="slab">Actions</div>
+      <div class="xs" style="padding:8px 0;">Rejected — nothing for you to do right now. The founder can edit their details/documents and resubmit (Org_Resubmit), which puts it back in your Pending queue.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MEMBER PROFILE VERIFICATION DRAWER ============ -->
+<div class="drawer-ov" id="memberDrawer">
+  <div class="drawer">
+    <div class="drawer-head">
+      <div style="display:flex;gap:12px;align-items:flex-start;">
+        <div class="dr-avatar" id="mdAvatar"></div>
+        <div>
+          <div class="h2" id="mdName">Rahul Mehta</div>
+          <div class="sm" id="mdMeta">Coordinator · Shiksha Sahayog</div>
+        </div>
+      </div>
+      <button class="dr-close" onclick="closeMemberDrawer()">×</button>
+    </div>
+
+    <div style="display:flex;gap:20px;margin-bottom:16px;">
+      <div>
+        <div class="slab">Profile verification</div>
+        <div id="mdStatusPill"><span class="pill pgr">Not reviewed</span></div>
+      </div>
+      <div>
+        <div class="slab">Account</div>
+        <div id="mdAccountPill"><span class="pill pg">Active</span></div>
+      </div>
+    </div>
+
+    <div class="slab">Contact</div>
+    <div class="body" style="margin-bottom:16px;" id="mdContact">—</div>
+
+    <div class="slab">Impact</div>
+    <div style="display:flex;gap:20px;margin-bottom:16px;flex-wrap:wrap;">
+      <div><div class="xs">Hours volunteered</div><div class="h3" style="font-size:13px;" id="mdHours">—</div></div>
+      <div><div class="xs">Reliability</div><div class="h3" style="font-size:13px;" id="mdReliability">—</div></div>
+      <div><div class="xs">Projects completed</div><div class="h3" style="font-size:13px;" id="mdProjects">—</div></div>
+    </div>
+
+    <div class="slab">Skills</div>
+    <div id="mdSkills" style="margin-bottom:14px;"></div>
+
+    <div class="slab">Interests</div>
+    <div id="mdInterests" style="margin-bottom:14px;"></div>
+
+    <div class="slab">Badges earned</div>
+    <div id="mdBadges" style="margin-bottom:16px;"></div>
+
+    <div class="slab">Other organisations</div>
+    <div id="mdOtherOrgs" style="margin-bottom:8px;"></div>
+
+    <div class="slab">Documents uploaded on profile</div>
+    <div class="doc-row"><div class="doc-ic">ID</div><div style="flex:1;"><div class="h3" style="font-size:12.5px;">Government ID</div><div class="xs">aadhaar_card.pdf</div></div><button class="btn-o btn-sm">View</button></div>
+    <div class="doc-row"><div class="doc-ic">PH</div><div style="flex:1;"><div class="h3" style="font-size:12.5px;">Profile photo</div><div class="xs">profile.jpg</div></div><button class="btn-o btn-sm">View</button></div>
+    <div class="doc-row"><div class="doc-ic">AD</div><div style="flex:1;"><div class="h3" style="font-size:12.5px;">Address proof</div><div class="xs">address_proof.pdf</div></div><button class="btn-o btn-sm">View</button></div>
+    <div id="mdNoDocs" class="xs" style="display:none;padding:8px 0;">No documents uploaded yet — profile update should include at least a Government ID and a clear profile photo before verification.</div>
+
+    <div class="divider"></div>
+
+    <div class="slab">Profile verification decision</div>
+    <div style="display:flex;gap:10px;">
+      <button class="btn-tl" style="flex:1;" onclick="alert('Would call SuperAdmin_User_VerifyProfile → mark member Verified, notify member.')">Mark as verified</button>
+      <button class="btn-rd" style="flex:1;" onclick="toggleMemberRequestBox()">Request update</button>
+    </div>
+    <div class="reject-box" id="memberRequestBox">
+      <div class="fl" style="margin-top:12px;"><label>What needs to be fixed? (shown to member as a notification)</label>
+        <textarea class="fta" id="mdIssueText" placeholder="e.g. Profile photo is blurry, please re-upload a clear face photo. Government ID number does not match the name on file."></textarea>
+      </div>
+      <button class="btn-rd" style="width:100%;" onclick="alert('Would call SuperAdmin_User_RequestProfileUpdate → status = NEEDS_UPDATE, reason stored, push/notification sent to member: "' + document.getElementById('mdIssueText').value + '"')">Send notification to member</button>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="slab">Account access</div>
+    <div id="mdAccountActionActive">
+      <button class="btn-yw" style="width:100%;" onclick="alert('Would call SuperAdmin_User_Suspend → Users.IsActive = 0. Member is signed out everywhere and cannot log back in until reactivated.')">Suspend account</button>
+    </div>
+    <div id="mdAccountActionSuspended" style="display:none;">
+      <button class="btn-tl" style="width:100%;" onclick="alert('Would call SuperAdmin_User_Reactivate → Users.IsActive = 1.')">Reactivate account</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function nav(el){
+  document.querySelectorAll('.nav-item[data-page]').forEach(n=>n.classList.remove('on'));
+  el.classList.add('on');
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('on'));
+  document.getElementById(el.dataset.page).classList.add('on');
+  document.getElementById('pageTitle').textContent = el.textContent.trim().replace(/\d+$/,'').trim();
+}
+function orgTab(el){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));
+  el.classList.add('on');
+  document.querySelectorAll('.orgtab').forEach(t=>t.style.display='none');
+  document.getElementById(el.dataset.tab).style.display='block';
+}
+var ORG_DATA = {
+  ashaKiran: { name:'Asha Kiran Foundation', reg:'MH/2026/00412', city:'Pune', state:'Maharashtra', type:'Education', status:'PENDING',
+    founder:'Neha Kulkarni', email:'neha.kulkarni@ashakiran.org', phone:'+91 98xxxxxx12', website:'www.ashakiranfoundation.org',
+    address:'12 MG Road, Kothrud', pincode:'411038', country:'India', memberCount:1, rating:'—', registeredOn:'11 Jul 2026',
+    about:'Asha Kiran Foundation works with underprivileged children in rural Pune, providing after-school education and nutrition support.',
+    mission:'To ensure every child in rural Maharashtra has access to quality education regardless of economic background.',
+    vision:'A future where no child is left behind due to lack of resources.',
+    history:[{date:'11 Jul 2026, 2:14 PM', by:'Neha Kulkarni (Founder)', text:'Registered — status set to Pending'}] },
+  greenVision: { name:'Green Vision Trust', reg:'DL/2026/00298', city:'New Delhi', state:'Delhi', type:'Environment', status:'PENDING',
+    founder:'Vikram Singh', email:'vikram@greenvisiontrust.org', phone:'+91 98xxxxxx33', website:'www.greenvisiontrust.org',
+    address:'45 Nehru Place', pincode:'110019', country:'India', memberCount:1, rating:'—', registeredOn:'10 Jul 2026',
+    about:'Green Vision Trust runs tree plantation and urban waste segregation drives across Delhi NCR.',
+    mission:'A cleaner, greener National Capital Region within a decade.',
+    vision:'Zero landfill waste and 1 million trees planted by 2032.',
+    history:[{date:'10 Jul 2026, 11:02 AM', by:'Vikram Singh (Founder)', text:'Registered — status set to Pending'}] },
+  careShare: { name:'Care & Share Society', reg:'KA/2026/00187', city:'Bengaluru', state:'Karnataka', type:'Healthcare', status:'PENDING',
+    founder:'Ananya Rao', email:'ananya@careshare.org', phone:'+91 98xxxxxx77', website:'www.careshare.org',
+    address:'7th Cross, Indiranagar', pincode:'560038', country:'India', memberCount:1, rating:'—', registeredOn:'9 Jul 2026',
+    about:'Care & Share Society runs free health check-up camps in underserved Bengaluru neighbourhoods.',
+    mission:'Basic healthcare access within walking distance for every family.',
+    vision:'No preventable illness goes untreated due to cost.',
+    history:[{date:'9 Jul 2026, 4:40 PM', by:'Ananya Rao (Founder)', text:'Registered — status set to Pending'}] },
+  ruralDev: { name:'Rural Development Cell', reg:'UP/2026/00521', city:'Lucknow', state:'Uttar Pradesh', type:'Rural Welfare', status:'PENDING',
+    founder:'Ramesh Yadav', email:'ramesh@ruraldevcell.org', phone:'+91 98xxxxxx91', website:'—',
+    address:'Gomti Nagar Extension', pincode:'226010', country:'India', memberCount:1, rating:'—', registeredOn:'8 Jul 2026',
+    about:'Rural Development Cell helps small farmer households access government welfare schemes and micro-credit.',
+    mission:'Every eligible rural household actually receives the welfare benefits it qualifies for.',
+    vision:'A self-reliant rural Uttar Pradesh.',
+    history:[{date:'8 Jul 2026, 9:15 AM', by:'Ramesh Yadav (Founder)', text:'Registered — status set to Pending'}] },
+  shikshaSahayog: { name:'Shiksha Sahayog', reg:'MH/2025/00119', city:'Mumbai', state:'Maharashtra', type:'Education', status:'APPROVED',
+    founder:'Deepa Joshi', email:'deepa@shikshasahayog.org', phone:'+91 98xxxxxx21', website:'www.shikshasahayog.org',
+    address:'Andheri West', pincode:'400058', country:'India', memberCount:64, rating:'4.6 ★ (38)', registeredOn:'3 Feb 2025',
+    about:'Shiksha Sahayog runs weekend tutoring centres for children in Mumbai slum communities.',
+    mission:'Close the learning gap for first-generation learners.',
+    vision:'Every child reading at grade level by age 10.',
+    history:[
+      {date:'3 Feb 2025, 10:00 AM', by:'Deepa Joshi (Founder)', text:'Registered — status set to Pending'},
+      {date:'5 Feb 2025, 3:20 PM', by:'Gaurav Shukla (Super Admin)', text:'Approved'}
+    ] },
+  helpingHands: { name:'Helping Hands India', reg:'TN/2024/00087', city:'Chennai', state:'Tamil Nadu', type:'Community', status:'APPROVED',
+    founder:'Karthik Subramaniam', email:'karthik@helpinghandsindia.org', phone:'+91 98xxxxxx05', website:'www.helpinghandsindia.org',
+    address:'T. Nagar', pincode:'600017', country:'India', memberCount:211, rating:'4.8 ★ (152)', registeredOn:'18 Nov 2024',
+    about:'Helping Hands India coordinates disaster relief and community kitchens across Tamil Nadu.',
+    mission:'Nobody goes hungry or without shelter after a disaster in Tamil Nadu.',
+    vision:'A statewide volunteer network that can mobilise within 24 hours.',
+    history:[
+      {date:'18 Nov 2024, 1:10 PM', by:'Karthik Subramaniam (Founder)', text:'Registered — status set to Pending'},
+      {date:'20 Nov 2024, 9:45 AM', by:'Gaurav Shukla (Super Admin)', text:'Approved'}
+    ] },
+  oldFriends: { name:'Old Friends NGO', reg:'WB/2023/00044', city:'Kolkata', state:'West Bengal', type:'Elderly Care', status:'SUSPENDED',
+    founder:'Subrata Ghosh', email:'subrata@oldfriendsngo.org', phone:'+91 98xxxxxx60', website:'www.oldfriendsngo.org',
+    address:'Salt Lake', pincode:'700064', country:'India', memberCount:12, rating:'3.9 ★ (14)', registeredOn:'2 Mar 2023',
+    about:'Old Friends NGO ran companionship visits for elderly residents in Kolkata care homes.',
+    mission:'No senior citizen faces old age alone.',
+    vision:'A city where every care home has an active volunteer program.',
+    history:[
+      {date:'2 Mar 2023, 12:00 PM', by:'Subrata Ghosh (Founder)', text:'Registered — status set to Pending'},
+      {date:'5 Mar 2023, 2:30 PM', by:'Gaurav Shukla (Super Admin)', text:'Approved'},
+      {date:'9 Apr 2026, 5:00 PM', by:'Gaurav Shukla (Super Admin)', text:'Suspended — dormant 90+ days, no active projects'}
+    ] },
+  quickWins: { name:'Quick Wins Foundation', reg:'MH/2026/00355', city:'Nagpur', state:'Maharashtra', type:'Community', status:'REJECTED',
+    founder:'Sanjay Patil', email:'sanjay@quickwinsfoundation.org', phone:'+91 98xxxxxx48', website:'—',
+    address:'Civil Lines', pincode:'440001', country:'India', memberCount:1, rating:'—', registeredOn:'6 Jul 2026',
+    about:'Quick Wins Foundation — application under review.',
+    mission:'—', vision:'—',
+    history:[
+      {date:'6 Jul 2026, 8:30 AM', by:'Sanjay Patil (Founder)', text:'Registered — status set to Pending'},
+      {date:'7 Jul 2026, 11:12 AM', by:'Gaurav Shukla (Super Admin)', text:'Rejected — Registration certificate unreadable / mismatched name'}
+    ] }
+};
+
+var AVATAR_COLORS = ['#6B4EFF','#16A34A','#FF8C42','#2563EB','#D4537E','#0F766E'];
+function colorForName(name){
+  var sum = 0;
+  for (var i = 0; i < name.length; i++) sum += name.charCodeAt(i);
+  return AVATAR_COLORS[sum % AVATAR_COLORS.length];
+}
+function getInitials(name){
+  var parts = name.trim().split(/\s+/);
+  var initials = parts.length > 1 ? (parts[0][0] + parts[parts.length - 1][0]) : parts[0].slice(0, 2);
+  return initials.toUpperCase();
+}
+// photoUrl may be null/undefined (no photo uploaded) — falls back to an initials
+// avatar. Also falls back on img load failure (broken/expired URL).
+function renderAvatar(elId, name, photoUrl){
+  var el = document.getElementById(elId);
+  if (!el) return;
+  var initials = getInitials(name);
+  var color    = colorForName(name);
+  el.innerHTML = '';
+  if (photoUrl){
+    el.style.background = '#E8E8F0';
+    var img = document.createElement('img');
+    img.src = photoUrl;
+    img.alt = name;
+    img.onerror = function(){
+      el.innerHTML = initials;
+      el.style.background = color;
+    };
+    el.appendChild(img);
+  } else {
+    el.textContent = initials;
+    el.style.background = color;
+  }
+}
+
+function renderTimeline(containerId, items){
+  var html = items.map(function(h){
+    return '<div class="doc-row" style="align-items:flex-start;">' +
+      '<div class="doc-ic">&#8226;</div>' +
+      '<div style="flex:1;"><div class="h3" style="font-size:12.5px;">' + h.text + '</div>' +
+      '<div class="xs">' + h.date + ' · by ' + h.by + '</div></div></div>';
+  }).join('');
+  document.getElementById(containerId).innerHTML = html;
+}
+
+function openOrg(key){
+  var o = ORG_DATA[key];
+  if (!o) return;
+  document.getElementById('drOrgName').textContent = o.name;
+  document.getElementById('drOrgMeta').textContent = o.reg + ' · ' + o.city + ', ' + o.state + ' · ' + o.type;
+  renderAvatar('drOrgLogo', o.name, o.logoUrl);
+  document.getElementById('drOrgType').textContent = o.type;
+  document.getElementById('drOrgMemberCount').textContent = o.memberCount;
+  document.getElementById('drOrgRating').textContent = o.rating;
+  document.getElementById('drOrgRegisteredOn').textContent = o.registeredOn;
+  document.getElementById('drOrgContact').innerHTML = 'Founder: <b>' + o.founder + '</b><br>Email: ' + o.email + ' · Phone: ' + o.phone + '<br>Website: ' + o.website;
+  document.getElementById('drOrgAddress').textContent = o.address + ', ' + o.city + ', ' + o.state + ' ' + o.pincode + ', ' + o.country;
+  document.getElementById('drOrgAbout').textContent = o.about;
+  document.getElementById('drOrgMission').textContent = o.mission;
+  document.getElementById('drOrgVision').textContent = o.vision;
+  renderTimeline('drOrgHistory', o.history);
+
+  document.getElementById('drPendingActions').style.display   = o.status === 'PENDING' ? 'block' : 'none';
+  document.getElementById('drApprovedActions').style.display  = o.status === 'APPROVED' ? 'block' : 'none';
+  document.getElementById('drSuspendedActions').style.display = o.status === 'SUSPENDED' ? 'block' : 'none';
+  document.getElementById('drRejectedActions').style.display  = o.status === 'REJECTED' ? 'block' : 'none';
+  document.getElementById('rejectBox').classList.remove('on');
+  document.getElementById('orgDrawer').classList.add('on');
+}
+function closeDrawer(){ document.getElementById('orgDrawer').classList.remove('on'); }
+function toggleReject(){ document.getElementById('rejectBox').classList.toggle('on'); }
+function selectLkType(el, code){
+  document.querySelectorAll('.lk-type-row').forEach(r=>{r.classList.remove('on');r.style.background='';});
+  el.classList.add('on'); el.style.background='var(--pl)';
+  document.getElementById('lkValuesTitle').textContent = code + ' — values';
+}
+function doLogin(){
+  document.getElementById('loginScreen').style.display='none';
+  document.getElementById('app').classList.add('on');
+}
+function doLogout(){
+  document.getElementById('app').classList.remove('on');
+  document.getElementById('loginScreen').style.display='flex';
+}
+
+var MD_STATUS_PILL = {
+  VERIFIED:     '<span class="pill pg">Verified</span>',
+  UNREVIEWED:   '<span class="pill pgr">Not reviewed</span>',
+  NEEDS_UPDATE: '<span class="pill pr">Needs update — notified</span>'
+};
+var MD_ACCOUNT_PILL = {
+  ACTIVE:    '<span class="pill pg">Active</span>',
+  SUSPENDED: '<span class="pill pr">Suspended</span>'
+};
+
+var MEMBER_DATA = {
+  rahulMehta: { name:'Rahul Mehta', role:'Coordinator', org:'Shiksha Sahayog', status:'VERIFIED', accountStatus:'ACTIVE',
+    email:'rahul.mehta@example.com', phone:'+91 98xxxxxx45', joined:'12 Jun 2026',
+    hours:126, reliability:'96%', projects:9,
+    skills:['Teaching (Advanced)','First Aid (Intermediate)','Public Speaking (Advanced)'],
+    interests:['Education','Community'],
+    badges:['100 Hours Club','Top Volunteer — Jun 2026'],
+    otherOrgs:[{org:'Helping Hands India', role:'Volunteer', status:'Approved'}] },
+  priyaNair: { name:'Priya Nair', role:'Volunteer', org:'Helping Hands India', status:'UNREVIEWED', accountStatus:'ACTIVE',
+    email:'priya.nair@example.com', phone:'+91 98xxxxxx19', joined:'28 May 2026',
+    hours:34, reliability:'88%', projects:3,
+    skills:['Cooking (Intermediate)','Logistics (Beginner)'],
+    interests:['Disaster Relief','Community'],
+    badges:[],
+    otherOrgs:[] },
+  arjunDesai: { name:'Arjun Desai', role:'Admin', org:'Helping Hands India', status:'UNREVIEWED', accountStatus:'SUSPENDED',
+    email:'arjun.desai@example.com', phone:'+91 98xxxxxx88', joined:'2 Jul 2026',
+    hours:8, reliability:'62%', projects:1,
+    skills:['Event Management (Beginner)'],
+    interests:['Community'],
+    badges:[],
+    otherOrgs:[],
+    accountNote:'Suspended 5 Jul 2026 by Gaurav Shukla — multiple volunteer complaints pending review.' },
+  snehaKapoor: { name:'Sneha Kapoor', role:'Volunteer', org:'Asha Kiran Foundation', status:'NEEDS_UPDATE', accountStatus:'ACTIVE',
+    email:'sneha.kapoor@example.com', phone:'+91 98xxxxxx73', joined:'30 Jun 2026',
+    hours:16, reliability:'91%', projects:2,
+    skills:['Teaching (Beginner)'],
+    interests:['Education','Environment'],
+    badges:[],
+    otherOrgs:[{org:'Green Vision Trust', role:'Volunteer', status:'Pending'}] }
+};
+
+function renderPillList(containerId, items, pillClass){
+  if (!items || items.length === 0){
+    document.getElementById(containerId).innerHTML = '<span class="xs">None on file.</span>';
+    return;
+  }
+  document.getElementById(containerId).innerHTML = items.map(function(i){
+    return '<span class="pill ' + pillClass + '" style="margin:0 6px 6px 0;">' + i + '</span>';
+  }).join('');
+}
+
+function renderOtherOrgs(items){
+  if (!items || items.length === 0){
+    document.getElementById('mdOtherOrgs').innerHTML = '<span class="xs">Not a member of any other organisation.</span>';
+    return;
+  }
+  document.getElementById('mdOtherOrgs').innerHTML = items.map(function(i){
+    return '<div class="doc-row"><div style="flex:1;"><div class="h3" style="font-size:12.5px;">' + i.org + '</div>' +
+      '<div class="xs">' + i.role + '</div></div><span class="pill ' + (i.status === 'Approved' ? 'pg' : 'py') + '">' + i.status + '</span></div>';
+  }).join('');
+}
+
+function openMember(key){
+  var m = MEMBER_DATA[key];
+  if (!m) return;
+  document.getElementById('mdName').textContent = m.name;
+  document.getElementById('mdMeta').textContent = m.role + ' · ' + m.org;
+  renderAvatar('mdAvatar', m.name, m.photoUrl);
+  document.getElementById('mdStatusPill').innerHTML = MD_STATUS_PILL[m.status] || MD_STATUS_PILL.UNREVIEWED;
+  document.getElementById('mdAccountPill').innerHTML = MD_ACCOUNT_PILL[m.accountStatus] || MD_ACCOUNT_PILL.ACTIVE;
+  document.getElementById('mdAccountActionActive').style.display    = m.accountStatus === 'SUSPENDED' ? 'none' : 'block';
+  document.getElementById('mdAccountActionSuspended').style.display = m.accountStatus === 'SUSPENDED' ? 'block' : 'none';
+  document.getElementById('mdContact').innerHTML = 'Email: ' + m.email + ' · Phone: ' + m.phone + '<br>Joined this NGO: ' + m.joined +
+    (m.accountNote ? '<br><span style="color:var(--rd);">' + m.accountNote + '</span>' : '');
+  document.getElementById('mdHours').textContent = m.hours + ' hrs';
+  document.getElementById('mdReliability').textContent = m.reliability;
+  document.getElementById('mdProjects').textContent = m.projects;
+  renderPillList('mdSkills', m.skills, 'pp');
+  renderPillList('mdInterests', m.interests, 'pb');
+  renderPillList('mdBadges', m.badges, 'py');
+  renderOtherOrgs(m.otherOrgs);
+  document.getElementById('memberRequestBox').classList.remove('on');
+  document.getElementById('memberDrawer').classList.add('on');
+}
+function closeMemberDrawer(){ document.getElementById('memberDrawer').classList.remove('on'); }
+function toggleMemberRequestBox(){ document.getElementById('memberRequestBox').classList.toggle('on'); }
+
+function toggleOrgMs(e){
+  e.stopPropagation();
+  var panel = document.getElementById('orgMsPanel');
+  var opening = !panel.classList.contains('on');
+  panel.classList.toggle('on');
+  if (opening){
+    var searchBox = document.getElementById('orgMsSearch');
+    searchBox.value = '';
+    filterOrgOptions();
+    searchBox.focus();
+  }
+}
+
+function filterOrgOptions(){
+  var q       = document.getElementById('orgMsSearch').value.toLowerCase();
+  var options = document.querySelectorAll('#orgMsItemList .ms-option');
+  var visibleCount = 0;
+  options.forEach(function(opt){
+    var text    = opt.textContent.toLowerCase();
+    var matches = !q || text.indexOf(q) !== -1;
+    opt.style.display = matches ? '' : 'none';
+    if (matches) visibleCount++;
+  });
+  document.getElementById('orgMsNoResults').style.display = visibleCount === 0 ? 'block' : 'none';
+}
+
+document.addEventListener('click', function(e){
+  var dd = document.getElementById('orgMsDropdown');
+  if (dd && !dd.contains(e.target)) document.getElementById('orgMsPanel').classList.remove('on');
+});
+
+function getOrgItems(){ return document.querySelectorAll('.org-ms-item'); }
+
+function toggleOrgAll(masterCb){
+  getOrgItems().forEach(function(cb){ cb.checked = masterCb.checked; });
+  masterCb.indeterminate = false;
+  updateOrgMsLabel();
+  filterMembers();
+}
+
+function onOrgItemChange(){
+  var items   = Array.prototype.slice.call(getOrgItems());
+  var checked = items.filter(function(cb){ return cb.checked; });
+  var master  = document.getElementById('orgMsAll');
+  master.checked       = checked.length === items.length;
+  master.indeterminate = checked.length > 0 && checked.length < items.length;
+  updateOrgMsLabel();
+  filterMembers();
+}
+
+function updateOrgMsLabel(){
+  var items   = Array.prototype.slice.call(getOrgItems());
+  var checked = items.filter(function(cb){ return cb.checked; });
+  var label   = document.getElementById('orgMsLabel');
+  if (checked.length === 0)            label.textContent = 'No organisations';
+  else if (checked.length === items.length) label.textContent = 'All organisations';
+  else if (checked.length === 1)       label.textContent = checked[0].value;
+  else                                  label.textContent = checked.length + ' organisations';
+}
+
+function filterMembers(){
+  var checkedOrgs = Array.prototype.slice.call(getOrgItems())
+    .filter(function(cb){ return cb.checked; })
+    .map(function(cb){ return cb.value.toLowerCase(); });
+  var search = document.getElementById('memberSearch').value.toLowerCase();
+  var rows   = document.querySelectorAll('#memberTable tr[data-org]');
+  rows.forEach(function(row){
+    var rowOrg  = (row.getAttribute('data-org') || '').toLowerCase();
+    var rowText = row.textContent.toLowerCase();
+    var matchesOrg    = checkedOrgs.indexOf(rowOrg) !== -1;
+    var matchesSearch = !search || rowText.indexOf(search) !== -1;
+    row.style.display = (matchesOrg && matchesSearch) ? '' : 'none';
+  });
+}
+</script>
+</body>
+</html>

@@ -11,7 +11,7 @@ namespace NGOConnect.Core.Models.Auth
         [Required]
         public string CountryCode { get; set; } = "+91";
 
-        /// <summary>1=Login 2=Register 3=ForgotPassword 4=ChangeEmail</summary>
+        /// <summary>LookupValueId from OTP_PURPOSE lookup type</summary>
         [Required]
         public int PurposeLkpId { get; set; }
     }
@@ -32,8 +32,12 @@ namespace NGOConnect.Core.Models.Auth
         [StringLength(6, MinimumLength = 6, ErrorMessage = "OTP must be 6 digits")]
         public string OtpCode { get; set; } = string.Empty;
 
+        /// <summary>LookupValueId from OTP_PURPOSE lookup type</summary>
         [Required]
         public int PurposeLkpId { get; set; }
+
+        /// <summary>Dial code e.g. +44, +91 — stored on Users.CountryCode for new registrations</summary>
+        public string CountryCode { get; set; } = "+91";
     }
 
     public class VerifyOtpResponse

@@ -1,0 +1,158 @@
+# NGO Connect — Project Instructions
+
+## MANDATORY: Load Skill Before Any Work
+
+**Always invoke the `software-architect-skill` at the start of every session before doing anything else.**
+
+This skill contains all architectural decisions, database design standards, SP patterns, DAL patterns, API contracts, and the Core Mandate for the NGO Connect platform. No design, code, or documentation decision should be made without it.
+
+## Documentation Guidelines
+
+All project documentation is governed by `Documents/DOCUMENTATION_GUIDELINES.md`. Read it before updating any of the 4 maintained documents:
+
+- `Documents/NGOConnect_Complete_Setup_v4.6.sql`
+- `Documents/API_Documentation_v4.6.docx`
+- `Documents/NGOConnect_Postman_Collection_v4.6.json`
+- `Documents/Database_Documentation_v4.6.md`
+
+Key rules:
+- Never update documents mid-task — accumulate all changes and apply only when the user says "update documents"
+- Before applying any update, assess scope (Minor / Significant / Major) and ask for confirmation: update in-place or create new version?
+- Minor changes (typo, wording, missing description) → update current file in-place, no version bump
+- Significant changes (new endpoint, SP param change, model field change) → ask before bumping version
+- Uploaded SP files are the highest source of truth — they override the setup SQL
+
+## MANDATORY: Change Tracking — Every Session
+
+**At the START of every session:**
+1. Read `Documents/DOCUMENTATION_GUIDELINES.md` — check the **Current Pending Document Updates** section at the bottom
+2. Carry those pending changes forward — they are the running list of what must be applied when the user says "update documents"
+
+**During every session — after ANY code or DB change:**
+- Immediately append the change to the **Current Pending Document Updates** section in `Documents/DOCUMENTATION_GUIDELINES.md`
+- Never leave a change untracked. If you fix an SP, alter a table, add an endpoint, or change a model — write it to the pending list before moving on
+- Format: document name → what changed (SP name, table name, endpoint, model field)
+
+**Why this matters:** Sessions end, context is lost, conversation summaries are incomplete. The ONLY reliable record of pending changes is the file on disk. If it is not written there, it is lost.
+
+## MANDATORY: SP ↔ DAL Parameter Validation Before Every Railway Deploy
+
+Run this before pushing any SP or DAL change to Railway staging or production:
+
+```bash
+python scripts/validate_sp_params.py
+```
+
+The script cross-references every `IN p_Xxx` declared in the setup SQL against every
+`AddWithValue("p_Xxx", ...)` call in the DAL files and reports mismatches.
+
+**This project has had repeated SP ↔ DAL parameter drift bugs** (wrong column name,
+missing param, renamed param not updated in both places). The script is the gate.
+Do not skip it. If it reports mismatches, fix them before creating the patch file.
+
+When writing a new SP or editing an existing one, immediately update the matching DAL
+`AddWithValue` calls in the same session — never in a follow-up.
+
+---
+
+## MANDATORY: SQL Setup File is the Single Source of Truth
+
+**`Documents/NGOConnect_Complete_Setup_v4.6.sql` must ALWAYS reflect the current correct state of all tables and stored procedures.**
+
+### The Only Correct Workflow for SP Changes
+
+1. **Fix the setup SQL file FIRST** — edit the SP directly in `NGOConnect_Complete_Setup_v4.6.sql`
+2. **Extract the patch from the fixed SP** — copy the corrected DROP + CREATE block into a patch file
+3. **Apply the patch to running DBs** — run the patch file on Railway staging / production
+
+**NEVER do this:**
+- Fix the SP in a patch file only and forget to update the setup SQL
+- Create a patch that adds columns or renames params without updating the setup SQL
+- Assume the setup SQL is correct without verifying it matches the patch
+
+### Why this rule exists
+Every new DB (staging, production, developer machine) is built from the setup SQL from scratch. If the setup SQL is out of date, every new DB starts broken. This has caused repeated `Unknown column` errors in production logs because patch fixes were applied to the running DB but never merged back into the setup SQL.
+
+### Column Name Verification Rule
+Before writing any SP that references the `Projects` table, verify column names against the `CREATE TABLE Projects` definition in the setup SQL. Known correct names:
+- `ProjectName` (NOT Title, NOT ProjectTitle)
+- `Landmark` (NOT LocationName — use `p.Landmark AS LocationName` in SELECT)
+- `AddressLine` (NOT Address — use `p.AddressLine AS Address` in SELECT)
+- `RecurStart`, `RecurEnd`, `RecurDays` (NOT StartDate, EndDate, RecurrenceDays)
+- `SessionStartTime`, `SessionEndTime` (NOT StartTime, EndTime)
+- `ProjectTypeLkpId` → JOIN LookupValues to get ScheduleType code (NO direct ScheduleType column)
+- No `CoverImageUrl` column on Projects table
+
+## Prototype Reference
+
+The approved UI prototype is `Documents/NGO_Connect_Final_v1.6.html` — this is the design baseline for all API and DB work. Any new feature or screen must trace back to this prototype or be explicitly discussed and approved before implementation.
+
+### 38 Screens in v1.6 (Screen ID → Purpose)
+
+**Auth**
+- `s-login` — Login / Welcome (mobile + email)
+- `s-otp` — OTP verification
+
+**Volunteer / User Screens**
+- `s-home` — Home feed (posts, announcements)
+- `s-all-opps` — All volunteer opportunities (filterable)
+- `s-all-projects` — My projects (Applied / Upcoming / Completed)
+- `s-explore` — Explore NGOs (by category)
+- `s-ngo` — NGO public profile + Join request
+- `s-proj-vol` — Project detail (volunteer view)
+- `s-join-form` — Membership application form (4 steps)
+- `s-impact` — My Impact profile (hours, score, badges)
+- `s-community` — Community feed (members-only posts, polls)
+- `s-profile` — My profile (stats, NGOs, activity)
+- `s-edit-profile` — Edit profile (5-step wizard)
+- `s-my-orgs` — My organisations + Create new NGO
+- `s-donate` — Donate to NGO (campaign overview)
+- `s-donation-payment` — Payment step (amount + method)
+- `s-donation-success` — Donation confirmation + receipt
+- `s-my-donations` — My donation history (History / Recurring / Receipts / NGOs tabs)
+
+**SOS**
+- `s-sos-trigger` — Trigger SOS alert
+- `s-sos-active` — Active SOS (live responders, timer)
+- `s-sos-resolved` — SOS resolved confirmation
+- `s-live-location` — Live location map (helper view)
+
+**NGO Admin Screens**
+- `s-admin` — NGO dashboard (overview stats)
+- `s-admin-proj` — Projects list (Active / Upcoming / Completed / Cancelled)
+- `s-proj-detail` — Project detail (admin view, edit/cancel)
+- `s-create-proj` — Create project wizard (5 steps: info → schedule → skills → visibility → publish)
+- `s-participants` — Project participants (Approved / Pending / No-show / Attended)
+- `s-vol-profile` — Volunteer profile (admin view — ratings, badges, reliability)
+- `s-admin-vols` — All volunteers (Members / Pending / Posts tabs)
+- `s-admin-comm` — Community posts admin (pin, announce)
+- `s-admin-org` — Organisation profile editor
+- `s-member-impact` — Member impact detail (admin view)
+- `s-create-org` — Create Organisation wizard (4 steps)
+
+**Admin — Donations**
+- `s-admin-donations` — Donation dashboard (live stats)
+- `s-admin-campaigns` — Campaigns list + create
+- `s-admin-donors` — Donor list (All / Recurring / Top)
+- `s-admin-transactions` — Transaction history (filter by status)
+- `s-admin-withdrawal` — Withdrawal requests + available balance
+
+### Key Design Decisions from Prototype
+- Project schedules: One-time, Recurring (specific days/time), Open/Flexible
+- Google Maps pin per project (separate from text address)
+- Skills per project — each rated individually by admin + volunteers
+- Participant tracker: Approved / Pending / No-show / Attended states
+- Reliability score: private to NGO admins only (not public on volunteer profile)
+- No-show: can be marked "excused" by admin to prevent unfair penalties
+- Donation readable IDs: DON-2026-000001 format
+- 80G eligibility shown on NGO donate screen
+- Community posts: Announcements (📢), Polls, General — with pin option
+
+## Project Stack (Quick Reference)
+
+- ASP.NET Core 8, C#, MySQL 8.0
+- Architecture: Controller → Interface → DAL (inherits BaseDal) → Stored Procedure
+- No EF Core — ADO.NET + Stored Procedures only
+- API standard: `ApiResponse<T>` with IsSuccess, Message, Data, ErrorCode
+- All config via Settings table + SettingsCache (never appsettings.json)
+- All lookups via LookupTypes + LookupValues (never hardcoded enums)

@@ -1,0 +1,31 @@
+/.vs
+
+# Build output
+/NGOConnect.API/bin
+/NGOConnect.API/logs
+/NGOConnect.API/obj
+/NGOConnect.Core/bin
+/NGOConnect.Core/obj
+/NGOConnect.Infrastructure/bin
+/NGOConnect.Infrastructure/obj
+/NGOConnect.Tests/bin
+/NGOConnect.Tests/obj
+
+# Visual Studio user-specific files
+*.user
+*.suo
+
+# ── Secret config files — NEVER commit these ──────────────────────────────────
+# appsettings.json            → base config, safe to commit (no secrets)
+# appsettings.Staging.json    → structural staging config, safe to commit (no secrets)
+# appsettings.example.json    → template, safe to commit (no real values)
+# Everything below is gitignored because it contains real credentials:
+appsettings.Development.json
+appsettings.Production.json
+appsettings.*.Local.json
+
+# ── Upload files — never commit user-uploaded content ─────────────────────────
+/NGOConnect.API/UploadFiles/
+UploadFiles/
+NGOConnect.API/appsettings.json
+NGOConnect.API/appsettings.Development.json

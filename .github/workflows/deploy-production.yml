@@ -1,0 +1,52 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build & Publish
+        run: |
+          dotnet restore
+          dotnet publish NGOConnect.API/NGOConnect.API.csproj \
+            -c Release -o ./publish --no-restore
+
+      - name: Stop API service
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: userclaudesession
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: sudo systemctl stop ripplehub-api
+
+      - name: Copy build to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: userclaudesession
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: "./publish/*"
+          target: "/var/www/ripplehub-api"
+          rm: true
+
+      - name: Start API service
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: userclaudesession
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            sudo systemctl start ripplehub-api
+            sleep 5
+            sudo systemctl is-active ripplehub-api

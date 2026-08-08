@@ -1,4 +1,5 @@
 using System.Data;
+using System.Text.Json;
 using NGOConnect.Core.Interfaces;
 using NGOConnect.Core.Models.Common;
 using NGOConnect.Core.Models.User;
@@ -6,134 +7,232 @@ using Serilog;
 
 namespace NGOConnect.Infrastructure.DAL
 {
-    /// <summary>
-    /// User DAL — Controller → IUserDal → UserDal → Stored Procedures → MySQL
-    ///
-    /// Inherits BaseDal for all SP execution patterns.
-    /// 30/70 Rule:
-    ///   GetProfile    → typed  (core entity, PII, C# code references fields)
-    ///   GetPublicProfile → DynamicRow (display query, SP drives shape)
-    ///   GetSkills     → typed  (referenced in C# — skill list)
-    ///   UpdateProfile → write (ExecuteWriteAsync)
-    /// </summary>
     public class UserDal : BaseDal, IUserDal
     {
-        public UserDal(IDbProvider db) : base(db) { }
+        private readonly IEmailService _email;
 
-        // ── GET Own Profile (typed — core entity) ───────────────────────────────
+        public UserDal(IDbProvider db, IEmailService email) : base(db)
+        {
+            _email = email;
+        }
+
         public async Task<ApiResponse<UserProfileModel>> GetProfileAsync(int userId)
         {
             try
             {
-                var profile = await ExecuteGetAsync(
-                    "User_GetProfile",
-                    MapProfile,
-                    cmd => _db.AddParameter(cmd, "p_UserId", userId));
-
+                var profile = await ExecuteGetAsync("User_GetProfile", MapProfile,
+                    cmd =>
+                    {
+                        _db.AddParameter(cmd, "p_UserId",           userId);
+                        _db.AddParameter(cmd, "p_RequestingUserId", 0);
+                    });
                 return profile is null
                     ? ApiResponse<UserProfileModel>.Failure("Profile not found.", "NOT_FOUND")
                     : ApiResponse<UserProfileModel>.Success(profile);
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "GetProfileAsync failed. UserId={UserId}", userId);
+                Log.Error(ex, "GetProfileAsync failed UserId={UserId}", userId);
                 return ApiResponse<UserProfileModel>.Failure("An error occurred.", "INTERNAL_ERROR");
             }
         }
 
-        // ── GET Public Profile (DynamicRow — display query) ─────────────────────
         public async Task<ApiResponse<DynamicRow>> GetPublicProfileAsync(int userId)
         {
             try
             {
-                // DynamicRow: SP column OrgName → JSON key orgName, auto-camelCase, zero C# changes on SP update
-                var row = await ExecuteDynamicGetAsync(
-                    "User_GetPublicProfile",
+                var row = await ExecuteDynamicGetAsync("User_GetPublicProfile",
                     cmd => _db.AddParameter(cmd, "p_UserId", userId));
-
                 return row is null
                     ? ApiResponse<DynamicRow>.Failure("User not found.", "NOT_FOUND")
                     : ApiResponse<DynamicRow>.Success(row);
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "GetPublicProfileAsync failed. UserId={UserId}", userId);
+                Log.Error(ex, "GetPublicProfileAsync failed UserId={UserId}", userId);
                 return ApiResponse<DynamicRow>.Failure("An error occurred.", "INTERNAL_ERROR");
             }
         }
 
-        // ── UPDATE Profile ──────────────────────────────────────────────────────
         public async Task<ApiResponse> UpdateProfileAsync(int userId, UpdateProfileRequest request)
         {
             try
             {
                 var result = await ExecuteWriteAsync("User_UpdateProfile", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_UserId",      userId);
-                    _db.AddParameter(cmd, "p_FirstName",   request.FirstName);
-                    _db.AddParameter(cmd, "p_LastName",    request.LastName);
-                    _db.AddParameter(cmd, "p_DisplayName", request.DisplayName);
-                    _db.AddParameter(cmd, "p_About",       request.About);
-                    _db.AddParameter(cmd, "p_GenderLkpId", request.GenderLkpId);
-                    _db.AddParameter(cmd, "p_DateOfBirth", request.DateOfBirth);
-                    _db.AddParameter(cmd, "p_City",        request.City);
-                    _db.AddParameter(cmd, "p_State",       request.State);
-                    _db.AddParameter(cmd, "p_Country",     request.Country);
-                    _db.AddParameter(cmd, "p_LinkedInUrl", request.LinkedInUrl);
-                    _db.AddParameter(cmd, "p_WebsiteUrl",  request.WebsiteUrl);
+                    _db.AddParameter(cmd, "p_UserId",         userId);
+                    _db.AddParameter(cmd, "p_FirstName",      request.FirstName);
+                    _db.AddParameter(cmd, "p_LastName",       request.LastName);
+                    _db.AddParameter(cmd, "p_Bio",            request.Bio);
+                    _db.AddParameter(cmd, "p_ProfilePhoto",   request.ProfilePhoto);
+                    _db.AddParameter(cmd, "p_GenderLkpId",    request.GenderLkpId);
+                    _db.AddParameter(cmd, "p_DateOfBirth",    request.DateOfBirth);
+                    _db.AddParameter(cmd, "p_Occupation",     request.Occupation);
+                    _db.AddParameter(cmd, "p_Organisation",   request.Organisation);
+                    _db.AddParameter(cmd, "p_VolunteerExp",   request.VolunteerExp);
+                    _db.AddParameter(cmd, "p_EducationLkpId", request.EducationLkpId);
+                    _db.AddParameter(cmd, "p_FieldOfStudy",   request.FieldOfStudy);
+                    _db.AddParameter(cmd, "p_WorkExpLkpId",   request.WorkExpLkpId);
+                    _db.AddParameter(cmd, "p_AddressLine1",   request.AddressLine1);
+                    _db.AddParameter(cmd, "p_AddressLine2",   request.AddressLine2);
+                    _db.AddParameter(cmd, "p_City",           request.City);
+                    _db.AddParameter(cmd, "p_State",          request.State);
+                    _db.AddParameter(cmd, "p_Pincode",        request.Pincode);
+                    _db.AddParameter(cmd, "p_Country",        request.Country);
                 });
-
                 return result.ToApiResponse();
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "UpdateProfileAsync failed. UserId={UserId}", userId);
+                Log.Error(ex, "UpdateProfileAsync failed UserId={UserId}", userId);
                 return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
             }
         }
 
-        // ── GET Skills (DataReader — frequent call, typed) ──────────────────────
+        public async Task<ApiResponse> UpdateSafetyPrefsAsync(int userId, UpdateSafetyPrefsRequest request)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("User_UpdateSafetyPrefs", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_UserId",                   userId);
+                    _db.AddParameter(cmd, "p_EmergVisibilityLkpId",     request.EmergVisibilityLkpId);
+                    _db.AddParameter(cmd, "p_AutoShareDurLkpId",        request.AutoShareDurLkpId);
+                    _db.AddParameter(cmd, "p_AllowLocDuringSos",        request.AllowLocDuringSos);
+                    _db.AddParameter(cmd, "p_AllowLocDuringProj",       request.AllowLocDuringProj);
+                    _db.AddParameter(cmd, "p_EmergencyContactName",     request.EmergencyContactName);
+                    _db.AddParameter(cmd, "p_EmergencyContactPhone",    request.EmergencyContactPhone);
+                    _db.AddParameter(cmd, "p_EmergencyContactRelation", request.EmergencyContactRelation);
+                });
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "UpdateSafetyPrefsAsync failed UserId={UserId}", userId);
+                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        public async Task<ApiResponse> SaveInterestsAsync(int userId, SaveInterestsRequest request)
+        {
+            try
+            {
+                // SP expects JSON int array e.g. [1,2,3] — LookupValueIds from INTEREST_TYPE
+                var idsJson = JsonSerializer.Serialize(request.InterestLkpIds);
+                var result = await ExecuteWriteAsync("User_SaveInterests", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_UserId",         userId);
+                    _db.AddParameter(cmd, "p_InterestLkpIds", idsJson);
+                });
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "SaveInterestsAsync failed UserId={UserId}", userId);
+                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        public async Task<ApiResponse> UploadDocumentAsync(int userId, UploadDocumentRequest request)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("User_UploadDocument", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_UserId",            userId);
+                    _db.AddParameter(cmd, "p_DocumentTypeLkpId", request.DocumentTypeLkpId);
+                    _db.AddParameter(cmd, "p_FileUrl",           request.FileUrl);
+                    _db.AddParameter(cmd, "p_FileName",          request.FileName);
+                    _db.AddParameter(cmd, "p_FileSizeKb",        request.FileSizeKb);
+                });
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "UploadDocumentAsync failed UserId={UserId}", userId);
+                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        public async Task<ApiResponse<List<UserDocumentModel>>> GetDocumentsAsync(int userId)
+        {
+            try
+            {
+                var docs = await ExecuteReaderListAsync("User_GetDocuments", MapDocument,
+                    cmd => _db.AddParameter(cmd, "p_UserId", userId));
+                return ApiResponse<List<UserDocumentModel>>.Success(docs);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetDocumentsAsync failed UserId={UserId}", userId);
+                return ApiResponse<List<UserDocumentModel>>.Failure("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        public async Task<ApiResponse> DeleteDocumentAsync(int userId, int userDocumentId)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("User_DeleteDocument", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_UserDocumentId", userDocumentId);
+                    _db.AddParameter(cmd, "p_UserId",         userId);
+                });
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "DeleteDocumentAsync failed UserId={UserId} DocId={DocId}", userId, userDocumentId);
+                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        private static UserDocumentModel MapDocument(IDataReader r) => new()
+        {
+            UserDocumentId    = Convert.ToInt32(r["UserDocumentId"]),
+            DocumentTypeLkpId = Convert.ToInt32(r["DocumentTypeLkpId"]),
+            DocTypeCode       = r["DocTypeCode"]?.ToString() ?? string.Empty,
+            DocTypeName       = r["DocTypeName"]?.ToString() ?? string.Empty,
+            FileUrl           = r["FileUrl"]?.ToString()     ?? string.Empty,
+            FileName          = r["FileName"]?.ToString()    ?? string.Empty,
+            FileSizeKb        = r["FileSizeKb"] == DBNull.Value ? null : Convert.ToInt32(r["FileSizeKb"]),
+            IsVerified        = r["IsVerified"]  != DBNull.Value && Convert.ToBoolean(r["IsVerified"]),
+            UploadedAt        = r["UploadedAt"]  == DBNull.Value ? DateTime.MinValue : Convert.ToDateTime(r["UploadedAt"]),
+        };
+
         public async Task<ApiResponse<List<UserSkillModel>>> GetSkillsAsync(int userId)
         {
             try
             {
-                // DataReader: streams rows — 2-5x faster for frequently called endpoints
-                var skills = await ExecuteReaderListAsync(
-                    "User_GetSkills",
-                    MapSkill,
+                var skills = await ExecuteReaderListAsync("User_GetSkills", MapSkill,
                     cmd => _db.AddParameter(cmd, "p_UserId", userId));
-
                 return ApiResponse<List<UserSkillModel>>.Success(skills);
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "GetSkillsAsync failed. UserId={UserId}", userId);
+                Log.Error(ex, "GetSkillsAsync failed UserId={UserId}", userId);
                 return ApiResponse<List<UserSkillModel>>.Failure("An error occurred.", "INTERNAL_ERROR");
             }
         }
 
-        // ── ADD Skill (upsert — updates proficiency if skill already exists) ────
         public async Task<ApiResponse> AddSkillAsync(int userId, AddSkillRequest request)
         {
             try
             {
                 var result = await ExecuteWriteAsync("User_AddSkill", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_UserId",           userId);
-                    _db.AddParameter(cmd, "p_SkillLkpId",       request.SkillLkpId);
-                    _db.AddParameter(cmd, "p_ProficiencyLkpId", request.ProficiencyLkpId);
+                    _db.AddParameter(cmd, "p_UserId",    userId);
+                    _db.AddParameter(cmd, "p_SkillName", request.SkillName);
                 });
-
                 return result.ToApiResponse();
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "AddSkillAsync failed. UserId={UserId}", userId);
+                Log.Error(ex, "AddSkillAsync failed UserId={UserId}", userId);
                 return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
             }
         }
 
-        // ── REMOVE Skill ────────────────────────────────────────────────────────
         public async Task<ApiResponse> RemoveSkillAsync(int userId, int userSkillId)
         {
             try
@@ -143,51 +242,378 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_UserId",      userId);
                     _db.AddParameter(cmd, "p_UserSkillId", userSkillId);
                 });
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "RemoveSkillAsync failed UserId={UserId}", userId);
+                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        // ── Safety Prefs ─────────────────────────────────────────────────────────
+
+        public async Task<ApiResponse<UserSafetyPrefsModel>> GetSafetyPrefsAsync(int userId)
+        {
+            try
+            {
+                var row = await ExecuteGetAsync("User_GetSafetyPrefs", MapSafetyPrefs,
+                    cmd => _db.AddParameter(cmd, "p_UserId", userId));
+                return row is null
+                    ? ApiResponse<UserSafetyPrefsModel>.Failure("Safety preferences not found.", "NOT_FOUND")
+                    : ApiResponse<UserSafetyPrefsModel>.Success(row);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetSafetyPrefsAsync failed UserId={UserId}", userId);
+                return ApiResponse<UserSafetyPrefsModel>.Failure("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        // ── Interests ─────────────────────────────────────────────────────────────
+
+        public async Task<ApiResponse<List<UserInterestModel>>> GetInterestsAsync(int userId)
+        {
+            try
+            {
+                var rows = await ExecuteListAsync("User_GetInterests",
+                    r => new UserInterestModel
+                    {
+                        InterestLkpId = Col<int>(r,    "InterestLkpId"),
+                        InterestName  = Col<string>(r, "InterestName")  ?? string.Empty,
+                        InterestCode  = Col<string>(r, "InterestCode")  ?? string.Empty,
+                    },
+                    cmd => _db.AddParameter(cmd, "p_UserId", userId));
+                return ApiResponse<List<UserInterestModel>>.Success(rows);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetInterestsAsync failed UserId={UserId}", userId);
+                return ApiResponse<List<UserInterestModel>>.Failure("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        // ── My Organisations ──────────────────────────────────────────────────────
+
+        public async Task<ApiResponse<List<UserOrgModel>>> GetMyOrgsAsync(int userId)
+        {
+            try
+            {
+                var rows = await ExecuteListAsync("User_GetMyOrgs",
+                    r => new UserOrgModel
+                    {
+                        OrgId            = Col<int>(r,      "OrgId"),
+                        OrgName          = Col<string>(r,   "OrgName")          ?? string.Empty,
+                        LogoUrl          = Col<string>(r,   "LogoUrl"),
+                        OrgType          = Col<string>(r,   "OrgType"),
+                        City             = Col<string>(r,   "City"),
+                        State            = Col<string>(r,   "State"),
+                        Role             = Col<string>(r,   "Role")             ?? string.Empty,
+                        RoleCode         = Col<string>(r,   "RoleCode")         ?? string.Empty,
+                        MemberStatusCode = Col<string>(r,   "MemberStatusCode") ?? string.Empty,
+                        OrgStatusCode    = Col<string>(r,   "OrgStatusCode")    ?? string.Empty,
+                        MemberCount      = Col<int>(r,      "MemberCount"),
+                        JoinedAt         = Col<DateTime>(r, "JoinedAt"),
+                        RejectionReason  = Col<string>(r,   "RejectionReason"),
+                        SuspendedAt      = ColNullable<DateTime>(r, "SuspendedAt"),
+                    },
+                    cmd => _db.AddParameter(cmd, "p_UserId", userId));
+                return ApiResponse<List<UserOrgModel>>.Success(rows);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetMyOrgsAsync failed UserId={UserId}", userId);
+                return ApiResponse<List<UserOrgModel>>.Failure("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        // ── Badges ────────────────────────────────────────────────────────────────
+
+        public async Task<ApiResponse<List<UserBadgeModel>>> GetBadgesAsync(int userId)
+        {
+            try
+            {
+                var rows = await ExecuteListAsync("User_GetBadges",
+                    r => new UserBadgeModel
+                    {
+                        UserBadgeId = Col<int>(r,      "UserBadgeId"),
+                        BadgeLkpId  = Col<int>(r,      "BadgeLkpId"),
+                        BadgeName   = Col<string>(r,   "BadgeName")   ?? string.Empty,
+                        BadgeCode   = Col<string>(r,   "BadgeCode")   ?? string.Empty,
+                        OrgName     = Col<string>(r,   "OrgName"),
+                        ProjectName = Col<string>(r,   "ProjectName"),
+                        AwardedAt   = Col<DateTime>(r, "AwardedAt"),
+                    },
+                    cmd => _db.AddParameter(cmd, "p_UserId", userId));
+                return ApiResponse<List<UserBadgeModel>>.Success(rows);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetBadgesAsync failed UserId={UserId}", userId);
+                return ApiResponse<List<UserBadgeModel>>.Failure("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        // ── Impact Dashboard ──────────────────────────────────────────────────────
+
+        public async Task<ApiResponse<UserImpactModel>> GetImpactAsync(int userId)
+        {
+            try
+            {
+                var row = await ExecuteGetAsync("User_GetImpact", MapImpact,
+                    cmd => _db.AddParameter(cmd, "p_UserId", userId));
+                return row is null
+                    ? ApiResponse<UserImpactModel>.Failure("Impact data not found.", "NOT_FOUND")
+                    : ApiResponse<UserImpactModel>.Success(row);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetImpactAsync failed UserId={UserId}", userId);
+                return ApiResponse<UserImpactModel>.Failure("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        // ── Impact Summary (single call) ──────────────────────────────────────────
+
+        public async Task<ApiResponse<ImpactSummaryModel>> GetImpactSummaryAsync(int userId)
+        {
+            try
+            {
+                using var conn = await _db.CreateConnectionAsync();
+                using var cmd  = _db.CreateCommand("User_GetImpactSummary", conn);
+                _db.AddParameter(cmd, "p_UserId",     userId);
+                _db.AddParameter(cmd, "p_AppLimit",   5);
+                _db.AddParameter(cmd, "p_BadgeLimit", 3);
+
+                var ds = await _db.FillDataSetAsync(cmd);
+
+                // Helper: safely convert a table index to a DynamicRow list
+                List<DynamicRow> ToRows(int tableIdx) =>
+                    ds.Tables.Count > tableIdx
+                        ? ds.Tables[tableIdx].Rows.Cast<DataRow>()
+                              .Select(r => new DynamicRow(r)).ToList()
+                        : [];
+
+                var countsRow = ds.Tables.Count > 5 && ds.Tables[5].Rows.Count > 0
+                    ? ds.Tables[5].Rows[0] : null;
+                var impactRow = ds.Tables.Count > 6 && ds.Tables[6].Rows.Count > 0
+                    ? ds.Tables[6].Rows[0] : null;
+
+                var applied   = ToRows(0);
+                var upcoming  = ToRows(1);
+                var completed = ToRows(2);
+                var cancelled = ToRows(3);
+                var badges    = ToRows(4);
+
+                var model = new ImpactSummaryModel
+                {
+                    Applied        = applied,
+                    Upcoming       = upcoming,
+                    Completed      = completed,
+                    Cancelled      = cancelled,
+                    Badges         = badges,
+                    TotalApplied   = countsRow is not null ? Col<int>(countsRow, "TotalApplied")   : applied.Count,
+                    TotalUpcoming  = countsRow is not null ? Col<int>(countsRow, "TotalUpcoming")  : upcoming.Count,
+                    TotalCompleted = countsRow is not null ? Col<int>(countsRow, "TotalCompleted") : completed.Count,
+                    TotalCancelled = countsRow is not null ? Col<int>(countsRow, "TotalCancelled") : cancelled.Count,
+                    TotalBadges    = countsRow is not null ? Col<int>(countsRow, "TotalBadges")    : badges.Count,
+                };
+
+                if (impactRow is not null)
+                {
+                    model.ImpactScore          = Col<int>(impactRow,      "ImpactScore");
+                    model.ReliabilityPct       = Col<decimal>(impactRow,  "ReliabilityPct");
+                    model.ProjectsCompleted    = Col<int>(impactRow,      "ProjectsCompleted");
+                    model.TotalHours           = Col<decimal>(impactRow,  "TotalHours");
+                    model.BadgeCount           = Col<int>(impactRow,      "BadgeCount");
+                    model.SkillCount           = Col<int>(impactRow,      "SkillCount");
+                    model.ProjectsApplied      = Col<int>(impactRow,      "ProjectsApplied");
+                    model.CertificateCount     = Col<int>(impactRow,      "CertificateCount");
+                    model.MemberSince          = Col<DateTime>(impactRow, "MemberSince");
+                    model.RankName             = Col<string>(impactRow,   "RankName") ?? "Newcomer";
+                    model.RankNumber           = Col<int>(impactRow,      "RankNumber");
+                    model.TotalRanked          = Col<int>(impactRow,      "TotalRanked");
+                    model.NgosJoined           = Col<int>(impactRow,      "NgosJoined");
+                    model.PendingApplications  = Col<int>(impactRow,      "PendingApplications");
+                    model.ApprovedApplications = Col<int>(impactRow,      "ApprovedApplications");
+                    model.FirstName            = Col<string>(impactRow,   "FirstName");
+                    model.LastName             = Col<string>(impactRow,   "LastName");
+                    model.ProfilePhoto         = Col<string>(impactRow,   "ProfilePhoto");
+                    model.Bio                  = Col<string>(impactRow,   "Bio");
+                }
+
+                return ApiResponse<ImpactSummaryModel>.Success(model);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetImpactSummaryAsync failed UserId={UserId}", userId);
+                return ApiResponse<ImpactSummaryModel>.Failure("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        // ── Contact Update (OTP flow) ─────────────────────────────────────────────
+
+        public async Task<ApiResponse> SendContactOtpAsync(int userId, SendContactOtpRequest request, string ipAddress)
+        {
+            try
+            {
+                // Generate OTP here (cryptographically secure, same as AuthDal pattern)
+                var otp = GenerateOtp();
+
+                var result = await ExecuteWriteAsync("User_SendContactOtp", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_UserId",    userId);
+                    _db.AddParameter(cmd, "p_Type",      request.Type.ToUpper());
+                    _db.AddParameter(cmd, "p_Value",     request.Value.Trim());
+                    _db.AddParameter(cmd, "p_OtpCode",   otp);
+                    _db.AddParameter(cmd, "p_IpAddress", ipAddress);
+                });
+
+                if (!result.Succeeded)
+                    return result.ToApiResponse();
+
+                // Deliver OTP based on type
+                var isEmail = request.Type.Equals("EMAIL", StringComparison.OrdinalIgnoreCase);
+                if (isEmail)
+                {
+                    var sent = await _email.SendOtpAsync(request.Value.Trim(), otp, 10);
+                    if (!sent)
+                        Log.Warning("Contact OTP email delivery failed for {Value} — OTP stored but not delivered",
+                            request.Value);
+                }
+                else
+                {
+                    // SMS — TODO: integrate MSG91/Twilio when confirmed
+                    Log.Warning("SMS contact OTP not yet implemented for {Value} — OTP stored in DB only",
+                        request.Value);
+                }
+
+                // Always log to debug for dev convenience
+                Log.Debug("DEV — Contact OTP ({Type}) for {Value}: {Otp}", request.Type, request.Value, otp);
 
                 return result.ToApiResponse();
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "RemoveSkillAsync failed. UserId={UserId} UserSkillId={UserSkillId}",
-                    userId, userSkillId);
+                Log.Error(ex, "SendContactOtpAsync failed UserId={UserId} Type={Type}", userId, request.Type);
                 return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
             }
         }
 
-        // ── Mappers ─────────────────────────────────────────────────────────────
+        public async Task<ApiResponse> VerifyContactOtpAsync(int userId, VerifyContactOtpRequest request, string ipAddress)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("User_VerifyContactOtp", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_UserId",    userId);
+                    _db.AddParameter(cmd, "p_Type",      request.Type.ToUpper());
+                    _db.AddParameter(cmd, "p_Value",     request.Value.Trim());
+                    _db.AddParameter(cmd, "p_OtpCode",   request.OtpCode.Trim());
+                    _db.AddParameter(cmd, "p_IpAddress", ipAddress);
+                });
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "VerifyContactOtpAsync failed UserId={UserId} Type={Type}", userId, request.Type);
+                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
 
-        /// <summary>Map DataRow to UserProfileModel using Col&lt;T&gt; safe helpers.</summary>
+        private static string GenerateOtp()
+        {
+            var bytes = System.Security.Cryptography.RandomNumberGenerator.GetBytes(4);
+            var value = BitConverter.ToUInt32(bytes, 0) % 1000000;
+            return value.ToString("D6");
+        }
+
+        // ── Mappers ──────────────────────────────────────────────────────────────
+
         private static UserProfileModel MapProfile(DataRow row) => new()
         {
             UserId            = Col<int>(row,      "UserId"),
-            MobileNumber      = Col<string>(row,   "MobileNumber"),
+            Mobile            = Col<string>(row,   "Mobile"),
             Email             = Col<string>(row,   "Email"),
-            CountryCode       = Col<string>(row,   "CountryCode"),
+            CountryCode       = Col<string>(row,   "CountryCode") ?? "+91",
+            IsVerified        = Col<bool>(row,     "IsVerified"),
             FirstName         = Col<string>(row,   "FirstName"),
             LastName          = Col<string>(row,   "LastName"),
-            DisplayName       = Col<string>(row,   "DisplayName"),
-            About             = Col<string>(row,   "About"),
-            GenderValueCode   = Col<string>(row,   "GenderValueCode"),
+            Bio               = Col<string>(row,   "Bio"),
+            GenderLkpId       = ColNullable<int>(row,    "GenderLkpId"),
+            Gender            = Col<string>(row,   "Gender"),           // ValueName e.g. "Male"
+            GenderCode        = Col<string>(row,   "GenderCode"),       // ValueCode e.g. "MALE"
             DateOfBirth       = ColNullable<DateTime>(row, "DateOfBirth"),
-            ProfilePhotoUrl   = Col<string>(row,   "ProfilePhotoUrl"),
+            ProfilePhoto      = Col<string>(row,   "ProfilePhoto"),
+            Occupation        = Col<string>(row,   "Occupation"),
+            Organisation      = Col<string>(row,   "Organisation"),
+            VolunteerExp      = Col<string>(row,   "VolunteerExp"),
+            EducationLkpId    = ColNullable<int>(row,    "EducationLkpId"),
+            Education         = Col<string>(row,   "Education"),        // ValueName
+            EducationCode     = Col<string>(row,   "EducationCode"),    // ValueCode
+            FieldOfStudy      = Col<string>(row,   "FieldOfStudy"),
+            WorkExpLkpId      = ColNullable<int>(row,    "WorkExpLkpId"),
+            WorkExperience    = Col<string>(row,   "WorkExperience"),   // ValueName
+            WorkExpCode       = Col<string>(row,   "WorkExpCode"),      // ValueCode
+            AddressLine1      = Col<string>(row,   "AddressLine1"),
+            AddressLine2      = Col<string>(row,   "AddressLine2"),
+            Pincode           = Col<string>(row,   "Pincode"),
             City              = Col<string>(row,   "City"),
             State             = Col<string>(row,   "State"),
             Country           = Col<string>(row,   "Country"),
-            LinkedInUrl       = Col<string>(row,   "LinkedInUrl"),
-            WebsiteUrl        = Col<string>(row,   "WebsiteUrl"),
-            CreatedAt         = Col<DateTime>(row, "CreatedAt"),
+            ImpactScore       = Col<int>(row,      "ImpactScore"),
+            ReliabilityPct    = Col<decimal>(row,  "ReliabilityPct"),
+            MemberSince       = Col<DateTime>(row, "MemberSince"),      // u.CreatedAt aliased in SP
             UpdatedAt         = ColNullable<DateTime>(row, "UpdatedAt"),
-            IsProfileComplete = Col<bool>(row,     "IsProfileComplete")
+            IsProfileComplete = Col<bool>(row,     "IsProfileComplete"),
+            // v4.9: impact stats now returned by User_GetProfile SP
+            TotalHours        = Col<decimal>(row,  "TotalHours"),
+            ProjectsCount     = Col<int>(row,      "ProjectsCount"),
+            NgosJoined        = Col<int>(row,      "NgosJoined")
         };
 
-        /// <summary>Map DataReader row to UserSkillModel (DataReader — no DataRow).</summary>
         private static UserSkillModel MapSkill(IDataReader r) => new()
         {
-            UserSkillId      = Convert.ToInt32(r["UserSkillId"]),
-            SkillLkpId       = Convert.ToInt32(r["SkillLkpId"]),
-            SkillName        = r["SkillName"]?.ToString()       ?? string.Empty,
-            ProficiencyLkpId = Convert.ToInt32(r["ProficiencyLkpId"]),
-            ProficiencyName  = r["ProficiencyName"]?.ToString() ?? string.Empty
+            UserSkillId = Convert.ToInt32(r["UserSkillId"]),
+            SkillName   = r["SkillName"]?.ToString() ?? string.Empty,
+            AvgRating   = r["AvgRating"]  == DBNull.Value ? 0m : Convert.ToDecimal(r["AvgRating"]),
+            RatingCount = r["RatingCount"] == DBNull.Value ? 0  : Convert.ToInt32(r["RatingCount"])
+        };
+
+        private static UserSafetyPrefsModel MapSafetyPrefs(DataRow row) => new()
+        {
+            EmergVisibilityLkpId     = ColNullable<int>(row,    "EmergVisibilityLkpId"),
+            EmergVisibility          = Col<string>(row,         "EmergVisibility"),
+            AutoShareDurLkpId        = ColNullable<int>(row,    "AutoShareDurLkpId"),
+            AutoShareDuration        = Col<string>(row,         "AutoShareDuration"),
+            AllowLocDuringSos        = Col<bool>(row,           "AllowLocDuringSos"),
+            AllowLocDuringProj       = Col<bool>(row,           "AllowLocDuringProj"),
+            EmergencyContactName     = Col<string>(row,         "EmergencyContactName"),
+            EmergencyContactPhone    = Col<string>(row,         "EmergencyContactPhone"),
+            EmergencyContactRelation = Col<string>(row,         "EmergencyContactRelation"),
+        };
+
+        private static UserImpactModel MapImpact(DataRow row) => new()
+        {
+            ImpactScore          = Col<int>(row,      "ImpactScore"),
+            ReliabilityPct       = Col<decimal>(row,  "ReliabilityPct"),
+            ProjectsCompleted    = Col<int>(row,      "ProjectsCompleted"),
+            TotalHours           = Col<decimal>(row,  "TotalHours"),
+            BadgeCount           = Col<int>(row,      "BadgeCount"),
+            SkillCount           = Col<int>(row,      "SkillCount"),
+            ProjectsApplied      = Col<int>(row,      "ProjectsApplied"),
+            CertificateCount     = Col<int>(row,      "CertificateCount"),
+            MemberSince          = Col<DateTime>(row, "MemberSince"),
+            RankName             = Col<string>(row,   "RankName")  ?? "Newcomer",
+            RankNumber           = Col<int>(row,      "RankNumber"),
+            TotalRanked          = Col<int>(row,      "TotalRanked"),
+            NgosJoined           = Col<int>(row,      "NgosJoined"),
+            PendingApplications  = Col<int>(row,      "PendingApplications"),
+            ApprovedApplications = Col<int>(row,      "ApprovedApplications"),
+            FirstName            = Col<string>(row,   "FirstName"),
+            LastName             = Col<string>(row,   "LastName"),
+            ProfilePhoto         = Col<string>(row,   "ProfilePhoto"),
+            Bio                  = Col<string>(row,   "Bio"),
         };
     }
 }

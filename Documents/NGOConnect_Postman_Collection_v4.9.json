@@ -1,0 +1,6482 @@
+{
+  "info": {
+    "_postman_id": "cf67ebfb-3b0e-44a5-870c-88ca443951b8",
+    "name": "NGOConnect API v4.9",
+    "description": "Complete REST API collection for NGOConnect platform v4.9\n\nBase URL: https://api.ngoconnect.app/api/v1\n\n14 Modules | 90+ Endpoints | 143 Stored Procedures | 53 DB Tables\n\nAuthentication: OTP-based login \u2192 JWT Bearer token\n\nSetup:\n1. Run '01 Auth > Send OTP' with your mobile number\n2. Run '01 Auth > Verify OTP' \u2192 copy access_token to collection variable\n3. All authenticated endpoints use {{access_token}} automatically\n\nv4.9 Additions:\n- POST /user/contact/send-otp (contact update OTP)\n- POST /user/contact/verify (verify & update contact)\n- GET /project/nearby-feed (geo-based project feed)\n- GET /feed/personalized (personalised algorithm feed, cursor-paginated)\n- POST /feed/post/:postId/save (save post)\n- DELETE /feed/post/:postId/save (unsave post)\n- POST /feed/interaction (track view/like/share/comment interactions)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "29560704"
+  },
+  "item": [
+    {
+      "name": "01 Auth",
+      "item": [
+        {
+          "name": "Send OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"recipient\": \"donor@test.com\",\n  \"countryCode\": \"+91\",\n  \"purposeLkpId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/send-otp",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "send-otp"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Verify OTP",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Parse response\r",
+                  "let response = pm.response.json();\r",
+                  "\r",
+                  "if (response.isSuccess === 1 && response.data) {\r",
+                  "\r",
+                  "    // Save Collection Variables\r",
+                  "    pm.environment.set(\"access_token\", response.data.accessToken);\r",
+                  "    // pm.collectionVariables.set(\"refreshToken\", response.data.refreshToken);\r",
+                  "    // pm.collectionVariables.set(\"userId\", response.data.userId);\r",
+                  "    // pm.collectionVariables.set(\"accessTokenExpiry\", response.data.accessTokenExpiry);\r",
+                  "    // pm.collectionVariables.set(\"refreshTokenExpiry\", response.data.refreshTokenExpiry);\r",
+                  "    console.log(\"Access Token saved successfully.\");\r",
+                  "}\r",
+                  "else {\r",
+                  "    console.log(\"Login failed. Token not saved.\");\r",
+                  "}"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"recipient\": \"donor@test.com\",\n  \"otpCode\": \"175063\",\n  \"purposeLkpId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/verify-otp",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "verify-otp"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{access_token}}\",\n  \"deviceInfo\": \"Android 14\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/refresh-token",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "refresh-token"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Revoke Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{access_token}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/revoke-token",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "revoke-token"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "02 Lookup",
+      "item": [
+        {
+          "name": "Get All Types",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/lookup/types",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "lookup",
+                "types"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Values By TypeCode",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/lookup/values/GENDER",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "lookup",
+                "values",
+                "GENDER"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Single Value",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/lookup/values/GENDER/MALE",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "lookup",
+                "values",
+                "GENDER",
+                "MALE"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "03 User",
+      "item": [
+        {
+          "name": "Get My Profile",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/user/profile",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "user",
+                "profile"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Profile",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Gaurav\",\n  \"lastName\": \"Shukla\",\n  \"bio\": \"Software architect and NGO volunteer\",\n  \"profilePhoto\": \"\",\n  \"dateOfBirth\": \"1985-01-15\",\n  \"genderLkpId\": 1,\n  \"occupation\": \"Project Manager\",\n  \"organisation\": \"TechCorp\",\n  \"volunteerExp\": \"Volunteered with Teach for India 2019-2021\",\n  \"educationLkpId\": 1,\n  \"fieldOfStudy\": \"Computer Science\",\n  \"workExpLkpId\": 1,\n  \"addressLine1\": \"123 Main St\",\n  \"addressLine2\": \"Apt 4\",\n  \"pincode\": \"400001\",\n  \"city\": \"Mumbai\",\n  \"state\": \"Maharashtra\",\n  \"country\": \"India\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/user/profile",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "user",
+                "profile"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Public Profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/user/profile/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "user",
+                "profile",
+                "1"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Safety Prefs",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"emergVisibilityLkpId\": 1,\n  \"autoShareDurLkpId\": 2,\n  \"allowLocDuringSos\": true,\n  \"allowLocDuringProj\": false,\n  \"emergencyContactName\": \"Jane Doe\",\n  \"emergencyContactPhone\": \"9876543211\",\n  \"emergencyContactRelation\": \"Sister\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/user/safety-prefs",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "user",
+                "safety-prefs"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Save Interests",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"interestLkpIds\": [\n    265,\n    266,\n    267\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/user/interests",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "user",
+                "interests"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Upload Document",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"documentTypeLkpId\": 1,\r\n    \"fileUrl\": \"http://localhost:5000/uploads/user-documents/20260627_1_abc12345_aadhaar.pdf\",\r\n    \"fileName\": \"20260627_1_abc12345_aadhaar.pdf\",\r\n    \"fileSizeKb\": 245\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/user/documents",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "user",
+                "documents"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Documents",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/user/documents",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "user",
+                "documents"
+              ]
+            },
+            "description": "Get all uploaded identity/address documents for the current user. Returns: [{ userDocumentId, documentTypeLkpId, documentTypeName, fileUrl, fileName, fileSizeKb, isVerified, uploadedAt }]. SP: User_GetDocuments. v4.4 NEW"
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Document",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/user/documents/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "user",
+                "documents",
+                "1"
+              ]
+            },
+            "description": "Soft-delete a document (IsDeleted = 1). Replace '1' with the userDocumentId. SP: User_DeleteDocument. v4.4 NEW"
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Skills",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/user/skills",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "user",
+                "skills"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Add Skill",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"skillName\": \"First Aid\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/user/skills",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "user",
+                "skills"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Remove Skill",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/user/skills/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "user",
+                "skills",
+                "1"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Safety Prefs",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/user/safety-prefs",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "user",
+                "safety-prefs"
+              ]
+            },
+            "description": "Get safety preferences for Edit Profile pre-fill. Returns: emergVisibilityLkpId, emergVisibility, autoShareDurLkpId, autoShareDuration, allowLocDuringSos, allowLocDuringProj, emergencyContactName, emergencyContactPhone, emergencyContactRelation"
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Interests",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/user/interests",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "user",
+                "interests"
+              ]
+            },
+            "description": "Get saved interests for Edit Profile pre-fill. Returns: [{ interestLkpId, interestName, interestCode }]"
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Orgs",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/user/my-orgs",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "user",
+                "my-orgs"
+              ]
+            },
+            "description": "Get all organisations the user is an APPROVED member of (s-my-orgs screen). Returns: [{ orgId, orgName, logoUrl, orgType, city, state, role, roleCode, memberCount, joinedAt }]"
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Badges",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/user/badges",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "user",
+                "badges"
+              ]
+            },
+            "description": "Get all earned badges (s-impact screen). Returns: [{ userBadgeId, badgeLkpId, badgeName, badgeCode, orgName, projectName, awardedAt }]"
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Impact",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/user/impact",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "user",
+                "impact"
+              ]
+            },
+            "description": "Get impact dashboard stats (s-impact screen). Returns: { impactScore, reliabilityPct, projectsCompleted, totalHours, badgeCount, skillCount, projectsApplied, certificateCount, memberSince }"
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Applications",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/user/applications",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "user",
+                "applications"
+              ]
+            },
+            "description": "Get all project applications for the current user. Returns: [{ applicationId, projectId, projectName, orgId, orgName, statusCode, statusName, motivation, requestedSessions, appliedAt }]. SP: Application_GetByUser. v4.4 NEW"
+          },
+          "response": []
+        },
+        {
+          "name": "Send Contact OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"EMAIL\",\n  \"value\": \"user@example.com\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/user/contact/send-otp",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "user",
+                "contact",
+                "send-otp"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Verify Contact OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"EMAIL\",\n  \"value\": \"user@example.com\",\n  \"otpCode\": \"123456\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/user/contact/verify",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "user",
+                "contact",
+                "verify"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "04 Organisation",
+      "item": [
+        {
+          "name": "Register Organisation",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orgName\": \"Green Earth Foundation\",\n  \"registrationNumber\": \"MH2024NGO001\",\n  \"orgTypeLkpId\": 1,\n  \"category\": \"Environment\",\n  \"contactPerson\": \"Anita Sharma\",\n  \"about\": \"A volunteer-driven NGO focused on urban greening and tree plantation drives.\",\n  \"mission\": \"Make cities greener\",\n  \"vision\": \"Green planet by 2050\",\n  \"logoUrl\": \"https://storage.example.com/logos/org1.png\",\n  \"contactEmail\": \"contact@greenearth.org\",\n  \"contactPhone\": \"+919876543210\",\n  \"website\": \"https://greenearth.org\",\n  \"addressLine1\": \"101 Park Avenue\",\n  \"addressLine2\": \"Near Central Park\",\n  \"pincode\": \"400001\",\n  \"city\": \"Mumbai\",\n  \"state\": \"Maharashtra\",\n  \"country\": \"India\",\n  \"is80GEligible\": true,\n  \"is12AEligible\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/org",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Org Profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/org/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Org",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orgName\": \"Green Earth Foundation (Updated)\",\n  \"category\": \"Environment\",\n  \"contactPerson\": \"Rahul Mehta\",\n  \"about\": \"Updated description of the NGO.\",\n  \"mission\": \"Updated mission statement\",\n  \"vision\": \"Updated vision statement\",\n  \"logoUrl\": \"https://storage.example.com/logos/org1_new.png\",\n  \"contactEmail\": \"info@greenearth.org\",\n  \"contactPhone\": \"+919876543211\",\n  \"website\": \"https://greenearth.org\",\n  \"addressLine1\": \"202 Eco Lane\",\n  \"addressLine2\": \"\",\n  \"pincode\": \"400002\",\n  \"city\": \"Mumbai\",\n  \"state\": \"Maharashtra\",\n  \"country\": \"India\",\n  \"is80GEligible\": true,\n  \"is12AEligible\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/org/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Orgs (Explore All NGOs)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/org/list?keyword=green&category=Environment&pageNumber=1&pageSize=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "list"
+              ],
+              "query": [
+                {
+                  "key": "keyword",
+                  "value": "green",
+                  "description": "Search by org name or city"
+                },
+                {
+                  "key": "category",
+                  "value": "Environment",
+                  "description": "Filter by ORG_CATEGORY ValueCode (Education, Environment, Healthcare, etc.)"
+                },
+                {
+                  "key": "pageNumber",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Members",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/org/1/members",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1",
+                "members"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Add Member",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": 2,\n  \"roleLkpId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/org/1/members",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1",
+                "members"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Remove Member",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/org/1/members/2",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1",
+                "members",
+                "2"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Request Membership",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"I want to join\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/org/1/membership-request",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1",
+                "membership-request"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Review Membership Request",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"membershipRequestId\": 1,\n  \"statusCode\": \"APPROVED\",\n  \"adminNotes\": \"Welcome!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/org/1/membership-request/review",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1",
+                "membership-request",
+                "review"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Pending Members",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/org/1/members/pending",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1",
+                "members",
+                "pending"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Member Permissions",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"memberId\": 2,\n  \"canPost\": true,\n  \"canComment\": true,\n  \"canCommunityPost\": false,\n  \"maxPostsPerDay\": 5,\n  \"locationSharingLkpId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/org/1/members/permissions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1",
+                "members",
+                "permissions"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Upload Org Document",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"documentTypeLkpId\": 1,\n  \"fileUrl\": \"http://localhost:5000/uploads/org-documents/20260627_1_def67890_regcert.pdf\",\n  \"fileName\": \"20260627_1_def67890_regcert.pdf\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/org/1/documents",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1",
+                "documents"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Org Documents (v4.9 NEW)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/org/{{org_id}}/documents",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "{{org_id}}",
+                "documents"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Org Dashboard",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/org/1/dashboard",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1",
+                "dashboard"
+              ]
+            },
+            "description": "Admin dashboard KPIs (s-admin screen). Returns: { totalMembers, newMembersThisMonth, activeVolunteers, activeRatePct, volunteerHoursMonth, activeProjects, pendingApplications }"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Recommended Orgs",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/org/recommended",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "recommended"
+              ]
+            },
+            "description": "Recommended NGOs matched to user interests (s-explore Recommended tab). Returns: [{ orgId, orgName, category, logoUrl, city, state, memberCount, avgRating, latitude, longitude, matchScore }]"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Trending Campaigns",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/org/trending-campaigns?pageSize=10",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "trending-campaigns"
+              ],
+              "query": [
+                {
+                  "key": "pageSize",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Trending active campaigns (s-explore Trending tab). Returns: [{ campaignId, campaignName, orgName, orgLogoUrl, raisedAmount, targetAmount, donorCount, progressPct, endDate, isEmergency }]"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Donation Dashboard",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/org/1/donation-dashboard",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1",
+                "donation-dashboard"
+              ]
+            },
+            "description": "Donation KPIs for admin (s-admin-donations screen). Returns: { totalRaisedAllTime, thisMonthRaised, lastMonthRaised, todayRaised, todayTransactionCount, recurringMonthlyAmount, activeRecurringDonors, totalCampaigns, activeCampaigns }"
+          },
+          "response": []
+        },
+        {
+          "name": "Update Member Role",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"memberId\": 5,\n  \"roleCode\": \"COORDINATOR\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/org/1/members/role",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1",
+                "members",
+                "role"
+              ]
+            },
+            "description": "Change a member's role (s-admin-vols screen). roleLkpId from LookupType: MEMBER_ROLE"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Volunteer Profile (Admin)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/org/1/volunteers/2",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1",
+                "volunteers",
+                "2"
+              ]
+            },
+            "description": "Admin view of volunteer (s-vol-profile screen). Includes reliability score. Returns: { userId, fullName, city, occupation, profilePhoto, totalHours, projectCount, orgCount, reliabilityPct, avgRating, peerRating, noShowCount, excusedCount, complaintCount, roleCode, roleName, statusCode, statusName, joinedAt }"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Member Impact (Admin)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/org/1/members/2/impact",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1",
+                "members",
+                "2",
+                "impact"
+              ]
+            },
+            "description": "Admin view of member impact (s-member-impact screen). Returns: { userId, fullName, occupation, city, roleName, impactScore, reliabilityPct, totalHours, projectCount, orgCount, badgeCount, noShowCount, complaintCount }"
+          },
+          "response": []
+        },
+        {
+          "name": "Award Badge to Volunteer",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": 2,\n  \"badgeLkpId\": 3,\n  \"projectId\": 5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/org/1/badges",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1",
+                "badges"
+              ]
+            },
+            "description": "Award a badge to a volunteer (s-vol-profile / s-participants screens). badgeLkpId from LookupType: BADGE_TYPE"
+          },
+          "response": []
+        },
+        {
+          "name": "Excuse No-Show",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"attendanceId\": 42\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/org/1/attendance/excuse",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1",
+                "attendance",
+                "excuse"
+              ]
+            },
+            "description": "Mark a no-show as excused so it doesn't penalise reliability score (s-participants screen)"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Donors (Admin)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/org/1/donors?tab=ALL&pageNumber=1&pageSize=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1",
+                "donors"
+              ],
+              "query": [
+                {
+                  "key": "tab",
+                  "value": "ALL",
+                  "description": "ALL | RECURRING | TOP"
+                },
+                {
+                  "key": "pageNumber",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Paginated donor list (s-admin-donors screen). Returns: [{ userId, fullName, email, phone, totalDonated, donationCount, lastDonatedAt, isAnonymous, isRecurring }]"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Transactions (Admin)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/org/1/transactions?statusCode=&pageNumber=1&pageSize=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1",
+                "transactions"
+              ],
+              "query": [
+                {
+                  "key": "statusCode",
+                  "value": "",
+                  "description": "Optional: SUCCESS, PENDING, FAILED, REFUNDED"
+                },
+                {
+                  "key": "pageNumber",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Paginated transaction list (s-admin-transactions screen). Returns: [{ transactionId, readableId, donorName, amount, netAmount, campaignName, statusCode, statusName, paymentMethod, createdAt, isAnonymous }]"
+          },
+          "response": []
+        },
+        {
+          "name": "Admin - Get Community Posts",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/org/1/community-posts/admin",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1",
+                "community-posts",
+                "admin"
+              ],
+              "query": [
+                {
+                  "key": "pageNumber",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Admin view of all org community posts (pinned first). SP: Org_GetAdminPosts. v4.4 NEW"
+          },
+          "response": []
+        },
+        {
+          "name": "Admin - Pin / Unpin Post",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/org/1/community-posts/1/pin",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1",
+                "community-posts",
+                "1",
+                "pin"
+              ]
+            },
+            "description": "Toggle pin on a community post. No body required. Toggles Posts.IsPinned. SP: Org_PinPost. v4.4 NEW"
+          },
+          "response": []
+        },
+        {
+          "name": "Admin - Delete Community Post",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/org/1/community-posts/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1",
+                "community-posts",
+                "1"
+              ]
+            },
+            "description": "Soft-delete a community post (admin). SP: Org_DeletePost. v4.4 NEW"
+          },
+          "response": []
+        },
+        {
+          "name": "Admin - Moderate Community Post",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"HIDE\",\n  \"adminNote\": \"Inappropriate content\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/org/1/community-posts/1/moderate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "1",
+                "community-posts",
+                "1",
+                "moderate"
+              ]
+            },
+            "description": "Moderate (hide/unhide) a community post. action: HIDE | UNHIDE. SP: Org_ModeratePost. v4.4 NEW"
+          },
+          "response": []
+        },
+        {
+          "name": "Resubmit REJECTED Org (Founder)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orgName\": \"Green Earth Foundation\",\n  \"category\": \"Environment\",\n  \"contactPerson\": \"Rahul Mehta\",\n  \"about\": \"Updated description after rejection.\",\n  \"mission\": \"Protect the environment.\",\n  \"vision\": \"A greener tomorrow.\",\n  \"logoUrl\": \"https://storage.example.com/logos/green-earth.jpg\",\n  \"contactEmail\": \"info@greenearth.org\",\n  \"contactPhone\": \"+919876543210\",\n  \"website\": \"https://greenearth.org\",\n  \"addressLine1\": \"123 NGO Street\",\n  \"addressLine2\": \"Andheri West\",\n  \"city\": \"Mumbai\",\n  \"state\": \"Maharashtra\",\n  \"pincode\": \"400053\",\n  \"country\": \"India\",\n  \"is80GEligible\": true,\n  \"is12AEligible\": false\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/org/{{org_id}}/resubmit",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "org",
+                "{{org_id}}",
+                "resubmit"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Follow NGO",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{AUTH_TOKEN}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/org/{{orgId}}/follow",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "org",
+                "{{orgId}}",
+                "follow"
+              ]
+            },
+            "description": "v4.7 NEW \u2014 Follow an NGO. Idempotent: returns IsSuccess=1 even if already following. Auto-increments Organisations.FollowerCount (only on 0\u21921 transition). Requires Bearer token."
+          },
+          "response": []
+        },
+        {
+          "name": "Unfollow NGO",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{AUTH_TOKEN}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/org/{{orgId}}/follow",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "org",
+                "{{orgId}}",
+                "follow"
+              ]
+            },
+            "description": "v4.7 NEW \u2014 Soft-unfollow: sets IsFollowing=0, UnfollowedAt=NOW(). Decrements FollowerCount with GREATEST floor at 0. Idempotent: returns IsSuccess=1 even if not following. Requires Bearer token."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "05 Project",
+      "item": [
+        {
+          "name": "Create Project",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orgId\": 1,\n  \"title\": \"Beach Clean-up Drive\",\n  \"description\": \"Monthly beach clean-up\",\n  \"projectTypeLkpId\": 1,\n  \"joinTypeLkpId\": 1,\n  \"maxVolunteers\": 50,\n  \"minAge\": 18,\n  \"maxAge\": 60,\n  \"isPublic\": true,\n  \"startDate\": \"2026-07-01\",\n  \"endDate\": \"2026-12-31\",\n  \"scheduleType\": \"RECURRING\",\n  \"recurrenceDays\": \"SAT,SUN\",\n  \"startTime\": \"08:00\",\n  \"endTime\": \"12:00\",\n  \"durationMinutes\": 240,\n  \"locationTypeLkpId\": 1,\n  \"locationName\": \"Juhu Beach\",\n  \"address\": \"Juhu, Mumbai\",\n  \"latitude\": 19.099,\n  \"longitude\": 72.8267,\n  \"meetingLink\": \"\",\n  \"genderRestriction\": \"ALL\",\n  \"requiresApproval\": false,\n  \"coverImageUrl\": \"\",\n  \"city\": \"Mumbai\",\n  \"state\": \"Maharashtra\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/project",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "project"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Project",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/project/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "project",
+                "1"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Project",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orgId\": 1,\n  \"title\": \"Beach Clean-up Drive v2\",\n  \"description\": \"Updated desc\",\n  \"projectTypeLkpId\": 1,\n  \"joinTypeLkpId\": 1,\n  \"maxVolunteers\": 60,\n  \"minAge\": 18,\n  \"maxAge\": 60,\n  \"isPublic\": true,\n  \"startDate\": \"2026-07-01\",\n  \"endDate\": \"2026-12-31\",\n  \"scheduleType\": \"RECURRING\",\n  \"recurrenceDays\": \"SAT,SUN\",\n  \"startTime\": \"08:00\",\n  \"endTime\": \"12:00\",\n  \"durationMinutes\": 240,\n  \"locationTypeLkpId\": 1,\n  \"locationName\": \"Juhu Beach\",\n  \"address\": \"Juhu, Mumbai\",\n  \"latitude\": 19.099,\n  \"longitude\": 72.8267,\n  \"meetingLink\": \"\",\n  \"genderRestriction\": \"ALL\",\n  \"requiresApproval\": false,\n  \"coverImageUrl\": \"\",\n  \"city\": \"Mumbai\",\n  \"state\": \"Maharashtra\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/project/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "project",
+                "1"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Projects",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/project/list?orgId=1&keyword=beach&projectTypeLkpId=1&pageNumber=1&pageSize=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "project",
+                "list"
+              ],
+              "query": [
+                {
+                  "key": "orgId",
+                  "value": "1"
+                },
+                {
+                  "key": "keyword",
+                  "value": "beach"
+                },
+                {
+                  "key": "projectTypeLkpId",
+                  "value": "1"
+                },
+                {
+                  "key": "pageNumber",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Add Skill Requirement",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"skillName\": \"Swimming\",\n  \"isRequired\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/project/1/skills",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "project",
+                "1",
+                "skills"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Session",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionDate\": \"2026-07-05\",\n  \"startTime\": \"08:00\",\n  \"endTime\": \"12:00\",\n  \"maxVolunteers\": 50\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/project/1/sessions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "project",
+                "1",
+                "sessions"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Sessions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/project/1/sessions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "project",
+                "1",
+                "sessions"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Session QR",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/project/1/sessions/1/qr",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "project",
+                "1",
+                "sessions",
+                "1",
+                "qr"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "QR Check-In",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"qrToken\": \"abc123token\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/project/1/sessions/checkin",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "project",
+                "1",
+                "sessions",
+                "checkin"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Apply to Project",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/project/1/apply",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "project",
+                "1",
+                "apply"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"motivation\": \"I am passionate about environmental conservation.\",\n  \"requestedSessions\": \"Morning slots preferred\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Apply to volunteer for a project. v4.4 UPDATED: 'note' renamed to 'motivation'; added 'requestedSessions'. Response includes applicationId. SP: Project_Apply"
+          },
+          "response": []
+        },
+        {
+          "name": "Review Application",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"applicationId\": 1,\n  \"statusCode\": \"APPROVED\",\n  \"adminNotes\": \"Welcome!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/project/1/applications/review",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "project",
+                "1",
+                "applications",
+                "review"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Applications",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/project/1/applications?statusCode=PENDING&pageNumber=1&pageSize=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "project",
+                "1",
+                "applications"
+              ],
+              "query": [
+                {
+                  "key": "statusCode",
+                  "value": "PENDING"
+                },
+                {
+                  "key": "pageNumber",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Complete Project",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"completionNotes\": \"Successfully completed with 45 volunteers\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/project/1/complete",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "project",
+                "1",
+                "complete"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Manual Attendance (Admin)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": 2,\n  \"sessionId\": 1,\n  \"attendStatusLkpId\": 5,\n  \"adminNote\": \"Volunteer confirmed attendance via phone\",\n  \"hoursLogged\": 3.5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/project/1/attendance/manual",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "project",
+                "1",
+                "attendance",
+                "manual"
+              ]
+            },
+            "description": "Admin marks attendance manually for a session participant. QrScannedAt = NULL flags this as admin-marked (vs QR self-checkin). SP: Project_ManualAttendance. v4.4 NEW"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Nearby Feed",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/project/nearby-feed?userLat=28.6139&userLon=77.2090&pageNumber=1&pageSize=10",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "project",
+                "nearby-feed"
+              ],
+              "query": [
+                {
+                  "key": "userLat",
+                  "value": "28.6139"
+                },
+                {
+                  "key": "userLon",
+                  "value": "77.2090"
+                },
+                {
+                  "key": "pageNumber",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "10"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "06 Post / Feed",
+      "item": [
+        {
+          "name": "Create Post",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orgId\": 1,\n  \"content\": \"We just completed a beach clean-up!\",\n  \"mediaUrls\": [\n    \"https://cdn.example.com/photo1.jpg\"\n  ],\n  \"postTypeLkpId\": 1,\n  \"visibilityLkpId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/post",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "post"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Feed",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/feed?orgId=&pageNumber=1&pageSize=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "feed"
+              ],
+              "query": [
+                {
+                  "key": "orgId",
+                  "value": "",
+                  "description": "Optional - filter to specific org. Leave blank for all orgs."
+                },
+                {
+                  "key": "pageNumber",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Post By ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/post/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "post",
+                "1"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Post",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/post/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "post",
+                "1"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Pin Post",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/post/1/pin",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "post",
+                "1",
+                "pin"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Like Post",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/post/1/like",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "post",
+                "1",
+                "like"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Unlike Post",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/post/1/like",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "post",
+                "1",
+                "like"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Add Comment",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Great work!\",\n  \"parentCommentId\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/post/1/comments",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "post",
+                "1",
+                "comments"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Comments",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/post/1/comments?pageNumber=1&pageSize=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "post",
+                "1",
+                "comments"
+              ],
+              "query": [
+                {
+                  "key": "pageNumber",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Report Post",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reasonCode\": \"SPAM\",\n  \"description\": \"This post is spam\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/post/1/report",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "post",
+                "1",
+                "report"
+              ]
+            },
+            "description": "Report a post. v4.4 UPDATED: 'reasonLkpId' replaced by 'reasonCode' (string e.g. SPAM, INAPPROPRIATE, HARASSMENT). SP: Post_Report"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Post Permissions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{AUTH_TOKEN}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/post/permissions/{{orgId}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "post",
+                "permissions",
+                "{{orgId}}"
+              ]
+            },
+            "description": "v4.7 NEW \u2014 Called by mobile before opening Create Post modal. Returns exactly one row: IsMember (0|1), CanPost (0|1), MaxPostsPerDay, TodayPostCount. DECLARE defaults cover non-member case. Requires Bearer token."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Personalized Feed (first page)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/feed/personalized?pageSize=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "feed",
+                "personalized"
+              ],
+              "query": [
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Personalized Feed (cursor page)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/feed/personalized?cursorPostId=123&cursorScore=850.5&pageSize=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "feed",
+                "personalized"
+              ],
+              "query": [
+                {
+                  "key": "cursorPostId",
+                  "value": "123"
+                },
+                {
+                  "key": "cursorScore",
+                  "value": "850.5"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Save Post",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/feed/post/{{postId}}/save",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "feed",
+                "post",
+                "{{postId}}",
+                "save"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Unsave Post",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/feed/post/{{postId}}/save",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "feed",
+                "post",
+                "{{postId}}",
+                "save"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Track Interaction",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"postId\": 1,\n  \"interactionType\": \"VIEW\",\n  \"durationMs\": 3000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/feed/interaction",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "feed",
+                "interaction"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "07 Community",
+      "item": [
+        {
+          "name": "Create Community Post (v4.9 UPDATED)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orgId\": 1,\n  \"title\": \"Important Announcement\",\n  \"content\": \"Please attend the meeting on Saturday\",\n  \"postTypeLkpId\": 1,\n  \"audienceLkpId\": 1,\n  \"resourceFileUrl\": null,\n  \"isPinned\": false,\n  \"volunteersNeeded\": null,\n  \"eventRef\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/community/post",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "community",
+                "post"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Community Feed",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/community/feed?orgId=1&pageNumber=1&pageSize=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "community",
+                "feed"
+              ],
+              "query": [
+                {
+                  "key": "orgId",
+                  "value": "1"
+                },
+                {
+                  "key": "pageNumber",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Acknowledge Post",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/community/post/1/acknowledge",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "community",
+                "post",
+                "1",
+                "acknowledge"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Poll",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orgId\": 1,\n  \"question\": \"When should we hold the next event?\",\n  \"options\": [\n    \"Saturday\",\n    \"Sunday\",\n    \"Weekday\"\n  ],\n  \"expiresInHours\": 48,\n  \"isMultiChoice\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/community/poll",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "community",
+                "poll"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Vote on Poll",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pollOptionId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/community/poll/1/vote",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "community",
+                "poll",
+                "1",
+                "vote"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Add Comment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/community/post/{{postId}}/comment",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "community",
+                "post",
+                "{{postId}}",
+                "comment"
+              ]
+            },
+            "description": "v4.2 \u2014 Add a comment to a community post. Increments post CommentCount. Returns { communityCommentId: int }.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Great initiative! Count me in.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Comments",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/community/post/{{postId}}/comments",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "community",
+                "post",
+                "{{postId}}",
+                "comments"
+              ]
+            },
+            "description": "v4.2 \u2014 Get all comments on a community post. Returns CommunityComment[] with authorName, likeCount, isLiked, timeAgo.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Like Comment (toggle)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/community/comment/{{commentId}}/like",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "community",
+                "comment",
+                "{{commentId}}",
+                "like"
+              ]
+            },
+            "description": "v4.2 \u2014 Toggle like on a comment. Returns { isLiked: bool, likeCount: int }. No body required.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Like Post (toggle)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/community/post/{{postId}}/like",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "community",
+                "post",
+                "{{postId}}",
+                "like"
+              ]
+            },
+            "description": "v4.2 \u2014 Toggle like on a community post. Returns { isLiked: bool, likeCount: int }. No body required.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "08 SOS",
+      "item": [
+        {
+          "name": "Trigger SOS",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": 19.076,\n  \"longitude\": 72.8777,\n  \"description\": \"Need immediate help!\",\n  \"alertTypeLkpId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/sos",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "sos"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Active Incidents",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/sos/active?orgId=1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "sos",
+                "active"
+              ],
+              "query": [
+                {
+                  "key": "orgId",
+                  "value": "1"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Incident Details",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/sos/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "sos",
+                "1"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Respond to SOS",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/sos/1/respond",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "sos",
+                "1",
+                "respond"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Approve Responder",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"responderId\": 2,\n  \"canViewLocation\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/sos/1/approve-responder",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "sos",
+                "1",
+                "approve-responder"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Resolve SOS",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"resolvedByLkpId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/sos/1/resolve",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "sos",
+                "1",
+                "resolve"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel SOS",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cancelReason\": \"False alarm\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/sos/1/cancel",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "sos",
+                "1",
+                "cancel"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Latest Location",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/sos/1/location",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "sos",
+                "1",
+                "location"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Location",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": 19.0761,\n  \"longitude\": 72.8778,\n  \"accuracy\": 5.0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/sos/1/location",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "sos",
+                "1",
+                "location"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Decline Responder",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/sos/1/decline-responder",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "sos",
+                "1",
+                "decline-responder"
+              ]
+            },
+            "description": "Victim declines a pending responder. Only the SOS creator can call this. SP: Sos_DeclineResponder. v4.3 NEW.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sosResponderId\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Active SOS",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/sos/my-active",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "sos",
+                "my-active"
+              ]
+            },
+            "description": "v4.2 \u2014 Returns the calling user's own active SOS incident (2 result sets: incident + responders). Used by SosActiveScreen on app launch to resume an in-progress incident.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Org SOS Alerts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/sos/org-alerts?orgId=1&limit=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "sos",
+                "org-alerts"
+              ],
+              "query": [
+                {
+                  "key": "orgId",
+                  "value": "1",
+                  "description": "Organisation ID"
+                },
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "description": "Max records to return (default 20)"
+                }
+              ]
+            },
+            "description": "Get all SOS incidents for an organisation (active + resolved + cancelled). Returns myApprovalStatus for the authenticated user. SP: Sos_GetOrgAlerts. v4.3 NEW.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "09 Donation",
+      "item": [
+        {
+          "name": "Create Campaign",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orgId\": 1,\n  \"title\": \"Flood Relief 2026\",\n  \"description\": \"Help flood victims in Kerala\",\n  \"goalAmount\": 500000,\n  \"startDate\": \"2026-07-01\",\n  \"endDate\": \"2026-09-30\",\n  \"bannerUrl\": \"\",\n  \"campaignTypeLkpId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/donation/campaigns",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "donation",
+                "campaigns"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Campaigns",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/donation/campaigns?orgId=1&keyword=flood&pageNumber=1&pageSize=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "donation",
+                "campaigns"
+              ],
+              "query": [
+                {
+                  "key": "orgId",
+                  "value": "1"
+                },
+                {
+                  "key": "keyword",
+                  "value": "flood"
+                },
+                {
+                  "key": "pageNumber",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Campaign",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/donation/campaigns/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "donation",
+                "campaigns",
+                "1"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Campaign Donors",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/donation/campaigns/1/donors",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "donation",
+                "campaigns",
+                "1",
+                "donors"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Initiate Donation",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"campaignId\": 1,\n  \"amount\": 1000,\n  \"note\": \"Happy to help\",\n  \"isAnonymous\": false,\n  \"payMethodLkpId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/donation/donate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "donation",
+                "donate"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Confirm Payment",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"donationRef\": \"DON-2026-000001\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/donation/confirm-payment",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "donation",
+                "confirm-payment"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Donation History",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/donation/history?pageNumber=1&pageSize=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "donation",
+                "history"
+              ],
+              "query": [
+                {
+                  "key": "pageNumber",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get 80G Receipt",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/donation/receipts/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "donation",
+                "receipts",
+                "1"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Setup Recurring",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orgId\": 1,\n  \"campaignId\": 1,\n  \"amount\": 500,\n  \"frequencyLkpId\": 1,\n  \"startDate\": \"2026-07-01\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/donation/recurring",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "donation",
+                "recurring"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Pause Recurring",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/donation/recurring/1/pause",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "donation",
+                "recurring",
+                "1",
+                "pause"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Resume Recurring",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/donation/recurring/1/resume",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "donation",
+                "recurring",
+                "1",
+                "resume"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel Recurring",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/donation/recurring/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "donation",
+                "recurring",
+                "1"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Annual Summary",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/donation/annual-summary?year=2026",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "donation",
+                "annual-summary"
+              ],
+              "query": [
+                {
+                  "key": "year",
+                  "value": "2026"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Supported NGOs",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/donation/supported-ngos",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "donation",
+                "supported-ngos"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Org Transactions",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/donation/org/1/transactions?pageNumber=1&pageSize=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "donation",
+                "org",
+                "1",
+                "transactions"
+              ],
+              "query": [
+                {
+                  "key": "pageNumber",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "10 Withdrawal",
+      "item": [
+        {
+          "name": "Request Withdrawal",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"campaignId\": 1,\n  \"amount\": 50000,\n  \"bankAccount\": \"123456789012\",\n  \"ifscCode\": \"HDFC0001234\",\n  \"accountHolder\": \"Green Future NGO\",\n  \"purpose\": \"Program expenses\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/withdrawal/org/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "withdrawal",
+                "org",
+                "1"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Org Withdrawals",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/withdrawal/org/1?pageNumber=1&pageSize=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "withdrawal",
+                "org",
+                "1"
+              ],
+              "query": [
+                {
+                  "key": "pageNumber",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Admin Review Withdrawal",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"withdrawalId\": 1,\n  \"statusCode\": \"APPROVED\",\n  \"adminNotes\": \"Verified and approved\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/withdrawal/admin-review",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "withdrawal",
+                "admin-review"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "11 Notification",
+      "item": [
+        {
+          "name": "Get Notifications",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/notifications?onlyUnread=false&pageNumber=1&pageSize=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "notifications"
+              ],
+              "query": [
+                {
+                  "key": "onlyUnread",
+                  "value": "false"
+                },
+                {
+                  "key": "pageNumber",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Unread Count",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/notifications/unread-count",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "notifications",
+                "unread-count"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Mark Read",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/notifications/1/read",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "notifications",
+                "1",
+                "read"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Mark All Read",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/notifications/read-all",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "notifications",
+                "read-all"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Register Device Token",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"fcm-device-token-here\",\n  \"platform\": \"android\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/notifications/device-token",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "notifications",
+                "device-token"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "12 Certificates, Badges & Skills",
+      "item": [
+        {
+          "name": "Get My Certificates",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/certificates",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "certificates"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get User Certificates",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/users/1/certificates",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "users",
+                "1",
+                "certificates"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Rate Skill",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ratedUserId\": 2,\n  \"userSkillId\": 1,\n  \"rating\": 5,\n  \"review\": \"Excellent first aid skills\",\n  \"projectId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/skills/rate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "skills",
+                "rate"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Award Badge",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": 2,\n  \"badgeLkpId\": 1,\n  \"projectId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/badges/award",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "badges",
+                "award"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "13 Settings",
+      "item": [
+        {
+          "name": "Get Public Settings",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/settings/public",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "settings",
+                "public"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Settings By Group",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/settings/group/OTP",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "settings",
+                "group",
+                "OTP"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Setting",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"value\": \"15\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/settings/OTP_EXPIRY_MINUTES",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "settings",
+                "OTP_EXPIRY_MINUTES"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "15. Media Module",
+      "item": [
+        {
+          "name": "Upload File",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "description": "Select a file from your device. Max 10 MB.",
+                  "src": [
+                    "",
+                    "/C:/Users/gaura/Downloads/ChatGPT_Alternatives_2026_Featured_v2.jpg"
+                  ]
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/media/upload?module=user-documents",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "media",
+                "upload"
+              ],
+              "query": [
+                {
+                  "key": "module",
+                  "value": "user-documents",
+                  "description": "Allowed: user-documents | user-photos | org-documents | org-logos | certificates"
+                }
+              ]
+            },
+            "description": "Step 1 of 2-step upload flow. Upload a file and receive fileUrl + fileName + fileSizeKb. Pass those values to the entity endpoint (POST /user/documents, PUT /user/profile, etc.).\n\nAllowed modules:\n- user-documents: pdf, jpg, jpeg, png\n- user-photos: jpg, jpeg, png\n- org-documents: pdf, jpg, jpeg, png\n- org-logos: jpg, jpeg, png, svg\n- certificates: pdf"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Signed Download URL (v4.9 NEW)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/media/signed-url?fileUrl={{file_url}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "media",
+                "signed-url"
+              ],
+              "query": [
+                {
+                  "key": "fileUrl",
+                  "value": "{{file_url}}",
+                  "disabled": false
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "16 Super Admin",
+      "item": [
+        {
+          "name": "Super Admin Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"gaurav.admin\",\n  \"password\": \"NgoConnect@2026\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/superadmin/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "superadmin",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Orgs",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{sa_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/superadmin/orgs?statusCode=PENDING&pageNumber=1&pageSize=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "superadmin",
+                "orgs"
+              ],
+              "query": [
+                {
+                  "key": "statusCode",
+                  "value": "PENDING"
+                },
+                {
+                  "key": "pageNumber",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Org Detail",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{sa_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/superadmin/orgs/{{org_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "superadmin",
+                "orgs",
+                "{{org_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Org Documents",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{sa_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/superadmin/orgs/{{org_id}}/documents",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "superadmin",
+                "orgs",
+                "{{org_id}}",
+                "documents"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Verify Org Document",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{sa_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orgDocumentId\": 1,\n  \"isApproved\": true,\n  \"notes\": \"Document looks valid.\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/superadmin/orgs/documents/verify",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "superadmin",
+                "orgs",
+                "documents",
+                "verify"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Approve Org",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{sa_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{base_url}}/superadmin/orgs/{{org_id}}/approve",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "superadmin",
+                "orgs",
+                "{{org_id}}",
+                "approve"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Reject Org",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{sa_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orgId\": 1,\n  \"reason\": \"Documents are incomplete. Please re-upload registration certificate.\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/superadmin/orgs/reject",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "superadmin",
+                "orgs",
+                "reject"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Suspend Org",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{sa_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orgId\": 1,\n  \"reason\": \"Violation of platform terms of service.\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/superadmin/orgs/suspend",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "superadmin",
+                "orgs",
+                "suspend"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Reactivate Org",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{sa_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{base_url}}/superadmin/orgs/{{org_id}}/reactivate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "superadmin",
+                "orgs",
+                "{{org_id}}",
+                "reactivate"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Verify Org Profile (v4.9 NEW)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"statusCode\": \"VERIFIED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/superadmin/orgs/{{org_id}}/verify-profile",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "superadmin",
+                "orgs",
+                "{{org_id}}",
+                "verify-profile"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Lookup Types",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{sa_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/superadmin/lookup-types",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "superadmin",
+                "lookup-types"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Lookup Values by Type",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{sa_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/superadmin/lookup-types/{{lookup_type_id}}/values",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "superadmin",
+                "lookup-types",
+                "{{lookup_type_id}}",
+                "values"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Add Lookup Type",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"typeCode\": \"PROJECT_CATEGORY\",\n  \"typeName\": \"Project Category\",\n  \"description\": \"Categories for volunteer projects\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/superadmin/lookup-types",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "superadmin",
+                "lookup-types"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{sa_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Lookup Type",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{sa_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lookupTypeId\": 1,\n  \"typeName\": \"Project Category (Updated)\",\n  \"description\": \"Updated description\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/superadmin/lookup-types",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "superadmin",
+                "lookup-types"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Add Lookup Value",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lookupTypeId\": 1,\n  \"valueCode\": \"EDUCATION\",\n  \"valueName\": \"Education\",\n  \"orderNo\": 1,\n  \"isDefault\": false,\n  \"isSystemValue\": false\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/superadmin/lookup-values",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "superadmin",
+                "lookup-values"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{sa_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Lookup Value",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{sa_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lookupValueId\": 1,\n  \"valueName\": \"Education (Updated)\",\n  \"orderNo\": 2,\n  \"isDefault\": false\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/superadmin/lookup-values",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "superadmin",
+                "lookup-values"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Set Lookup Value Active",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{sa_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lookupValueId\": 1,\n  \"isActive\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/superadmin/lookup-values/active",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "superadmin",
+                "lookup-values",
+                "active"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Org Status History",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{sa_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/superadmin/orgs/1/history",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "superadmin",
+                "orgs",
+                "1",
+                "history"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Members List",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{sa_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/superadmin/members?pageNumber=1&pageSize=20&search=",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "superadmin",
+                "members"
+              ],
+              "query": [
+                {
+                  "key": "pageNumber",
+                  "value": "1",
+                  "disabled": false
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20",
+                  "disabled": false
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "disabled": false
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Member Full Profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{sa_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/superadmin/members/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "superadmin",
+                "members",
+                "1"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Member Documents",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{sa_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/superadmin/members/1/documents",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "superadmin",
+                "members",
+                "1",
+                "documents"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Verify Member Document",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{sa_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/superadmin/members/documents/verify",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "superadmin",
+                "members",
+                "documents",
+                "verify"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userDocumentId\": 1,\n  \"isVerified\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Verify Member Profile",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{sa_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/superadmin/members/1/verify-profile",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "superadmin",
+                "members",
+                "1",
+                "verify-profile"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Request Member Profile Update",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{sa_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/superadmin/members/request-update",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "superadmin",
+                "members",
+                "request-update"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": 1,\n  \"reason\": \"Please upload a clear photo ID and update your address.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Suspend Member Account",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{sa_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/superadmin/members/1/suspend",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "superadmin",
+                "members",
+                "1",
+                "suspend"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Violation of community guidelines \u2014 repeated abusive behaviour.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Reactivate Member Account",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{sa_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/superadmin/members/1/reactivate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "superadmin",
+                "members",
+                "1",
+                "reactivate"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Dashboard KPIs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{sa_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/superadmin/dashboard",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "superadmin",
+                "dashboard"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ]
+}

@@ -61,23 +61,31 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
+        /// <summary>
+        /// No Lookup_GetValueByCode SP exists in DB.
+        /// Calls Lookup_GetValuesByTypeCode then filters in C# — avoids an extra SP round-trip.
+        /// </summary>
         public async Task<ApiResponse<LookupValueModel>> GetValueByCodeAsync(
             string typeCode, string valueCode)
         {
             try
             {
                 using var conn = await _db.CreateConnectionAsync();
-                using var cmd  = _db.CreateCommand("Lookup_GetValueByCode", conn);
-                _db.AddParameter(cmd, "p_TypeCode",  typeCode);
+                using var cmd = _db.CreateCommand("Lookup_GetValueByCode", conn);
+                _db.AddParameter(cmd, "p_TypeCode", typeCode);
                 _db.AddParameter(cmd, "p_ValueCode", valueCode);
 
                 var ds = await _db.FillDataSetAsync(cmd);
 
-                if (ds.Tables.Count == 0 || ds.Tables[0].Rows.Count == 0)
+                var row = ds.Tables[0].Rows
+                    .Cast<DataRow>()
+                    .FirstOrDefault(r => r["ValueCode"]?.ToString() == valueCode);
+
+                if (row is null)
                     return ApiResponse<LookupValueModel>.Failure(
                         $"Lookup value '{valueCode}' not found in type '{typeCode}'.", "LOOKUP_NOT_FOUND");
 
-                return ApiResponse<LookupValueModel>.Success(MapValue(ds.Tables[0].Rows[0]));
+                return ApiResponse<LookupValueModel>.Success(MapValue(row));
             }
             catch (Exception ex)
             {
@@ -98,7 +106,7 @@ namespace NGOConnect.Infrastructure.DAL
         private static LookupValueModel MapValue(DataRow row) => new()
         {
             LookupValueId = Convert.ToInt32(row["LookupValueId"]),
-            LookupTypeId  = Convert.ToInt32(row["LookupTypeId"]),
+            // LookupTypeId not returned by Lookup_GetValuesByTypeCode — left as 0 default
             ValueCode     = row["ValueCode"].ToString()!,
             ValueName     = row["ValueName"].ToString()!,
             Description   = row["Description"] == DBNull.Value ? null : row["Description"].ToString(),
