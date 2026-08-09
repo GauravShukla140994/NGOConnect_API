@@ -20,6 +20,14 @@ namespace NGOConnect.Core.Interfaces
         Task<ApiResponse> TrackInteractionAsync(int userId, int postId, string interactionType, int? durationMs);
 
         /// <summary>
+        /// Bulk-marks a list of posts as viewed by the user.
+        /// Called when the mobile app flushes its seen-post buffer (~every 10 s).
+        /// Inserts VIEW rows into FeedInteractions; the feed SP excludes these posts
+        /// until the seen-expiry window (default 30 days) elapses.
+        /// </summary>
+        Task<ApiResponse> BulkMarkViewedAsync(int userId, List<int> postIds);
+
+        /// <summary>
         /// Returns the paginated list of posts the user has saved, most-recently-saved first.
         /// </summary>
         Task<ApiResponse<PagedResult<DynamicRow>>> GetSavedPostsAsync(int userId, int pageNumber, int pageSize);

@@ -407,6 +407,37 @@ When there is a conflict between files, this priority order applies:
 - **Production server**: no change needed — `Firebase__CredentialsFilePath=/etc/ripplehub/firebase.json` is already correct and will now be read from file.
 - No SP/DB/API changes.
 
+**Feed Seen-Post Tracking — Feed_GetPersonalized + Feed_BulkMarkViewed (2026-08-09)**
+- Goal: stop repeating posts the user has already scrolled past; keep feed fresh.
+- `NGOConnect_Complete_Setup_v5.0.sql` → `Feed_GetPersonalized`:
+  - New param `p_SeenExpiryDays INT` (NULL guard: defaults to 30 if not supplied).
+  - Outer WHERE gains seen filter: `NOT EXISTS` on `FeedInteractions` WHERE `InteractionType = 'VIEW'` and `CreatedAt >= DATE_SUB(NOW(), INTERVAL p_SeenExpiryDays DAY)`. Emergency posts (`IsEmergency = 1`) bypass filter unconditionally.
+  - MY_ORG and FOLLOWED_ORG candidate buckets: removed 30-day time limit (now unlimited — member/followed posts always surface).
+  - TRENDING: extended from 7 DAY → 30 DAY.
+  - INTEREST: extended from 14 DAY → 45 DAY.
+  - New PINNED_EVERGREEN bucket: pinned or evergreen posts from user's own NGOs, no time limit, LIMIT 50.
+  - New DISCOVERY bucket: top public posts all time by engagement, LIMIT 100 (safety net when all personalised buckets exhausted).
+- `NGOConnect_Complete_Setup_v5.0.sql` → NEW SP `Feed_BulkMarkViewed(p_UserId, p_PostIds JSON)`:
+  - Bulk INSERT IGNORE into `FeedInteractions (UserId, PostId, InteractionType='VIEW')` using `JSON_TABLE` (MySQL 8.0+). Validates PostId existence against Posts table. Returns `IsSuccess + Message`.
+- NEW Settings seed: `FEED / FEED_SEEN_EXPIRY_DAYS = 30` (skip if already exists via `INSERT IGNORE`).
+- `NGOConnect.Core/Interfaces/IFeedDal.cs` → added `BulkMarkViewedAsync(int userId, List<int> postIds)`.
+- `NGOConnect.Infrastructure/DAL/FeedDal.cs`:
+  - Added `private const int SeenExpiryDays = 30`; `GetPersonalizedAsync` passes it as `p_SeenExpiryDays`.
+  - Added `BulkMarkViewedAsync` — serializes postIds to JSON, calls `Feed_BulkMarkViewed`.
+- `NGOConnect.API/Controllers/FeedController.cs` → NEW endpoint `POST /feed/viewed` (`[Authorize]`), request model `MarkViewedRequest { List<int> PostIds }`.
+- `App/NGOConnectApp/src/api/feed.api.ts` → added `markPostsViewed(postIds: number[])` (calls `POST /feed/viewed`) + named export.
+- `App/NGOConnectApp/src/screens/home/HomeScreen.tsx`:
+  - Added `seenBufferRef` (Set<number> in a ref, writable by frozen callbacks).
+  - `onViewableItemsChanged` ref extended to add all visible postIds into `seenBufferRef`.
+  - `flushSeenBuffer` callback: drains buffer, calls `feedApi.markPostsViewed` (fire-and-forget).
+  - `useEffect` wires a 10-second interval flush + unmount flush.
+- Patch file: `Documents/patch_feed_seen_tracking.sql`
+- Validator run: Phase 1-3 clean (Org_GetDashboard false positive unchanged, pre-existing).
+- **Apply to Railway**: Run `patch_feed_seen_tracking.sql` on Railway staging → production; redeploy C# backend.
+- **Database Documentation**: Add `Feed_BulkMarkViewed` SP description; update `Feed_GetPersonalized` — new param, seen filter, bucket changes, new buckets.
+- **API Documentation**: NEW endpoint `POST /feed/viewed` — request `{ postIds: number[] }`, response `ApiResponse`.
+- **Postman Collection**: Add `POST /feed/viewed` request with sample `{ "postIds": [1,2,3] }`.
+
 **Feed_GetPersonalized — Members-Only post visibility fix (2026-08-07)**
 - Root cause: `Feed_GetPersonalized` SP's TRENDING, RECENT, and INTEREST candidate sources selected posts from ALL orgs with no visibility filter. A Members-Only (`ORG_MEMBERS`) post created by any NGO would enter these global-discovery buckets and appear in the Home feed of users who are not members of that NGO.
 - Fix — two layers of defence:

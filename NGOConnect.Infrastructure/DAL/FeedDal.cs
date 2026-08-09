@@ -1,3 +1,4 @@
+using System.Text.Json;
 using NGOConnect.Core.Interfaces;
 using NGOConnect.Core.Models.Common;
 using NGOConnect.Core.Models.Feed;
@@ -7,6 +8,11 @@ namespace NGOConnect.Infrastructure.DAL
 {
     public class FeedDal : BaseDal, IFeedDal
     {
+        // How many days the SP remembers a post as "seen".
+        // Matches the FEED_SEEN_EXPIRY_DAYS Settings row (default 30).
+        // Move to ISettingsCache injection when dynamic tuning is needed.
+        private const int SeenExpiryDays = 30;
+
         public FeedDal(IDbProvider db) : base(db) { }
 
         // ── GetPersonalizedAsync ──────────────────────────────────────────────
@@ -23,10 +29,11 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var candidates = await ExecuteDynamicListAsync("Feed_GetPersonalized", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_UserId",       userId);
-                    _db.AddParameter(cmd, "p_CursorPostId", cursorPostId.HasValue ? (object)cursorPostId.Value : DBNull.Value);
-                    _db.AddParameter(cmd, "p_CursorScore",  cursorScore.HasValue  ? (object)cursorScore.Value  : DBNull.Value);
-                    _db.AddParameter(cmd, "p_PageSize",     pageSize);
+                    _db.AddParameter(cmd, "p_UserId",          userId);
+                    _db.AddParameter(cmd, "p_CursorPostId",    cursorPostId.HasValue ? (object)cursorPostId.Value : DBNull.Value);
+                    _db.AddParameter(cmd, "p_CursorScore",     cursorScore.HasValue  ? (object)cursorScore.Value  : DBNull.Value);
+                    _db.AddParameter(cmd, "p_PageSize",        pageSize);
+                    _db.AddParameter(cmd, "p_SeenExpiryDays",  SeenExpiryDays);
                 });
 
                 var page = ApplyDiversityEngine(candidates, pageSize);
@@ -99,6 +106,29 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 Log.Error(ex, "TrackInteractionAsync failed UserId={UserId} PostId={PostId}", userId, postId);
                 return ApiResponse.Fail("Could not track interaction.", "INTERNAL_ERROR");
+            }
+        }
+
+        // ── BulkMarkViewedAsync ───────────────────────────────────────────────
+        public async Task<ApiResponse> BulkMarkViewedAsync(int userId, List<int> postIds)
+        {
+            if (postIds == null || postIds.Count == 0)
+                return ApiResponse.Success("Nothing to mark.");
+
+            try
+            {
+                var json   = JsonSerializer.Serialize(postIds);
+                var result = await ExecuteWriteAsync("Feed_BulkMarkViewed", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_UserId",  userId);
+                    _db.AddParameter(cmd, "p_PostIds", json);
+                });
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "BulkMarkViewedAsync failed UserId={UserId} Count={Count}", userId, postIds.Count);
+                return ApiResponse.Fail("Could not mark posts as viewed.", "INTERNAL_ERROR");
             }
         }
 

@@ -59,6 +59,15 @@ namespace NGOConnect.API.Controllers
                 request.InteractionType,
                 request.DurationMs);
 
+        /// <summary>
+        /// Bulk-mark a batch of posts as viewed by the current user.
+        /// Called by the mobile client every ~10 s to flush its seen-post buffer.
+        /// Posts are excluded from the personalised feed for the configured seen-expiry window (default 30 days).
+        /// </summary>
+        [HttpPost("viewed")] [Authorize]
+        public async Task<ApiResponse> MarkViewed([FromBody] MarkViewedRequest req)
+            => await _feed.BulkMarkViewedAsync(GetUserId(), req.PostIds);
+
         // ── Helper ────────────────────────────────────────────────────────────
         private int GetUserId()
         {
@@ -74,5 +83,11 @@ namespace NGOConnect.API.Controllers
         public int    PostId          { get; set; }
         public string InteractionType { get; set; } = "";
         public int?   DurationMs      { get; set; }
+    }
+
+    public class MarkViewedRequest
+    {
+        /// <summary>List of PostIds the user has scrolled past (viewport-visible for ≥1 s).</summary>
+        public List<int> PostIds { get; set; } = [];
     }
 }

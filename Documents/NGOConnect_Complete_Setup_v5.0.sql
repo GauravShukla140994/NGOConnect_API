@@ -1834,6 +1834,10 @@ INSERT INTO Settings (SettingGroup, SettingKey, SettingValue, DataType, Descript
 ('COMMUNICATION', 'CAMPAIGN_SMS_ENABLED',           'false', 'BOOLEAN', 'SMS channel toggle — keep false until Fast2SMS DLT registration completes', 0),
 ('COMMUNICATION', 'HANGFIRE_DASHBOARD_KEY',          '',      'STRING',  'Shared key for /hangfire dashboard access outside Development (query ?key= or X-Hangfire-Key header). Empty = fail-closed — set a real value before relying on the dashboard in Staging/Production.', 0);
 
+-- v5.1 NEW: Feed seen-post expiry
+INSERT INTO Settings (SettingGroup, SettingKey, SettingValue, DataType, Description, IsPublic) VALUES
+('FEED', 'FEED_SEEN_EXPIRY_DAYS', '30', 'NUMBER', 'Days to remember a post as seen by a user. After expiry the post becomes eligible to reappear in the feed as a last-resort fallback.', 0);
+
 INSERT INTO IdSequences (SequenceName, CurrentYear, LastValue) VALUES
 ('DON',  YEAR(CURDATE()), 0),
 ('WDR',  YEAR(CURDATE()), 0),
@@ -9319,20 +9323,35 @@ DELIMITER ;
 DELIMITER //
 
 -- ── Feed_GetPersonalized ──────────────────────────────────────────────────────
+-- v5.1 changes:
+--   • Added p_SeenExpiryDays — seen-post filter window (default 30 days)
+--   • Seen filter: posts viewed within expiry window are excluded
+--   • Emergency posts (IsEmergency=1) always bypass the seen filter
+--   • MY_ORG / FOLLOWED_ORG: no longer time-limited (show all historical posts)
+--   • TRENDING: extended from 7 → 30 days
+--   • INTEREST:  extended from 14 → 45 days
+--   • Added PINNED_EVERGREEN bucket — pinned/evergreen posts from user's NGOs (no time limit)
+--   • Added DISCOVERY safety-net bucket — top public posts of all time (last resort)
 DROP PROCEDURE IF EXISTS Feed_GetPersonalized //
 CREATE PROCEDURE Feed_GetPersonalized(
-    IN p_UserId       INT UNSIGNED,
-    IN p_CursorPostId INT UNSIGNED,
-    IN p_CursorScore  DECIMAL(10,4),
-    IN p_PageSize     INT
+    IN p_UserId          INT UNSIGNED,
+    IN p_CursorPostId    INT UNSIGNED,
+    IN p_CursorScore     DECIMAL(10,4),
+    IN p_PageSize        INT,
+    IN p_SeenExpiryDays  INT          -- how many days to remember a viewed post (default 30)
 )
 BEGIN
     DECLARE v_FetchSize   INT          DEFAULT p_PageSize * 3;
     DECLARE v_PublicLkpId INT UNSIGNED DEFAULT 0;
 
+    -- Default seen expiry if caller passes NULL
+    IF p_SeenExpiryDays IS NULL OR p_SeenExpiryDays <= 0 THEN
+        SET p_SeenExpiryDays = 30;
+    END IF;
+
     -- Resolve the 'PUBLIC' visibility LkpId once — used to pre-filter candidate
-    -- sources (TRENDING / RECENT / INTEREST) so ORG_MEMBERS posts never enter
-    -- the global-discovery buckets in the first place.
+    -- sources (TRENDING / RECENT / INTEREST / DISCOVERY) so ORG_MEMBERS posts
+    -- never enter the global-discovery buckets in the first place.
     SELECT lv.LookupValueId INTO v_PublicLkpId
     FROM   LookupValues lv
     JOIN   LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
@@ -9455,6 +9474,8 @@ BEGIN
         JOIN (
             SELECT PostId, MIN(FeedSource) AS FeedSource
             FROM (
+                -- MY_ORG: all posts from NGOs the user is an approved member of.
+                -- No time limit — member posts are always highest priority.
                 (SELECT p1.PostId, 'MY_ORG' AS FeedSource
                 FROM Posts p1
                 INNER JOIN OrgMembers om1
@@ -9462,31 +9483,34 @@ BEGIN
                 INNER JOIN LookupValues lv1
                        ON lv1.LookupValueId = om1.StatusLkpId AND lv1.ValueCode = 'APPROVED'
                 WHERE p1.IsDeleted = 0
-                  AND p1.CreatedAt >= DATE_SUB(NOW(), INTERVAL 30 DAY)
                 ORDER BY p1.CreatedAt DESC LIMIT 200)
 
                 UNION ALL
 
+                -- FOLLOWED_ORG: posts from NGOs the user follows.
+                -- No time limit — followed org posts should always surface.
                 (SELECT p2.PostId, 'FOLLOWED_ORG' AS FeedSource
                 FROM Posts p2
                 INNER JOIN OrgFollowers of1
                        ON of1.OrgId = p2.OrgId AND of1.UserId = p_UserId AND of1.IsFollowing = 1
                 WHERE p2.IsDeleted = 0
-                  AND p2.CreatedAt >= DATE_SUB(NOW(), INTERVAL 30 DAY)
                 ORDER BY p2.CreatedAt DESC LIMIT 200)
 
                 UNION ALL
 
+                -- TRENDING: top public posts by engagement. Extended to 30 days.
                 (SELECT p3.PostId, 'TRENDING' AS FeedSource
                 FROM Posts p3
                 WHERE p3.IsDeleted = 0
-                  AND p3.CreatedAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-                  AND p3.VisibilityLkpId = v_PublicLkpId  -- global trending: PUBLIC only
+                  AND p3.CreatedAt >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+                  AND p3.VisibilityLkpId = v_PublicLkpId
                 ORDER BY (p3.LikeCount * 1 + p3.CommentCount * 2 + p3.ShareCount * 3 + p3.SaveCount * 2) DESC
                 LIMIT 100)
 
                 UNION ALL
 
+                -- EMERGENCY: always show active emergency posts regardless of seen status.
+                -- The seen filter in the outer WHERE exempts IsEmergency=1 posts.
                 (SELECT p4.PostId, 'EMERGENCY' AS FeedSource
                 FROM Posts p4
                 WHERE p4.IsDeleted = 0
@@ -9496,12 +9520,13 @@ BEGIN
 
                 UNION ALL
 
+                -- INTEREST: public posts matching user's interest tags. Extended to 45 days.
                 (SELECT p5.PostId, 'INTEREST' AS FeedSource
                 FROM Posts p5
                 INNER JOIN LookupValues pt5 ON pt5.LookupValueId = p5.PostTypeLkpId
                 WHERE p5.IsDeleted = 0
-                  AND p5.CreatedAt >= DATE_SUB(NOW(), INTERVAL 14 DAY)
-                  AND p5.VisibilityLkpId = v_PublicLkpId  -- interest matching: PUBLIC only
+                  AND p5.CreatedAt >= DATE_SUB(NOW(), INTERVAL 45 DAY)
+                  AND p5.VisibilityLkpId = v_PublicLkpId
                   AND EXISTS(
                       SELECT 1 FROM UserInterests ui5
                       JOIN LookupValues li5 ON ui5.InterestLkpId = li5.LookupValueId
@@ -9513,12 +9538,38 @@ BEGIN
 
                 UNION ALL
 
+                -- RECENT: latest public posts from anyone. Keeps feed fresh.
                 (SELECT p6.PostId, 'RECENT' AS FeedSource
                 FROM Posts p6
                 WHERE p6.IsDeleted = 0
                   AND p6.CreatedAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-                  AND p6.VisibilityLkpId = v_PublicLkpId  -- global recent: PUBLIC only
+                  AND p6.VisibilityLkpId = v_PublicLkpId
                 ORDER BY p6.CreatedAt DESC LIMIT 100)
+
+                UNION ALL
+
+                -- PINNED_EVERGREEN: pinned or evergreen posts from the user's own NGOs.
+                -- No time limit — these are explicitly marked as always-relevant.
+                (SELECT p7.PostId, 'PINNED_EVERGREEN' AS FeedSource
+                FROM Posts p7
+                INNER JOIN OrgMembers om7
+                       ON om7.OrgId = p7.OrgId AND om7.UserId = p_UserId AND om7.IsDeleted = 0
+                INNER JOIN LookupValues lv7
+                       ON lv7.LookupValueId = om7.StatusLkpId AND lv7.ValueCode = 'APPROVED'
+                WHERE p7.IsDeleted = 0
+                  AND (p7.IsPinned = 1 OR p7.IsEvergreen = 1)
+                ORDER BY p7.CreatedAt DESC LIMIT 50)
+
+                UNION ALL
+
+                -- DISCOVERY: top public posts of all time by engagement score.
+                -- Safety net — surfaces when all personalised buckets are exhausted.
+                (SELECT p8.PostId, 'DISCOVERY' AS FeedSource
+                FROM Posts p8
+                WHERE p8.IsDeleted = 0
+                  AND p8.VisibilityLkpId = v_PublicLkpId
+                ORDER BY (p8.LikeCount * 1 + p8.CommentCount * 2 + p8.ShareCount * 3 + p8.SaveCount * 2) DESC
+                LIMIT 100)
 
             ) all_sources
             GROUP BY PostId
@@ -9561,11 +9612,24 @@ BEGIN
 
     ) sf
 
-    -- p_CursorScore now carries UNIX_TIMESTAMP(CreatedAt) of the last seen post.
-    -- This gives a strict chronological cursor: newest posts always appear first.
-    WHERE  p_CursorScore IS NULL
+    -- Cursor: newest-first chronological pagination.
+    -- Seen filter: exclude posts the user already viewed within the expiry window.
+    -- Exception: IsEmergency=1 posts always bypass the seen filter.
+    WHERE (
+        p_CursorScore IS NULL
         OR UNIX_TIMESTAMP(sf.CreatedAt) < p_CursorScore
         OR (UNIX_TIMESTAMP(sf.CreatedAt) = p_CursorScore AND sf.PostId < p_CursorPostId)
+    )
+    AND (
+        sf.IsEmergency = 1   -- emergency posts always show regardless of seen status
+        OR NOT EXISTS (
+            SELECT 1 FROM FeedInteractions fi
+            WHERE fi.PostId          = sf.PostId
+              AND fi.UserId          = p_UserId
+              AND fi.InteractionType = 'VIEW'
+              AND fi.CreatedAt       >= DATE_SUB(NOW(), INTERVAL p_SeenExpiryDays DAY)
+        )
+    )
 
     ORDER BY sf.CreatedAt DESC, sf.PostId DESC
     LIMIT  v_FetchSize;
@@ -9749,6 +9813,28 @@ BEGIN
     INSERT INTO FeedInteractions (UserId, PostId, InteractionType, DurationMs)
     VALUES (p_UserId, p_PostId, p_InteractionType, p_DurationMs);
     SELECT 1 AS IsSuccess, 'Tracked.' AS Message;
+END //
+
+-- ── Feed_BulkMarkViewed ────────────────────────────────────────────────────────
+-- Bulk-inserts VIEW rows into FeedInteractions for all postIds in the JSON array.
+-- Called by the mobile app when flushing its seen-post buffer (batch every ~10s).
+-- Uses INSERT IGNORE so duplicate views (same user+post within a session) are safe.
+-- Uses JSON_TABLE (MySQL 8.0+) to unpack the array server-side — one SP call for
+-- up to ~50 postIds instead of N individual Feed_TrackInteraction calls.
+DROP PROCEDURE IF EXISTS Feed_BulkMarkViewed //
+CREATE PROCEDURE Feed_BulkMarkViewed(
+    IN p_UserId  INT UNSIGNED,
+    IN p_PostIds JSON          -- e.g. [1, 2, 3, 4, 5]
+)
+BEGIN
+    INSERT IGNORE INTO FeedInteractions (UserId, PostId, InteractionType)
+    SELECT p_UserId, jt.PostId, 'VIEW'
+    FROM   JSON_TABLE(p_PostIds, '$[*]' COLUMNS (PostId INT PATH '$')) AS jt
+    WHERE  EXISTS (
+        SELECT 1 FROM Posts WHERE PostId = jt.PostId AND IsDeleted = 0
+    );
+
+    SELECT 1 AS IsSuccess, 'Marked.' AS Message;
 END //
 
 DELIMITER ;
