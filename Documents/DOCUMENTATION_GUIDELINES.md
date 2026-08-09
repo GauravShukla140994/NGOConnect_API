@@ -1470,3 +1470,36 @@ DB schema fixes + new SPs + new API endpoints + React Native UI. Patch file: `pa
   - `Database_Documentation_v5.0.md` → `Org_GetDashboard` SP: note that `ActiveProjects` now counts ACTIVE + UPCOMING statuses
 
 -->
+
+**NGO Reviews module — v5.1 (2026-08-09)**
+
+DB changes:
+- `NGOConnect_Complete_Setup_v5.0.sql` → appended v5.1 block:
+  - 3 new LookupTypes: `REVIEWER_TYPE`, `REVIEW_MEDIA_TYPE`, `REVIEW_SORT`
+  - 14 new LookupValues across those 3 types
+  - 4 new tables: `OrgReviews`, `OrgReviewMedia`, `OrgReviewResponses`, `OrgReviewHelpful`
+  - `AvgRating` + `RatingCount` on `Organisations` now wired to OrgReview_Add / OrgReview_Delete
+  - 7 new SPs: `OrgReview_Add`, `OrgReview_GetList`, `OrgReview_GetAggregate`, `OrgReview_MarkHelpful`, `OrgReview_Delete`, `OrgReview_AddResponse`, `OrgReview_Report`
+  - SchemaVersions entry `v5.1`
+- Standalone patch: `Documents/patch_org_reviews.sql`
+
+Backend changes:
+- `NGOConnect.Core/Models/OrgReview/OrgReviewModels.cs` — `AddReviewRequest`, `ReviewMediaItem`, `MarkHelpfulRequest`, `AddReviewResponseRequest`
+- `NGOConnect.Core/Interfaces/IOrgReviewDal.cs` — 7-method interface
+- `NGOConnect.Infrastructure/DAL/OrgReviewDal.cs` — full implementation
+- `NGOConnect.API/Controllers/OrgReviewController.cs` — 6 endpoints under `/api/v1/orgs/{orgId}/reviews`
+- `NGOConnect.API/Extensions/ServiceCollectionExtensions.cs` — `IOrgReviewDal` registered
+
+Mobile changes:
+- `App/NGOConnectApp/src/api/review.api.ts` — 7 API functions
+- `App/NGOConnectApp/src/screens/ngo/ReviewCard.tsx` — review card component
+- `App/NGOConnectApp/src/screens/ngo/WriteReviewSheet.tsx` — write review bottom sheet
+- `App/NGOConnectApp/src/screens/ngo/ReviewsTab.tsx` — aggregate + list + infinite scroll
+- `App/NGOConnectApp/src/screens/ngo/NgoProfileScreen.tsx` — Reviews tab added (5th tab), rating chip in header
+
+SP validator: 215 SPs parsed, all new OrgReview SP↔DAL params clean. Pre-existing Org_GetDashboard false positive only (SQL keyword NOT misread as column alias — confirmed non-issue).
+
+Documents to update when "update documents" is called:
+- `Database_Documentation_v5.0.md` → add OrgReviews, OrgReviewMedia, OrgReviewResponses, OrgReviewHelpful tables; add 3 LookupTypes; document 7 new SPs
+- `API_Documentation_v5.0.docx` → add OrgReviews section with 6 endpoints, request/response shapes
+- `NGOConnect_Postman_Collection_v5.0.json` → add 6 OrgReview request examples

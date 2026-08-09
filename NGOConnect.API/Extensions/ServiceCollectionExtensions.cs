@@ -73,6 +73,8 @@ namespace NGOConnect.API.Extensions
             services.AddScoped<ICampaignDal,               CampaignDal>();
             services.AddScoped<ICommunicationPreferenceDal, CommunicationPreferenceDal>();
             services.AddScoped<ICampaignDispatchService,    CampaignDispatchService>();
+            // v5.1 — NGO Reviews
+            services.AddScoped<IOrgReviewDal,              OrgReviewDal>();
             return services;
         }
 
