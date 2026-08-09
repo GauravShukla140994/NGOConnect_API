@@ -113,7 +113,7 @@ namespace NGOConnect.Infrastructure.DAL
         public async Task<ApiResponse> BulkMarkViewedAsync(int userId, List<int> postIds)
         {
             if (postIds == null || postIds.Count == 0)
-                return ApiResponse.Success("Nothing to mark.");
+                return ApiResponse.Ok("Nothing to mark.");
 
             try
             {
