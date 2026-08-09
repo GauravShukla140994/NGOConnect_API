@@ -22,7 +22,7 @@ namespace NGOConnect.API.Controllers
     ///   → call GET /api/v1/media/signed-url?key={fileKey} to view the document
     ///
     /// Module routing:
-    ///   PUBLIC  → user-photos, org-logos, project-images, post-media
+    ///   PUBLIC  → user-photos, org-logos, project-images, post-media, review-media
     ///   PRIVATE → user-documents, org-documents, certificates, donation-receipts
     /// </summary>
     [ApiController]

@@ -45,6 +45,7 @@ namespace NGOConnect.Infrastructure.Services
             ["project-images"]      = ["jpg", "jpeg", "png"],
             ["certificates"]        = ["pdf"],
             ["post-media"]          = ["jpg", "jpeg", "png", "mp4", "mov", "webm", "mkv", "m4v"],
+            ["review-media"]        = ["jpg", "jpeg", "png", "mp4", "mov"],
             ["support-attachments"] = ["jpg", "jpeg", "png", "pdf", "mp4", "mov"],
         };
 
@@ -62,6 +63,7 @@ namespace NGOConnect.Infrastructure.Services
             ["project-images"]      = 10L * 1024 * 1024,
             ["certificates"]        =  5L * 1024 * 1024,
             ["post-media"]          = 50L * 1024 * 1024,   // 50 MB — covers short videos
+            ["review-media"]        = 20L * 1024 * 1024,   // 20 MB — matches UI hint
             ["support-attachments"] =  5L * 1024 * 1024,
         };
 

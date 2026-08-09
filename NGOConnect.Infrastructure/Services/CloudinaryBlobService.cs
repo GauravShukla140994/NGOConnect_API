@@ -45,6 +45,7 @@ namespace NGOConnect.Infrastructure.Services
             ["org-logos"]           = ["jpg", "jpeg", "png", "svg"],
             ["certificates"]        = ["pdf"],
             ["post-media"]          = ["jpg", "jpeg", "png", "mp4", "mov", "webm", "mkv", "m4v"],
+            ["review-media"]        = ["jpg", "jpeg", "png", "mp4", "mov"],
             ["support-attachments"] = ["jpg", "jpeg", "png", "pdf", "mp4", "mov"],
         };
 
@@ -60,6 +61,7 @@ namespace NGOConnect.Infrastructure.Services
             ["org-logos"]      =  5L * 1024 * 1024,
             ["certificates"]   =  5L * 1024 * 1024,
             ["post-media"]     = 50L * 1024 * 1024,
+            ["review-media"]   = 20L * 1024 * 1024,
         };
 
         public CloudinaryBlobService(IConfiguration config)
