@@ -1442,7 +1442,10 @@ SELECT LookupTypeId, 'DONATION_RCVD', 'Donation Received', 4, 1, 1 FROM LookupTy
 SELECT LookupTypeId, 'POST_LIKED', 'Post Liked', 5, 1, 1 FROM LookupTypes WHERE TypeCode = 'NOTIFICATION_TYPE' UNION ALL
 SELECT LookupTypeId, 'BADGE_AWARDED', 'Badge Awarded', 6, 1, 1 FROM LookupTypes WHERE TypeCode = 'NOTIFICATION_TYPE' UNION ALL
 SELECT LookupTypeId, 'CERT_ISSUED', 'Certificate Issued', 7, 1, 1 FROM LookupTypes WHERE TypeCode = 'NOTIFICATION_TYPE' UNION ALL
-SELECT LookupTypeId, 'MEM_REQ_REVIEWED', 'Membership Reviewed', 8, 1, 1 FROM LookupTypes WHERE TypeCode = 'NOTIFICATION_TYPE';
+SELECT LookupTypeId, 'MEM_REQ_REVIEWED', 'Membership Reviewed', 8, 1, 1 FROM LookupTypes WHERE TypeCode = 'NOTIFICATION_TYPE' UNION ALL
+SELECT LookupTypeId, 'REVIEW_NEW',      'New Review',          9,  1, 1 FROM LookupTypes WHERE TypeCode = 'NOTIFICATION_TYPE' UNION ALL
+SELECT LookupTypeId, 'REVIEW_RESPONSE', 'Review Response',     10, 1, 1 FROM LookupTypes WHERE TypeCode = 'NOTIFICATION_TYPE' UNION ALL
+SELECT LookupTypeId, 'REVIEW_DELETED',  'Review Deleted',      11, 1, 1 FROM LookupTypes WHERE TypeCode = 'NOTIFICATION_TYPE';
 
 -- LOCATION_TYPE
 INSERT INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue, CreatedBy)
@@ -11794,13 +11797,15 @@ CREATE PROCEDURE OrgReview_Add(
     IN p_MediaUrls        JSON
 )
 BEGIN
-    DECLARE v_ReviewId         INT UNSIGNED DEFAULT 0;
+    DECLARE v_ReviewId          INT UNSIGNED DEFAULT 0;
     DECLARE v_ReviewerTypeLkpId INT UNSIGNED DEFAULT NULL;
-    DECLARE v_MediaTypeLkpId   INT UNSIGNED DEFAULT NULL;
-    DECLARE v_MediaTypeCode    VARCHAR(50);
-    DECLARE v_MediaUrl         VARCHAR(500);
-    DECLARE v_Idx              INT DEFAULT 0;
-    DECLARE v_MediaCount       INT DEFAULT 0;
+    DECLARE v_MediaTypeLkpId    INT UNSIGNED DEFAULT NULL;
+    DECLARE v_MediaTypeCode     VARCHAR(50);
+    DECLARE v_MediaUrl          VARCHAR(500);
+    DECLARE v_Idx               INT DEFAULT 0;
+    DECLARE v_MediaCount        INT DEFAULT 0;
+    DECLARE v_AuthorName        VARCHAR(200) DEFAULT '';
+    DECLARE v_OrgName           VARCHAR(200) DEFAULT '';
 
     -- Validate rating range
     IF p_OverallRating < 1 OR p_OverallRating > 5 THEN
@@ -11855,7 +11860,18 @@ BEGIN
                    RatingCount = (SELECT COUNT(*)                      FROM OrgReviews WHERE OrgId = p_OrgId AND IsApproved = 1 AND IsDeleted = 0)
             WHERE  OrgId = p_OrgId;
 
-            SELECT 1 AS IsSuccess, 'Review submitted successfully.' AS Message, v_ReviewId AS ReviewId;
+            -- Fetch author name + org name for notification fan-out in DAL
+            SELECT TRIM(CONCAT(IFNULL(up.FirstName,''), ' ', IFNULL(up.LastName,'')))
+            INTO   v_AuthorName
+            FROM   UserProfiles up WHERE up.UserId = p_UserId LIMIT 1;
+
+            SELECT o.OrgName INTO v_OrgName FROM Organisations o WHERE o.OrgId = p_OrgId LIMIT 1;
+
+            SELECT 1 AS IsSuccess, 'Review submitted successfully.' AS Message,
+                   v_ReviewId    AS ReviewId,
+                   p_UserId      AS ReviewerUserId,
+                   v_AuthorName  AS AuthorName,
+                   v_OrgName     AS OrgName;
         END IF;
     END IF;
 END //
@@ -11891,8 +11907,8 @@ BEGIN
         r.CreatedAt,
         -- Author
         u.UserId,
-        CONCAT(up.FirstName, ' ', up.LastName) AS AuthorName,
-        up.ProfileImageUrl                      AS AuthorAvatar,
+        COALESCE(CONCAT(up.FirstName, ' ', up.LastName), u.Mobile, 'Anonymous') AS AuthorName,
+        up.ProfilePhoto                         AS AuthorAvatar,
         lv.ValueCode                            AS ReviewerType,
         -- Has the current user voted on this review?
         (SELECT IsHelpful FROM OrgReviewHelpful
@@ -11902,21 +11918,28 @@ BEGIN
         -- NGO response (if any)
         resp.ResponseText,
         resp.CreatedAt                          AS ResponseCreatedAt,
-        -- Media JSON array
-        (SELECT JSON_ARRAYAGG(
-                    JSON_OBJECT('mediaId', m.MediaId, 'mediaUrl', m.MediaUrl,
-                                'mediaType', mt.ValueCode, 'orderNo', m.OrderNo)
-                )
-         FROM OrgReviewMedia m
-         JOIN LookupValues mt ON m.MediaTypeLkpId = mt.LookupValueId
-         WHERE m.ReviewId = r.ReviewId
-         ORDER BY m.OrderNo
-        ) AS MediaItems
+        -- Media JSON array (derived table avoids correlated subquery + ORDER BY issue in MySQL 8)
+        media_agg.MediaItems
     FROM  OrgReviews r
     JOIN  Users u                              ON r.UserId    = u.UserId
-    JOIN  UserProfiles up                      ON u.UserId    = up.UserId
+    LEFT JOIN UserProfiles up                  ON u.UserId    = up.UserId
     JOIN  LookupValues lv                      ON r.ReviewerTypeLkpId = lv.LookupValueId
     LEFT JOIN OrgReviewResponses resp          ON r.ReviewId  = resp.ReviewId AND resp.IsDeleted = 0
+    LEFT JOIN (
+        SELECT
+            m.ReviewId,
+            JSON_ARRAYAGG(
+                JSON_OBJECT(
+                    'mediaId',   m.MediaId,
+                    'mediaUrl',  m.MediaUrl,
+                    'mediaType', IFNULL(mt.ValueCode, 'IMAGE'),
+                    'orderNo',   m.OrderNo
+                )
+            ) AS MediaItems
+        FROM  (SELECT * FROM OrgReviewMedia ORDER BY ReviewId, OrderNo) m
+        LEFT JOIN LookupValues mt ON m.MediaTypeLkpId = mt.LookupValueId
+        GROUP BY m.ReviewId
+    ) media_agg ON media_agg.ReviewId = r.ReviewId
     WHERE r.OrgId      = p_OrgId
       AND r.IsApproved = 1
       AND r.IsDeleted  = 0
@@ -12006,16 +12029,29 @@ CREATE PROCEDURE OrgReview_Delete(
     IN p_ReviewId  INT UNSIGNED
 )
 BEGIN
-    DECLARE v_OrgId INT UNSIGNED DEFAULT NULL;
+    DECLARE v_OrgId          INT UNSIGNED DEFAULT NULL;
+    DECLARE v_ReviewerUserId INT UNSIGNED DEFAULT NULL;
+    DECLARE v_OverallRating  TINYINT      DEFAULT 0;
+    DECLARE v_AuthorName     VARCHAR(200) DEFAULT '';
+    DECLARE v_OrgName        VARCHAR(200) DEFAULT '';
 
-    SELECT OrgId INTO v_OrgId
+    SELECT OrgId, UserId, OverallRating
+    INTO   v_OrgId, v_ReviewerUserId, v_OverallRating
     FROM   OrgReviews
     WHERE  ReviewId = p_ReviewId AND UserId = p_UserId AND IsDeleted = 0
     LIMIT  1;
 
     IF v_OrgId IS NULL THEN
-        SELECT 0 AS IsSuccess, 'Review not found or you are not the author.' AS Message;
+        SELECT 0 AS IsSuccess, 'Review not found or you are not the author.' AS Message,
+               NULL AS ReviewerUserId, NULL AS AuthorName, NULL AS OverallRating, NULL AS OrgName, NULL AS OrgId;
     ELSE
+        -- Fetch author name + org name for notification
+        SELECT TRIM(CONCAT(IFNULL(up.FirstName,''), ' ', IFNULL(up.LastName,'')))
+        INTO   v_AuthorName
+        FROM   UserProfiles up WHERE up.UserId = v_ReviewerUserId LIMIT 1;
+
+        SELECT o.OrgName INTO v_OrgName FROM Organisations o WHERE o.OrgId = v_OrgId LIMIT 1;
+
         UPDATE OrgReviews SET IsDeleted = 1 WHERE ReviewId = p_ReviewId;
 
         -- Recalculate org aggregate
@@ -12024,7 +12060,12 @@ BEGIN
                RatingCount = (SELECT COUNT(*) FROM OrgReviews WHERE OrgId = v_OrgId AND IsApproved=1 AND IsDeleted=0)
         WHERE  OrgId = v_OrgId;
 
-        SELECT 1 AS IsSuccess, 'Review deleted.' AS Message;
+        SELECT 1 AS IsSuccess, 'Review deleted.' AS Message,
+               v_ReviewerUserId AS ReviewerUserId,
+               v_AuthorName     AS AuthorName,
+               v_OverallRating  AS OverallRating,
+               v_OrgName        AS OrgName,
+               v_OrgId          AS OrgId;
     END IF;
 END //
 
@@ -12041,8 +12082,10 @@ CREATE PROCEDURE OrgReview_AddResponse(
     IN p_ResponseText  TEXT
 )
 BEGIN
-    DECLARE v_IsAdmin   TINYINT DEFAULT 0;
-    DECLARE v_ReviewOrg INT UNSIGNED DEFAULT NULL;
+    DECLARE v_IsAdmin        TINYINT      DEFAULT 0;
+    DECLARE v_ReviewOrg      INT UNSIGNED DEFAULT NULL;
+    DECLARE v_ReviewerUserId INT UNSIGNED DEFAULT NULL;
+    DECLARE v_OrgName        VARCHAR(200) DEFAULT '';
 
     -- Verify admin membership
     SELECT COUNT(*) INTO v_IsAdmin
@@ -12055,14 +12098,19 @@ BEGIN
       AND  lv.ValueCode IN ('ADMIN','SUPER_ADMIN')
       AND  om.IsActive = 1;
 
-    -- Verify review belongs to this org
-    SELECT OrgId INTO v_ReviewOrg FROM OrgReviews WHERE ReviewId = p_ReviewId AND IsDeleted = 0 LIMIT 1;
+    -- Verify review belongs to this org; capture reviewer UserId for notification
+    SELECT OrgId, UserId INTO v_ReviewOrg, v_ReviewerUserId
+    FROM   OrgReviews WHERE ReviewId = p_ReviewId AND IsDeleted = 0 LIMIT 1;
 
     IF v_IsAdmin = 0 THEN
-        SELECT 0 AS IsSuccess, 'Only NGO admins can respond to reviews.' AS Message;
+        SELECT 0 AS IsSuccess, 'Only NGO admins can respond to reviews.' AS Message,
+               NULL AS ReviewerUserId, NULL AS OrgName;
     ELSEIF v_ReviewOrg IS NULL OR v_ReviewOrg != p_OrgId THEN
-        SELECT 0 AS IsSuccess, 'Review not found for this NGO.' AS Message;
+        SELECT 0 AS IsSuccess, 'Review not found for this NGO.' AS Message,
+               NULL AS ReviewerUserId, NULL AS OrgName;
     ELSE
+        SELECT OrgName INTO v_OrgName FROM Organisations WHERE OrgId = p_OrgId LIMIT 1;
+
         INSERT INTO OrgReviewResponses (ReviewId, OrgId, RespondedByUserId, ResponseText)
         VALUES (p_ReviewId, p_OrgId, p_AdminUserId, p_ResponseText)
         ON DUPLICATE KEY UPDATE
@@ -12071,7 +12119,9 @@ BEGIN
             IsDeleted         = 0,
             UpdatedAt         = NOW();
 
-        SELECT 1 AS IsSuccess, 'Response posted successfully.' AS Message;
+        SELECT 1 AS IsSuccess, 'Response posted successfully.' AS Message,
+               v_ReviewerUserId AS ReviewerUserId,
+               v_OrgName        AS OrgName;
     END IF;
 END //
 

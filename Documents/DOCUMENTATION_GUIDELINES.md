@@ -1503,3 +1503,34 @@ Documents to update when "update documents" is called:
 - `Database_Documentation_v5.0.md` → add OrgReviews, OrgReviewMedia, OrgReviewResponses, OrgReviewHelpful tables; add 3 LookupTypes; document 7 new SPs
 - `API_Documentation_v5.0.docx` → add OrgReviews section with 6 endpoints, request/response shapes
 - `NGOConnect_Postman_Collection_v5.0.json` → add 6 OrgReview request examples
+
+**Review Notifications — v5.2 (2026-08-09)**
+
+DB changes:
+- `NGOConnect_Complete_Setup_v5.0.sql`:
+  - `NOTIFICATION_TYPE` LookupValues — 3 new entries: `REVIEW_NEW` (OrderNo 9), `REVIEW_RESPONSE` (10), `REVIEW_DELETED` (11)
+  - `OrgReview_Add` SP — success branch now returns `ReviewerUserId`, `AuthorName`, `OrgName` alongside `ReviewId` (for REVIEW_NEW fan-out in DAL)
+  - `OrgReview_Delete` SP — success branch now returns `ReviewerUserId`, `AuthorName`, `OverallRating`, `OrgName`, `OrgId` (for REVIEW_DELETED fan-out in DAL)
+  - `OrgReview_AddResponse` SP — success branch now returns `ReviewerUserId`, `OrgName` (for REVIEW_RESPONSE push in DAL)
+  - SchemaVersions entry `v5.2`
+- Standalone patch: `Documents/patch_review_notifications.sql`
+
+Backend changes:
+- `NGOConnect.Infrastructure/DAL/OrgReviewDal.cs`:
+  - Constructor now injects `INotificationDal` + `IFCMService`
+  - `AddAsync` — fire-and-forget `REVIEW_NEW` fan-out to all NGO admins via `GetAdminsWithTokensAsync`
+  - `DeleteAsync` — fire-and-forget `REVIEW_DELETED` fan-out to all NGO admins
+  - `AddResponseAsync` — fire-and-forget `REVIEW_RESPONSE` push to the reviewer via `GetTokensByUserIdAsync`
+  - All notification failures are logged as Warning, never bubble up to the API caller
+
+Mobile changes:
+- `App/NGOConnectApp/src/screens/home/NotificationsScreen.tsx`:
+  - `notifMeta()` — 3 new cases: `REVIEW_NEW` (⭐ amber), `REVIEW_RESPONSE` (💬 primary), `REVIEW_DELETED` (🗑️ grey)
+  - `resolveScreen()` — `REVIEW_NEW` + `REVIEW_DELETED` → `NgoProfile` with `initialTab: 'reviews'` (admin opens reviews tab); `REVIEW_RESPONSE` → same (reviewer sees the response)
+- `App/NGOConnectApp/src/screens/ngo/NgoProfileScreen.tsx`:
+  - Reads `route.params?.initialTab` on mount; validates against `TABS` array; used as `useState` initial value — allows deep-link from notification to open Reviews tab directly
+
+Documents to update when "update documents" is called:
+- `Database_Documentation_v5.0.md` → NOTIFICATION_TYPE LookupValues: add REVIEW_NEW, REVIEW_RESPONSE, REVIEW_DELETED; document updated SP return columns for OrgReview_Add, OrgReview_Delete, OrgReview_AddResponse
+- `API_Documentation_v5.0.docx` → OrgReviews section: note FCM notifications sent for add/delete/response; document notifType values
+- `NGOConnect_Postman_Collection_v5.0.json` → no new endpoints (notifications are internal)

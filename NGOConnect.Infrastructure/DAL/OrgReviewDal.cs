@@ -8,14 +8,20 @@ namespace NGOConnect.Infrastructure.DAL
 {
     public class OrgReviewDal : BaseDal, IOrgReviewDal
     {
-        public OrgReviewDal(IDbProvider db) : base(db) { }
+        private readonly INotificationDal _notif;
+        private readonly IFCMService      _fcm;
+
+        public OrgReviewDal(IDbProvider db, INotificationDal notif, IFCMService fcm) : base(db)
+        {
+            _notif = notif;
+            _fcm   = fcm;
+        }
 
         // ── AddAsync ─────────────────────────────────────────────────────────
         public async Task<ApiResponse> AddAsync(int userId, int orgId, AddReviewRequest request)
         {
             try
             {
-                // Validate media count constraints
                 var images = request.MediaItems.Count(m => m.Type == "IMAGE");
                 var videos = request.MediaItems.Count(m => m.Type == "VIDEO");
                 if (images > 5)
@@ -23,7 +29,6 @@ namespace NGOConnect.Infrastructure.DAL
                 if (videos > 1)
                     return ApiResponse.Fail("You can attach a maximum of 1 video.", "MEDIA_LIMIT");
 
-                // Serialise media list as JSON for the SP
                 string? mediaJson = request.MediaItems.Count > 0
                     ? JsonSerializer.Serialize(request.MediaItems.Select(m => new { url = m.Url, type = m.Type }))
                     : null;
@@ -37,6 +42,41 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_ReviewerType",  request.ReviewerType);
                     _db.AddParameter(cmd, "p_MediaUrls",     mediaJson != null ? (object)mediaJson : DBNull.Value);
                 });
+
+                if (result.Succeeded)
+                {
+                    // Fire REVIEW_NEW to all NGO admins (fire-and-forget)
+                    var reviewId   = Col<int>(result.Row!, "ReviewId");
+                    var authorName = Col<string>(result.Row!, "AuthorName") ?? "Someone";
+                    var orgName    = Col<string>(result.Row!, "OrgName")    ?? "your NGO";
+                    var rating     = request.OverallRating;
+                    var capturedOrgId = orgId;
+
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var title = $"New {rating}★ review on {orgName}";
+                            var body  = $"{authorName} left a review: “{TruncateText(request.ReviewText, 80)}”";
+
+                            var admins = await _notif.GetAdminsWithTokensAsync(capturedOrgId);
+                            var tasks  = admins.Select(a =>
+                                _notif.CreateAsync(a.UserId, title, body, "REVIEW_NEW",
+                                    refId: reviewId, refType: "Review", orgId: capturedOrgId));
+                            await Task.WhenAll(tasks);
+
+                            var tokens = admins.Select(a => a.Token)
+                                               .Where(t => !string.IsNullOrEmpty(t)).ToList();
+                            if (tokens.Count > 0)
+                                await _fcm.SendMulticastAsync(tokens, title, body, "REVIEW_NEW",
+                                    refId: reviewId, refType: "Review");
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Warning(ex, "REVIEW_NEW notification failed OrgId={OrgId}", capturedOrgId);
+                        }
+                    });
+                }
 
                 return result.ToApiResponse();
             }
@@ -122,6 +162,41 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_ReviewId", reviewId);
                 });
 
+                if (result.Succeeded)
+                {
+                    // Fire REVIEW_DELETED to all NGO admins (fire-and-forget)
+                    var orgId      = Col<int>(result.Row!, "OrgId");
+                    var authorName = Col<string>(result.Row!, "AuthorName") ?? "A user";
+                    var orgName    = Col<string>(result.Row!, "OrgName")    ?? "your NGO";
+                    var rating     = Col<int>(result.Row!, "OverallRating");
+                    var capturedReviewId = reviewId;
+
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var title = $"Review removed from {orgName}";
+                            var body  = $"{authorName} removed their {rating}★ review.";
+
+                            var admins = await _notif.GetAdminsWithTokensAsync(orgId);
+                            var tasks  = admins.Select(a =>
+                                _notif.CreateAsync(a.UserId, title, body, "REVIEW_DELETED",
+                                    refId: orgId, refType: "Org", orgId: orgId));
+                            await Task.WhenAll(tasks);
+
+                            var tokens = admins.Select(a => a.Token)
+                                               .Where(t => !string.IsNullOrEmpty(t)).ToList();
+                            if (tokens.Count > 0)
+                                await _fcm.SendMulticastAsync(tokens, title, body, "REVIEW_DELETED",
+                                    refId: orgId, refType: "Org");
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Warning(ex, "REVIEW_DELETED notification failed ReviewId={ReviewId}", capturedReviewId);
+                        }
+                    });
+                }
+
                 return result.ToApiResponse();
             }
             catch (Exception ex)
@@ -144,6 +219,39 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_ReviewId",     reviewId);
                     _db.AddParameter(cmd, "p_ResponseText", responseText);
                 });
+
+                if (result.Succeeded)
+                {
+                    // Fire REVIEW_RESPONSE to the original reviewer (fire-and-forget)
+                    var reviewerUserId   = Col<int>(result.Row!, "ReviewerUserId");
+                    var orgName          = Col<string>(result.Row!, "OrgName") ?? "The organisation";
+                    var capturedReviewId = reviewId;
+                    var capturedOrgId    = orgId;
+
+                    if (reviewerUserId > 0)
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var title = $"{orgName} responded to your review";
+                                var body  = $"“{TruncateText(responseText, 100)}”";
+
+                                await _notif.CreateAsync(reviewerUserId, title, body, "REVIEW_RESPONSE",
+                                    refId: capturedReviewId, refType: "Review", orgId: capturedOrgId);
+
+                                var tokens = await _notif.GetTokensByUserIdAsync(reviewerUserId);
+                                if (tokens.Count > 0)
+                                    await _fcm.SendAsync(tokens[0], title, body, "REVIEW_RESPONSE",
+                                        refId: capturedReviewId, refType: "Review");
+                            }
+                            catch (Exception ex)
+                            {
+                                Log.Warning(ex, "REVIEW_RESPONSE notification failed ReviewId={ReviewId}", capturedReviewId);
+                            }
+                        });
+                    }
+                }
 
                 return result.ToApiResponse();
             }
@@ -173,5 +281,9 @@ namespace NGOConnect.Infrastructure.DAL
                 return ApiResponse.Fail("Could not report review.", "INTERNAL_ERROR");
             }
         }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+        private static string TruncateText(string text, int maxLen) =>
+            text.Length <= maxLen ? text : text[..maxLen].TrimEnd() + "…";
     }
 }

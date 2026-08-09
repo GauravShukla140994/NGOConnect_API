@@ -190,26 +190,35 @@ BEGIN
         r.NotHelpfulCount,
         r.CreatedAt,
         u.UserId,
-        CONCAT(up.FirstName, ' ', up.LastName)  AS AuthorName,
-        up.ProfileImageUrl                       AS AuthorAvatar,
+        COALESCE(CONCAT(up.FirstName, ' ', up.LastName), u.Mobile, 'Anonymous') AS AuthorName,
+        up.ProfilePhoto                          AS AuthorAvatar,
         lv.ValueCode                             AS ReviewerType,
         (SELECT IsHelpful FROM OrgReviewHelpful
          WHERE ReviewId = r.ReviewId AND UserId = p_CurrentUserId LIMIT 1) AS CurrentUserVote,
         IF(r.UserId = p_CurrentUserId, 1, 0)     AS IsOwnReview,
         resp.ResponseText,
         resp.CreatedAt                           AS ResponseCreatedAt,
-        (SELECT JSON_ARRAYAGG(
-                    JSON_OBJECT('mediaId',m.MediaId,'mediaUrl',m.MediaUrl,
-                                'mediaType',mt.ValueCode,'orderNo',m.OrderNo))
-         FROM OrgReviewMedia m
-         JOIN LookupValues mt ON m.MediaTypeLkpId = mt.LookupValueId
-         WHERE m.ReviewId = r.ReviewId ORDER BY m.OrderNo
-        )                                        AS MediaItems
+        media_agg.MediaItems
     FROM  OrgReviews r
     JOIN  Users u                     ON r.UserId            = u.UserId
-    JOIN  UserProfiles up             ON u.UserId            = up.UserId
+    LEFT JOIN UserProfiles up         ON u.UserId            = up.UserId
     JOIN  LookupValues lv             ON r.ReviewerTypeLkpId = lv.LookupValueId
     LEFT JOIN OrgReviewResponses resp ON r.ReviewId          = resp.ReviewId AND resp.IsDeleted = 0
+    LEFT JOIN (
+        SELECT
+            m.ReviewId,
+            JSON_ARRAYAGG(
+                JSON_OBJECT(
+                    'mediaId',   m.MediaId,
+                    'mediaUrl',  m.MediaUrl,
+                    'mediaType', IFNULL(mt.ValueCode, 'IMAGE'),
+                    'orderNo',   m.OrderNo
+                )
+            ) AS MediaItems
+        FROM  (SELECT * FROM OrgReviewMedia ORDER BY ReviewId, OrderNo) m
+        LEFT JOIN LookupValues mt ON m.MediaTypeLkpId = mt.LookupValueId
+        GROUP BY m.ReviewId
+    ) media_agg ON media_agg.ReviewId = r.ReviewId
     WHERE r.OrgId = p_OrgId AND r.IsApproved = 1 AND r.IsDeleted = 0
     ORDER BY
         CASE WHEN p_Sort='RECENT'  THEN r.CreatedAt     END DESC,
