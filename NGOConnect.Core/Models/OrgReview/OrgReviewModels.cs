@@ -12,7 +12,7 @@ namespace NGOConnect.Core.Models.OrgReview
         public int OverallRating { get; set; }
 
         [Required]
-        [MinLength(20, ErrorMessage = "Review must be at least 20 characters.")]
+        [MinLength(10, ErrorMessage = "Review must be at least 10 characters (excluding spaces).")]
         [MaxLength(500, ErrorMessage = "Review cannot exceed 500 characters.")]
         public string ReviewText { get; set; } = string.Empty;
 
