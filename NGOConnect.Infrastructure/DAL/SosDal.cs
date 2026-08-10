@@ -40,14 +40,12 @@ namespace NGOConnect.Infrastructure.DAL
                 data["sosIncidentId"] = incidentId;
                 data["message"]       = result.Message;
 
-                // SignalR + FCM fan-out: notify all org members of new SOS
+                // SignalR + FCM fan-out: notify recipients based on victim's EmergVisibility preference
                 if (request.OrgId.HasValue)
                 {
                     await _hub.Clients.Group($"org-{request.OrgId}")
                         .SendAsync("NewSosAlert", new { sosIncidentId = incidentId });
-                    _ = FireOrgNotifAsync(request.OrgId.Value, userId,
-                        "🆘 SOS Alert!", "A member needs help urgently. Tap to respond.",
-                        "SOS_TRIGGERED", incidentId, "SOS");
+                    _ = FireSosOrgNotifAsync(request.OrgId.Value, userId, incidentId);
                 }
 
                 return ApiResponse<DynamicRow>.Success(data, result.Message);
@@ -361,6 +359,27 @@ namespace NGOConnect.Infrastructure.DAL
                 await _fcm.SendMulticastAsync(tokens, title, body, notifType, refId, refType);
             }
             catch (Exception ex) { Log.Error(ex, "SosDal.FireUserNotifAsync failed"); }
+        }
+
+        /// <summary>
+        /// SOS-specific fan-out — recipients are filtered by the victim's EmergVisibility preference
+        /// (ADMIN_ONLY / ADMIN_MODS / ALL_MEMBERS). All logic lives in Notification_GetSosMemberTokens SP.
+        /// </summary>
+        private async Task FireSosOrgNotifAsync(int orgId, int victimUserId, int sosIncidentId)
+        {
+            try
+            {
+                var recipients = await _notif.GetSosRecipientsWithTokensAsync(orgId, victimUserId);
+                if (recipients.Count == 0) return;
+                const string title    = "🆘 SOS Alert!";
+                const string body     = "A member needs help urgently. Tap to respond.";
+                const string notifType = "SOS_TRIGGERED";
+                await Task.WhenAll(recipients.Select(r =>
+                    _notif.CreateAsync(r.UserId, title, body, notifType, sosIncidentId, "SOS", orgId)));
+                var tokens = recipients.Select(r => r.Token).ToList();
+                await _fcm.SendMulticastAsync(tokens, title, body, notifType, sosIncidentId, "SOS");
+            }
+            catch (Exception ex) { Log.Error(ex, "SosDal.FireSosOrgNotifAsync failed OrgId={OrgId}", orgId); }
         }
 
         private async Task FireOrgNotifAsync(int orgId, int excludeUserId, string title, string body,

@@ -255,6 +255,30 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
+        public async Task<List<(int UserId, string Token)>> GetSosRecipientsWithTokensAsync(int orgId, int victimUserId)
+        {
+            try
+            {
+                var rows = await ExecuteReaderListAsync<(int UserId, string Token)>(
+                    "Notification_GetSosMemberTokens",
+                    r => (
+                        r["UserId"] == DBNull.Value ? 0 : Convert.ToInt32(r["UserId"]),
+                        r["Token"]?.ToString() ?? ""
+                    ),
+                    cmd =>
+                    {
+                        _db.AddParameter(cmd, "p_OrgId",        orgId);
+                        _db.AddParameter(cmd, "p_VictimUserId", victimUserId);
+                    });
+                return rows.Where(m => m.UserId > 0 && !string.IsNullOrWhiteSpace(m.Token)).ToList();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetSosRecipientsWithTokensAsync failed OrgId={OrgId} VictimUserId={VId}", orgId, victimUserId);
+                return [];
+            }
+        }
+
         public async Task<FeedPostNotifData> BulkNotifyFeedPostAsync(int postId, int orgId, int authorUserId)
         {
             var result = new FeedPostNotifData();

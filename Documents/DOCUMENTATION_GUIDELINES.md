@@ -1605,3 +1605,19 @@ Documents to update when "update documents" is called:
   - `App/NGOConnectApp/src/navigation/RootNavigator.tsx`: added `SOS_RESPONDER_INCOMING` to `SOS_NOTIF_TYPES`; split `SOS_RESPONDER_INCOMING` into its own `resolveScreen` case passing `{ sosIncidentId: refId, isVictim: true }`.
   - `App/NGOConnectApp/src/screens/home/NotificationsScreen.tsx`: added `SOS_RESPONDER_INCOMING` → `{ emoji: '🙋', color: '#F97316' }` in `notifMeta()`; added `SOS_RESPONDER_INCOMING` → `{ screen: 'SosActive', params: { sosIncidentId: refId, isVictim: true } }` in `resolveScreen()`.
 - No documentation updates needed (mobile-only fix; no API or DB surface changed).
+
+**SOS alert fan-out — respects EmergVisibility safety preference (2026-08-10)**
+- Bug: `SosDal.TriggerAsync` always called `FireOrgNotifAsync` → `Notification_GetTokensByOrgId` → ALL approved org members, regardless of the victim's `EmergVisibilityLkpId` setting. The SOS Trigger screen was showing the correct label ("All Organisation Members" / "Admin + Moderators" / "Only Organisation Admin") but the backend was always notifying everyone.
+- Fix:
+  - NEW SP `Notification_GetSosMemberTokens(p_OrgId, p_VictimUserId)`: reads victim's `EmergVisibilityLkpId` from `UserSafetyPreferences`, resolves `ValueCode` from `LookupValues`, then returns the appropriate recipient set:
+    - `ALL_MEMBERS` → all approved org members excluding victim (default if no prefs saved)
+    - `ADMIN_MODS` → FOUNDER + ADMIN + MODERATOR roles only
+    - `ADMIN_ONLY` → FOUNDER + ADMIN roles only
+  - `NGOConnect_Complete_Setup_v5.0.sql` → SP appended after `Notification_GetAdminTokensByOrgId`.
+  - `NGOConnect.Core/Interfaces/INotificationDal.cs` → added `GetSosRecipientsWithTokensAsync(int orgId, int victimUserId)`.
+  - `NGOConnect.Infrastructure/DAL/NotificationDal.cs` → implemented `GetSosRecipientsWithTokensAsync` calling new SP.
+  - `NGOConnect.Infrastructure/DAL/SosDal.cs` → `TriggerAsync` now calls `FireSosOrgNotifAsync` (new helper) instead of `FireOrgNotifAsync`. `FireSosOrgNotifAsync` calls `GetSosRecipientsWithTokensAsync` then fans out notification + FCM to filtered list.
+- Patch file: `Documents/patch_sos_visibility_fanout.sql`
+- **Apply to Railway**: Run `patch_sos_visibility_fanout.sql` on local → Railway staging → production.
+- **Database Documentation**: Add `Notification_GetSosMemberTokens` SP with parameters and visibility logic.
+- **API Documentation**: No endpoint change — internal fan-out logic only.

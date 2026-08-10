@@ -49,6 +49,16 @@ namespace NGOConnect.Core.Interfaces
         Task<List<(int UserId, string Token)>> GetSosRespondersWithTokensAsync(int sosIncidentId);
 
         /// <summary>
+        /// SOS alert fan-out: returns the correct recipient set based on the victim's
+        /// EmergVisibilityLkpId (EMERGENCY_VISIBILITY lookup type).
+        ///   ADMIN_ONLY  → FOUNDER + ADMIN
+        ///   ADMIN_MODS  → FOUNDER + ADMIN + MODERATOR
+        ///   ALL_MEMBERS → all approved org members  (default)
+        /// Victim is always excluded from results.
+        /// </summary>
+        Task<List<(int UserId, string Token)>> GetSosRecipientsWithTokensAsync(int orgId, int victimUserId);
+
+        /// <summary>
         /// Feed post fan-out: bulk-saves one Notifications inbox row per approved org member
         /// (excluding the author), then returns their FCM tokens + the notification text.
         /// Call fire-and-forget after Post_Create succeeds.
