@@ -620,6 +620,7 @@ CREATE TABLE Posts (
     CommentCount    INT UNSIGNED  NOT NULL DEFAULT 0,
     ShareCount      INT UNSIGNED  NOT NULL DEFAULT 0 COMMENT 'Denormalized share count',
     SaveCount       INT UNSIGNED  NOT NULL DEFAULT 0 COMMENT 'Denormalized save count',
+    ViewCount       INT UNSIGNED  NOT NULL DEFAULT 0 COMMENT 'Denormalized unique-user view count — incremented by Feed_BulkMarkViewed',
     IsDeleted       TINYINT(1)    NOT NULL DEFAULT 0,
     DeletedAt       DATETIME      NULL,
     DeletedBy       INT UNSIGNED  NULL,
@@ -2600,8 +2601,9 @@ CREATE PROCEDURE Org_List(
     IN p_PageSize   INT
 )
 BEGIN
-    DECLARE v_Offset     INT DEFAULT (p_PageNumber - 1) * p_PageSize;
-    DECLARE v_ApprovedId INT;
+    DECLARE v_Offset        INT DEFAULT (p_PageNumber - 1) * p_PageSize;
+    DECLARE v_ApprovedId    INT;
+    DECLARE v_OrgCatTypeId  INT UNSIGNED DEFAULT 0;
 
     SELECT lv.LookupValueId INTO v_ApprovedId
     FROM LookupValues lv
@@ -2609,11 +2611,16 @@ BEGIN
     WHERE lt.TypeCode = 'ORG_STATUS' AND lv.ValueCode = 'APPROVED'
     LIMIT 1;
 
+    -- Resolve ORG_CATEGORY LookupTypeId once for the JOIN below
+    SELECT LookupTypeId INTO v_OrgCatTypeId
+    FROM LookupTypes WHERE TypeCode = 'ORG_CATEGORY' LIMIT 1;
+
     -- Result set 1: page
     SELECT
         o.OrgId,
         o.OrgName,
         o.Category,
+        COALESCE(cv.ValueName, o.Category) AS CategoryName,
         o.LogoUrl,
         o.City,
         o.State,
@@ -2627,6 +2634,7 @@ BEGIN
         o.Latitude,
         o.Longitude
     FROM Organisations o
+    LEFT JOIN LookupValues cv ON cv.ValueCode = o.Category AND cv.LookupTypeId = v_OrgCatTypeId
     WHERE o.IsDeleted = 0
       AND o.StatusLkpId = v_ApprovedId
       AND (p_Keyword IS NULL  OR o.OrgName LIKE CONCAT('%', p_Keyword, '%')
@@ -3666,6 +3674,7 @@ BEGIN
         lv_type.ValueName AS PostType,
         p.LikeCount,
         p.CommentCount,
+        p.ViewCount,
         (SELECT COUNT(*) FROM PostLikes WHERE PostId = p.PostId AND UserId = p_UserId) AS IsLiked,
         p.UserId,
         CONCAT(up.FirstName, ' ', up.LastName) AS AuthorName,
@@ -3698,7 +3707,7 @@ BEGIN
     GROUP BY
         p.PostId, p.Content, p.IsPinned,
         lv_type.ValueCode, lv_type.ValueName,
-        p.LikeCount, p.CommentCount,
+        p.LikeCount, p.CommentCount, p.ViewCount,
         p.UserId, up.FirstName, up.LastName, up.ProfilePhoto,
         p.OrgId, o.OrgName,
         p.CreatedAt
@@ -4912,7 +4921,8 @@ END //
 -- ── Org_ListRecommended ──────────────────────────────────────
 CREATE PROCEDURE Org_ListRecommended(IN p_UserId INT)
 BEGIN
-    DECLARE v_ApprovedId INT;
+    DECLARE v_ApprovedId   INT;
+    DECLARE v_OrgCatTypeId INT UNSIGNED DEFAULT 0;
 
     SELECT lv.LookupValueId INTO v_ApprovedId
     FROM LookupValues lv
@@ -4920,8 +4930,13 @@ BEGIN
     WHERE lt.TypeCode = 'ORG_STATUS' AND lv.ValueCode = 'APPROVED'
     LIMIT 1;
 
+    SELECT LookupTypeId INTO v_OrgCatTypeId
+    FROM LookupTypes WHERE TypeCode = 'ORG_CATEGORY' LIMIT 1;
+
     SELECT
-        o.OrgId, o.OrgName, o.Category, o.LogoUrl, o.City, o.State,
+        o.OrgId, o.OrgName, o.Category,
+        COALESCE(cv.ValueName, o.Category) AS CategoryName,
+        o.LogoUrl, o.City, o.State,
         IFNULL((SELECT COUNT(*) FROM OrgMembers om2
                  JOIN LookupValues lv2 ON om2.StatusLkpId = lv2.LookupValueId
                  JOIN LookupTypes  lt2 ON lv2.LookupTypeId = lt2.LookupTypeId
@@ -4934,10 +4949,11 @@ BEGIN
     JOIN UserInterests ui ON ui.UserId = p_UserId
     JOIN LookupValues  lv ON ui.InterestLkpId = lv.LookupValueId
     LEFT JOIN LookupValues vv ON o.VerificationStatusLkpId = vv.LookupValueId
+    LEFT JOIN LookupValues cv ON cv.ValueCode = o.Category AND cv.LookupTypeId = v_OrgCatTypeId
     WHERE o.IsDeleted = 0
       AND o.StatusLkpId = v_ApprovedId
       AND lv.ValueCode = o.Category
-    GROUP BY o.OrgId, vv.ValueCode
+    GROUP BY o.OrgId, vv.ValueCode, cv.ValueName
     ORDER BY MatchScore DESC, o.AvgRating DESC
     LIMIT 20;
 END //
@@ -7769,7 +7785,9 @@ CREATE PROCEDURE Org_GetProfile(
 )
 BEGIN
     SELECT
-        o.OrgId, o.OrgName, o.RegNumber, o.Category, o.ContactPerson,
+        o.OrgId, o.OrgName, o.RegNumber, o.Category,
+        COALESCE(cv.ValueName, o.Category) AS CategoryName,
+        o.ContactPerson,
         o.LogoUrl, o.About, o.Mission, o.Vision,
         o.ContactEmail, o.ContactPhone, o.Website,
         o.AddressLine1, o.AddressLine2, o.City, o.State, o.Pincode, o.Country,
@@ -7809,6 +7827,8 @@ BEGIN
     LEFT JOIN LookupValues tv ON o.OrgTypeLkpId            = tv.LookupValueId
     LEFT JOIN LookupValues sv ON o.StatusLkpId             = sv.LookupValueId
     LEFT JOIN LookupValues vv ON o.VerificationStatusLkpId = vv.LookupValueId
+    LEFT JOIN LookupValues cv ON cv.ValueCode = o.Category
+                              AND cv.LookupTypeId = (SELECT LookupTypeId FROM LookupTypes WHERE TypeCode = 'ORG_CATEGORY' LIMIT 1)
     WHERE o.OrgId = p_OrgId AND o.IsDeleted = 0;
 END //
 
@@ -8452,7 +8472,7 @@ BEGIN
     GROUP BY
         p.PostId,    p.Content,    p.IsPinned,
         lv_type.ValueCode, lv_type.ValueName,
-        p.LikeCount, p.CommentCount,
+        p.LikeCount, p.CommentCount, p.ViewCount,
         p.UserId,    up.FirstName, up.LastName, up.ProfilePhoto,
         p.OrgId,     o.OrgName,   lv_vis.ValueCode, p.CreatedAt
     ORDER BY p.IsPinned DESC, p.CreatedAt DESC
@@ -8587,7 +8607,7 @@ BEGIN
     DECLARE v_ApprovedLkpId    INT UNSIGNED DEFAULT 0;
     DECLARE v_IsMember         TINYINT(1)  DEFAULT 0;
     DECLARE v_CanPost          TINYINT(1)  DEFAULT 0;
-    DECLARE v_CanComment       TINYINT(1)  DEFAULT 0;
+    DECLARE v_CanComment       TINYINT(1)  DEFAULT 1;  -- non-members can comment freely; only blocked when member has CanComment=0
     DECLARE v_CanCommunityPost TINYINT(1)  DEFAULT 0;
     DECLARE v_MaxPerDay        INT         DEFAULT 10;
     DECLARE v_TodayCount       INT         DEFAULT 0;
@@ -9373,6 +9393,7 @@ BEGIN
             p.CommentCount,
             p.ShareCount,
             p.SaveCount,
+            p.ViewCount,
             lv_type.ValueCode  AS PostTypeCode,
             lv_type.ValueName  AS PostType,
             p.UserId,
@@ -9606,7 +9627,7 @@ BEGIN
 
         GROUP BY
             p.PostId,      p.Content,    p.IsPinned,   p.IsEmergency, p.IsEvergreen,
-            p.LikeCount,   p.CommentCount, p.ShareCount, p.SaveCount,
+            p.LikeCount,   p.CommentCount, p.ShareCount, p.SaveCount, p.ViewCount,
             lv_type.ValueCode, lv_type.ValueName,
             p.UserId,      up.FirstName, up.LastName,  up.ProfilePhoto,
             p.OrgId,       o.OrgName,   o.LogoUrl,    cands.FeedSource,
@@ -9757,6 +9778,7 @@ BEGIN
         p.CommentCount,
         p.ShareCount,
         p.SaveCount,
+        p.ViewCount,
         lv_type.ValueCode  AS PostTypeCode,
         lv_type.ValueName  AS PostType,
         p.UserId,
@@ -9790,7 +9812,7 @@ BEGIN
     WHERE  ps.UserId = p_UserId
     GROUP BY
         p.PostId,  p.Content,     p.IsPinned,   p.IsEmergency, p.IsEvergreen,
-        p.LikeCount, p.CommentCount, p.ShareCount, p.SaveCount,
+        p.LikeCount, p.CommentCount, p.ShareCount, p.SaveCount, p.ViewCount,
         lv_type.ValueCode, lv_type.ValueName,
         p.UserId,  up.FirstName,  up.LastName,  up.ProfilePhoto,
         p.OrgId,   o.OrgName,     o.LogoUrl,
@@ -9819,23 +9841,39 @@ BEGIN
 END //
 
 -- ── Feed_BulkMarkViewed ────────────────────────────────────────────────────────
--- Bulk-inserts VIEW rows into FeedInteractions for all postIds in the JSON array.
--- Called by the mobile app when flushing its seen-post buffer (batch every ~10s).
--- Uses INSERT IGNORE so duplicate views (same user+post within a session) are safe.
--- Uses JSON_TABLE (MySQL 8.0+) to unpack the array server-side — one SP call for
--- up to ~50 postIds instead of N individual Feed_TrackInteraction calls.
+-- Records VIEW interactions and increments Posts.ViewCount (unique per user/post).
+-- Called by the mobile app when flushing its seen-post buffer.
+-- Uses a temp table to identify truly NEW views so ViewCount is never double-counted.
+-- Uses JSON_TABLE (MySQL 8.0+) to unpack the array — one SP call for up to ~50 postIds.
 DROP PROCEDURE IF EXISTS Feed_BulkMarkViewed //
 CREATE PROCEDURE Feed_BulkMarkViewed(
     IN p_UserId  INT UNSIGNED,
     IN p_PostIds JSON          -- e.g. [1, 2, 3, 4, 5]
 )
 BEGIN
-    INSERT IGNORE INTO FeedInteractions (UserId, PostId, InteractionType)
-    SELECT p_UserId, jt.PostId, 'VIEW'
+    -- Collect postIds the user has NOT yet viewed (first-time views only)
+    DROP TEMPORARY TABLE IF EXISTS _tmp_new_views;
+    CREATE TEMPORARY TABLE _tmp_new_views (PostId INT UNSIGNED NOT NULL PRIMARY KEY);
+
+    INSERT INTO _tmp_new_views (PostId)
+    SELECT DISTINCT jt.PostId
     FROM   JSON_TABLE(p_PostIds, '$[*]' COLUMNS (PostId INT PATH '$')) AS jt
-    WHERE  EXISTS (
-        SELECT 1 FROM Posts WHERE PostId = jt.PostId AND IsDeleted = 0
-    );
+    WHERE  EXISTS  (SELECT 1 FROM Posts            WHERE PostId = jt.PostId AND IsDeleted = 0)
+    AND    NOT EXISTS (
+               SELECT 1 FROM FeedInteractions
+               WHERE  UserId = p_UserId AND PostId = jt.PostId AND InteractionType = 'VIEW'
+           );
+
+    -- Persist the new VIEW rows
+    INSERT INTO FeedInteractions (UserId, PostId, InteractionType)
+    SELECT p_UserId, PostId, 'VIEW' FROM _tmp_new_views;
+
+    -- Increment the denormalized counter only for genuinely new views
+    UPDATE Posts
+    SET    ViewCount = ViewCount + 1
+    WHERE  PostId IN (SELECT PostId FROM _tmp_new_views);
+
+    DROP TEMPORARY TABLE IF EXISTS _tmp_new_views;
 
     SELECT 1 AS IsSuccess, 'Marked.' AS Message;
 END //
@@ -11914,7 +11952,9 @@ BEGIN
         (SELECT IsHelpful FROM OrgReviewHelpful
          WHERE ReviewId = r.ReviewId AND UserId = p_CurrentUserId LIMIT 1) AS CurrentUserVote,
         -- Is the current user the review author?
-        IF(r.UserId = p_CurrentUserId, 1, 0)    AS IsOwnReview,
+        IF(r.UserId = p_CurrentUserId, 1, 0)                                           AS IsOwnReview,
+        -- CanDelete = own review AND submitted within the last 30 days
+        IF(r.UserId = p_CurrentUserId AND DATEDIFF(NOW(), r.CreatedAt) <= 30, 1, 0)   AS CanDelete,
         -- NGO response (if any)
         resp.ResponseText,
         resp.CreatedAt                          AS ResponseCreatedAt,
@@ -11944,6 +11984,8 @@ BEGIN
       AND r.IsApproved = 1
       AND r.IsDeleted  = 0
     ORDER BY
+        -- Own review always pinned first so the user immediately sees their own review
+        (r.UserId = p_CurrentUserId)             DESC,
         CASE WHEN p_Sort = 'RECENT'  THEN r.CreatedAt     END DESC,
         CASE WHEN p_Sort = 'HELPFUL' THEN r.HelpfulCount  END DESC,
         CASE WHEN p_Sort = 'HIGHEST' THEN r.OverallRating END DESC,
@@ -12034,15 +12076,19 @@ BEGIN
     DECLARE v_OverallRating  TINYINT      DEFAULT 0;
     DECLARE v_AuthorName     VARCHAR(200) DEFAULT '';
     DECLARE v_OrgName        VARCHAR(200) DEFAULT '';
+    DECLARE v_DaysOld        INT          DEFAULT 0;
 
-    SELECT OrgId, UserId, OverallRating
-    INTO   v_OrgId, v_ReviewerUserId, v_OverallRating
+    SELECT OrgId, UserId, OverallRating, DATEDIFF(NOW(), CreatedAt)
+    INTO   v_OrgId, v_ReviewerUserId, v_OverallRating, v_DaysOld
     FROM   OrgReviews
     WHERE  ReviewId = p_ReviewId AND UserId = p_UserId AND IsDeleted = 0
     LIMIT  1;
 
     IF v_OrgId IS NULL THEN
         SELECT 0 AS IsSuccess, 'Review not found or you are not the author.' AS Message,
+               NULL AS ReviewerUserId, NULL AS AuthorName, NULL AS OverallRating, NULL AS OrgName, NULL AS OrgId;
+    ELSEIF v_DaysOld > 30 THEN
+        SELECT 0 AS IsSuccess, 'Reviews can only be deleted within 30 days of posting.' AS Message,
                NULL AS ReviewerUserId, NULL AS AuthorName, NULL AS OverallRating, NULL AS OrgName, NULL AS OrgId;
     ELSE
         -- Fetch author name + org name for notification

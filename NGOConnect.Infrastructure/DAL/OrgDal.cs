@@ -239,8 +239,9 @@ namespace NGOConnect.Infrastructure.DAL
                     {
                         OrgId       = Col<int>(r,      "OrgId"),
                         OrgName     = Col<string>(r,   "OrgName")   ?? string.Empty,
-                        Category    = Col<string>(r,   "Category"),
-                        LogoUrl     = Col<string>(r,   "LogoUrl"),
+                        Category     = Col<string>(r,   "Category"),
+                        CategoryName = Col<string>(r,   "CategoryName"),
+                        LogoUrl      = Col<string>(r,   "LogoUrl"),
                         City        = Col<string>(r,   "City"),
                         State       = Col<string>(r,   "State"),
                         MemberCount = Col<int>(r,      "MemberCount"),
@@ -569,8 +570,9 @@ namespace NGOConnect.Infrastructure.DAL
         {
             OrgId       = Col<int>(r,     "OrgId"),
             OrgName     = Col<string>(r,  "OrgName")   ?? string.Empty,
-            Category    = Col<string>(r,  "Category"),
-            LogoUrl     = Col<string>(r,  "LogoUrl"),
+            Category     = Col<string>(r,  "Category"),
+            CategoryName = Col<string>(r,  "CategoryName"),
+            LogoUrl      = Col<string>(r,  "LogoUrl"),
             City        = Col<string>(r,  "City"),
             State       = Col<string>(r,  "State"),
             MemberCount = Col<int>(r,     "MemberCount"),

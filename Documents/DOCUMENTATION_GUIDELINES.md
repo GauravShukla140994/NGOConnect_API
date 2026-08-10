@@ -469,6 +469,22 @@ When there is a conflict between files, this priority order applies:
 - **Database Documentation**: Update `Post_Report` SP result columns (add ReportCount, PostAuthorUserId, OrgId).
 - **API Documentation**: No endpoint change — internal DAL behaviour only.
 
+**Review Notifications + Own-Review Pinning + 30-Day Delete Window (2026-08-09)**
+- `NGOConnect_Complete_Setup_v5.0.sql` → `OrgReview_Add`: success branch now returns `ReviewId`, `ReviewerUserId`, `AuthorName`, `OrgName` — used by DAL to fire `REVIEW_NEW` fan-out to org admins.
+- `NGOConnect_Complete_Setup_v5.0.sql` → `OrgReview_Delete`: added `DECLARE v_DaysOld INT DEFAULT 0`; `DATEDIFF(NOW(), CreatedAt)` captured at SELECT; new `ELSEIF v_DaysOld > 30` guard returns IsSuccess=0 + "Reviews can only be deleted within 30 days of posting." (no notifications fired). Success branch returns `ReviewerUserId`, `AuthorName`, `OverallRating`, `OrgName`, `OrgId` for `REVIEW_DELETED` fan-out.
+- `NGOConnect_Complete_Setup_v5.0.sql` → `OrgReview_AddResponse`: success branch returns `ReviewerUserId`, `OrgName` for `REVIEW_RESPONSE` push.
+- `NGOConnect_Complete_Setup_v5.0.sql` → `OrgReview_GetList`: `ORDER BY` updated — `(r.UserId = p_CurrentUserId) DESC` as first key (own review always pinned to top); added `CanDelete` column: `IF(r.UserId = p_CurrentUserId AND DATEDIFF(NOW(), r.CreatedAt) <= 30, 1, 0)`.
+- `NGOConnect_Complete_Setup_v5.0.sql` → LookupValues: 3 new notification type seeds — `REVIEW_NEW` (9), `REVIEW_RESPONSE` (10), `REVIEW_DELETED` (11) under `NOTIFICATION_TYPE`.
+- `NGOConnect.Infrastructure/DAL/OrgReviewDal.cs`: fully rewritten — constructor injects `INotificationDal` + `IFCMService`; `AddAsync` fires fire-and-forget `REVIEW_NEW` to all org admins; `DeleteAsync` fires `REVIEW_DELETED` to all org admins; `AddResponseAsync` fires `REVIEW_RESPONSE` to reviewer.
+- `App/NGOConnectApp/src/api/review.api.ts` → `ReviewItem`: added `canDelete: 1 | 0` field.
+- `App/NGOConnectApp/src/screens/ngo/ReviewCard.tsx`: delete button now uses `review.canDelete === 1` (was `review.isOwnReview === 1`) — button shown for own reviews but dimmed (`opacity: 0.35`, `onPress: undefined`) when `canDelete === 0` (past 30-day window).
+- `App/NGOConnectApp/src/screens/home/NotificationsScreen.tsx`: added `REVIEW_NEW` (⭐), `REVIEW_RESPONSE` (💬), `REVIEW_DELETED` (🗑️) to `notifMeta()` and `resolveScreen()` (deep-links to NgoProfile Reviews tab).
+- `App/NGOConnectApp/src/screens/ngo/NgoProfileScreen.tsx`: reads `initialTab` from route params; validates against `TABS` array; `useState<Tab>(initialTab)` — enables deep-link from notification tap directly to Reviews tab.
+- Patch file: `Documents/patch_review_notifications.sql` — contains all 4 SP changes + 3 LookupValue inserts + SchemaVersions `v5.2` entry.
+- **Apply to Railway**: Run `patch_review_notifications.sql` on local DB first, then Railway staging.
+- **Database Documentation**: Update `OrgReview_Add`, `OrgReview_Delete`, `OrgReview_AddResponse`, `OrgReview_GetList` SP descriptions — new result columns, 30-day guard, CanDelete column, ORDER BY change.
+- **API Documentation**: No endpoint signature changes — internal DAL behaviour only.
+
 **v5.0 Release Summary (2026-08-05)**
 All 4 documents bumped from v4.9 → v5.0. All Railway staging patches through 2026-08-05 absorbed. Documents:
 - `NGOConnect_Complete_Setup_v5.0.sql` — ✅ Created (all SPs and tables current)
@@ -1534,3 +1550,58 @@ Documents to update when "update documents" is called:
 - `Database_Documentation_v5.0.md` → NOTIFICATION_TYPE LookupValues: add REVIEW_NEW, REVIEW_RESPONSE, REVIEW_DELETED; document updated SP return columns for OrgReview_Add, OrgReview_Delete, OrgReview_AddResponse
 - `API_Documentation_v5.0.docx` → OrgReviews section: note FCM notifications sent for add/delete/response; document notifType values
 - `NGOConnect_Postman_Collection_v5.0.json` → no new endpoints (notifications are internal)
+
+**OrgReview_GetList — own review pinned to top (2026-08-09)**
+
+DB change:
+- `NGOConnect_Complete_Setup_v5.0.sql` + `patch_review_notifications.sql`:
+  - `OrgReview_GetList` ORDER BY: added `(r.UserId = p_CurrentUserId) DESC` as the first sort key — own review always appears at position 1 on page 1, regardless of selected sort order (RECENT / HELPFUL / HIGHEST / LOWEST)
+
+Documents to update when "update documents" is called:
+- `Database_Documentation_v5.0.md` → `OrgReview_GetList` SP: note that own review is always pinned first
+
+**Post ViewCount tracking (2026-08-09)**
+- `NGOConnect_Complete_Setup_v5.0.sql` → `Posts` table: added `ViewCount INT UNSIGNED NOT NULL DEFAULT 0` column (after SaveCount).
+- `NGOConnect_Complete_Setup_v5.0.sql` → `Feed_BulkMarkViewed` SP rewritten:
+  - Uses temp table `_tmp_new_views` to find posts NOT yet viewed by this user (NOT EXISTS check on FeedInteractions).
+  - Inserts only new VIEW rows (deduplication — one unique view per user per post).
+  - `UPDATE Posts SET ViewCount = ViewCount + 1` for newly inserted rows only.
+  - Old behaviour: INSERT IGNORE with no deduplication and no ViewCount update.
+- `App/NGOConnectApp/src/components/home/FeedShortsModal.tsx`:
+  - Added `viewedBuffer` (Set<number> ref) and `dwellTimer` ref.
+  - When `activePost` changes, starts 1.5 s dwell timer; commits postId to buffer only if user stays ≥ 1.5 s.
+  - Buffer auto-flushes at 10 items or on modal close → calls existing `feedApi.markPostsViewed` (fire-and-forget).
+  - HomeScreen's existing 10 s interval flush already covers card-feed view tracking.
+- Patch file: `Documents/patch_view_count.sql` (ALTER TABLE + backfill UPDATE + new SP DROP+CREATE).
+- **Apply to Railway**: Run `patch_view_count.sql` on local → Railway staging → production. No C# backend change needed (existing `/feed/viewed` endpoint unchanged).
+- **Database Documentation**: Add `ViewCount` to Posts table description; update `Feed_BulkMarkViewed` SP description (deduplication + ViewCount increment).
+
+**Post_GetPermissions — CanComment default fix (2026-08-10)**
+- Bug: `DECLARE v_CanComment TINYINT(1) DEFAULT 0` caused the SP to return `CanComment=0` for any user who is NOT an approved member of the org that authored the post (SELECT INTO finds no row → variable stays at default). This blocked commenting on all public posts for non-members.
+- Fix: Changed default to `1`. Non-members have no per-member commenting restriction; the flag only takes effect when the user IS an approved member and an admin has explicitly set `OrgMembers.CanComment = 0`.
+- `NGOConnect_Complete_Setup_v5.0.sql` → `Post_GetPermissions`: `DECLARE v_CanComment TINYINT(1) DEFAULT 0` → `DEFAULT 1`.
+- Patch file: `Documents/patch_fix_comment_permission.sql`
+- No C# / mobile changes needed — SP output is the source of truth.
+- **Database Documentation**: Update `Post_GetPermissions` SP description — note that `CanComment` defaults to 1 (non-members allowed).
+
+**Org category showing ValueCode instead of ValueName (2026-08-10)**
+- Bug: `Organisations.Category` stores the `ORG_CATEGORY` ValueCode (e.g. `"WOMEN_EMP"`) because `CreateOrgScreen.tsx` sends `categories.find(...)?.valueCode` when registering/updating an org. Three read SPs returned `o.Category` as-is — no JOIN to LookupValues — so the mobile displayed the raw code instead of "Women Empowerment". It appeared intermittent because codes like "EDUCATION" look readable while "WOMEN_EMP", "ANIMAL_WELFARE" do not.
+- Mobile already has `categoryName ?? category` fallback in both `ExploreScreen.tsx` and `NgoProfileScreen.tsx` — no mobile change needed.
+- Fix (SP-only): added `LEFT JOIN LookupValues cv ON cv.ValueCode = o.Category AND cv.LookupTypeId = v_OrgCatTypeId` + `COALESCE(cv.ValueName, o.Category) AS CategoryName` to three SPs:
+  - `Org_List` (Explore tab) — also added `DECLARE v_OrgCatTypeId`
+  - `Org_GetProfile` (NgoProfileScreen — DROP+CREATE version)
+  - `Org_ListRecommended` (Home recommendations) — also added `DECLARE v_OrgCatTypeId`; updated `GROUP BY` to include `cv.ValueName`
+- `NGOConnect_Complete_Setup_v5.0.sql` → all three SPs updated.
+- NEW patch file: `Documents/patch_org_category_name.sql` — all three DROP+CREATEs for Railway.
+- **Apply to Railway**: Run `patch_org_category_name.sql` on local → Railway staging → production.
+- **Database Documentation**: Update `Org_List`, `Org_GetProfile`, `Org_ListRecommended` SP descriptions — note new `CategoryName` output column.
+
+**SOS_RESPONDER_INCOMING mobile notification fix (2026-08-10)**
+- Bug: When a responder tapped "I Can Assist" from the Community SOS history, the backend correctly sent FCM + DB notification to the SOS victim (`FireUserNotifAsync` via `Sos_Respond` SP's `VictimUserId`). Three mobile-side gaps prevented the victim from acting on it:
+  1. `SOS_RESPONDER_INCOMING` was missing from `SOS_NOTIF_TYPES` in `RootNavigator.tsx` → notification was delivered on the default (silent) channel instead of the urgent alarm channel (`ripplehub_sos`) — victim had no alarm sound/vibration to prompt them.
+  2. `RootNavigator.resolveScreen` routed `SOS_RESPONDER_INCOMING` to `SosActive` but did NOT pass `isVictim: true` → victim landed on the screen without Approve/Decline buttons (those are gated on `isVictimParam ?? false`).
+  3. `NotificationsScreen.tsx` had no case for `SOS_RESPONDER_INCOMING` in either `notifMeta()` (showed generic 🔔 icon) or `resolveScreen()` (tapping notification in the list did nothing).
+- Fixes (mobile only — no backend/SP/DB change):
+  - `App/NGOConnectApp/src/navigation/RootNavigator.tsx`: added `SOS_RESPONDER_INCOMING` to `SOS_NOTIF_TYPES`; split `SOS_RESPONDER_INCOMING` into its own `resolveScreen` case passing `{ sosIncidentId: refId, isVictim: true }`.
+  - `App/NGOConnectApp/src/screens/home/NotificationsScreen.tsx`: added `SOS_RESPONDER_INCOMING` → `{ emoji: '🙋', color: '#F97316' }` in `notifMeta()`; added `SOS_RESPONDER_INCOMING` → `{ screen: 'SosActive', params: { sosIncidentId: refId, isVictim: true } }` in `resolveScreen()`.
+- No documentation updates needed (mobile-only fix; no API or DB surface changed).
