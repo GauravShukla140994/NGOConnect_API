@@ -869,12 +869,12 @@ namespace NGOConnect.Infrastructure.DAL
                 {
                     _db.AddParameter(cmd, "p_UserId", userId);
                 });
-                return ApiResponse<List<DynamicRow>>.Ok(list, "Success.");
+                return ApiResponse<List<DynamicRow>>.Success(list);
             }
             catch (Exception ex)
             {
                 Log.Error(ex, "GetFollowedOrgsAsync failed UserId={UserId}", userId);
-                return ApiResponse<List<DynamicRow>>.Fail("An error occurred.", "INTERNAL_ERROR");
+                return ApiResponse<List<DynamicRow>>.Failure("An error occurred.", "INTERNAL_ERROR");
             }
         }
 
