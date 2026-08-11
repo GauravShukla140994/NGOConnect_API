@@ -1217,7 +1217,8 @@ SELECT LookupTypeId, 'COMMUNITY', 'Community Service', 6, 1, 1 FROM LookupTypes 
 SELECT LookupTypeId, 'DISASTER', 'Disaster Relief', 7, 1, 1 FROM LookupTypes WHERE TypeCode = 'ORG_CATEGORY' UNION ALL
 SELECT LookupTypeId, 'RURAL_DEV', 'Rural Development', 8, 1, 1 FROM LookupTypes WHERE TypeCode = 'ORG_CATEGORY' UNION ALL
 SELECT LookupTypeId, 'CHILD_WELFARE', 'Child Welfare', 9, 1, 1 FROM LookupTypes WHERE TypeCode = 'ORG_CATEGORY' UNION ALL
-SELECT LookupTypeId, 'SENIOR', 'Senior Citizens', 10, 1, 1 FROM LookupTypes WHERE TypeCode = 'ORG_CATEGORY';
+SELECT LookupTypeId, 'SENIOR', 'Senior Citizens', 10, 1, 1 FROM LookupTypes WHERE TypeCode = 'ORG_CATEGORY' UNION ALL
+SELECT LookupTypeId, 'ARTS_CULTURE', 'Arts & Culture', 11, 1, 1 FROM LookupTypes WHERE TypeCode = 'ORG_CATEGORY';
 
 -- ORG_STATUS
 INSERT INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue, CreatedBy)
@@ -3050,6 +3051,7 @@ BEGIN
         p.Latitude, p.Longitude, p.GoogleMapsUrl,
         p.MaxVolunteers, p.IsPublic,
         p.AgeRestriction, p.IdVerRequired, p.MinReliability,
+        IF(jtv.ValueCode = 'APPROVE_REQ', 1, 0) AS RequiresApproval,
         jtv.ValueCode AS JoinTypeCode, jtv.ValueName AS JoinType,
         sv.ValueCode AS StatusCode, sv.ValueName AS Status,
         p.ImpactSummary, p.BeneficiaryCount,
@@ -7632,19 +7634,28 @@ BEGIN
         CASE WHEN COALESCE((SELECT COUNT(*) FROM PostReports pr
                             WHERE pr.PostId = p.PostId
                               AND (v_PendingReportLkpId IS NULL OR pr.StatusLkpId = v_PendingReportLkpId)
-        ), 0) > 0 THEN 'REPORTED' ELSE 'PUBLISHED' END AS StatusCode
+        ), 0) > 0 THEN 'REPORTED' ELSE 'PUBLISHED' END AS StatusCode,
+        GROUP_CONCAT(pm.FileUrl      ORDER BY pm.SortOrder SEPARATOR ',') AS MediaUrls,
+        GROUP_CONCAT(lv_mt.ValueCode ORDER BY pm.SortOrder SEPARATOR ',') AS MediaTypes
     FROM Posts p
     JOIN UserProfiles up ON p.UserId = up.UserId AND up.IsDeleted = 0
-    LEFT JOIN OrgMembers   om ON p.UserId = om.UserId AND om.OrgId = p_OrgId AND om.IsDeleted = 0
-    LEFT JOIN LookupValues rv ON om.RoleLkpId = rv.LookupValueId
+    LEFT JOIN OrgMembers   om    ON p.UserId = om.UserId AND om.OrgId = p_OrgId AND om.IsDeleted = 0
+    LEFT JOIN LookupValues rv    ON om.RoleLkpId = rv.LookupValueId
+    LEFT JOIN PostMedia     pm   ON pm.PostId = p.PostId
+    LEFT JOIN LookupValues  lv_mt ON lv_mt.LookupValueId = pm.MediaTypeLkpId
     WHERE p.OrgId = p_OrgId AND p.IsDeleted = 0
+    GROUP BY
+        p.PostId, p.UserId, up.FirstName, up.LastName, up.ProfilePhoto,
+        rv.ValueCode, rv.ValueName, p.Content, p.LikeCount, p.CommentCount,
+        p.IsPinned, p.CreatedAt
     ORDER BY p.IsPinned DESC, p.CreatedAt DESC;
 END //
 
 
 -- ── 3.11 Org_PinPost ────────────────────────────────────────────────────────
--- NEW SP — toggle IsPinned on a feed post (admin action)
--- (Source: NGOConnect_Patch_AdminPostsSP.sql)
+-- Toggle IsPinned on a CommunityPost (admin action from Admin Community tab).
+-- Bug fix: was incorrectly querying the Posts (feed) table; corrected to CommunityPosts.
+-- CommunityPosts has no PinnedAt/PinnedBy columns — only IsPinned + UpdatedBy/UpdatedAt.
 DROP PROCEDURE IF EXISTS Org_PinPost //
 CREATE PROCEDURE Org_PinPost(
     IN p_PostId   INT UNSIGNED,
@@ -7653,18 +7664,16 @@ CREATE PROCEDURE Org_PinPost(
 )
 BEGIN
     DECLARE v_Current TINYINT(1);
-    SELECT IsPinned INTO v_Current FROM Posts
-    WHERE PostId = p_PostId AND OrgId = p_OrgId AND IsDeleted = 0 LIMIT 1;
+    SELECT IsPinned INTO v_Current FROM CommunityPosts
+    WHERE CommunityPostId = p_PostId AND OrgId = p_OrgId AND IsDeleted = 0 LIMIT 1;
 
     IF v_Current IS NULL THEN
         SELECT 0 AS IsSuccess, 'Post not found.' AS Message;
     ELSE
-        UPDATE Posts
+        UPDATE CommunityPosts
         SET IsPinned  = NOT v_Current,
-            PinnedAt  = CASE WHEN NOT v_Current = 1 THEN NOW() ELSE NULL END,
-            PinnedBy  = CASE WHEN NOT v_Current = 1 THEN p_PinnedBy ELSE NULL END,
             UpdatedBy = p_PinnedBy
-        WHERE PostId = p_PostId AND OrgId = p_OrgId;
+        WHERE CommunityPostId = p_PostId AND OrgId = p_OrgId;
 
         SELECT 1 AS IsSuccess,
                CASE WHEN NOT v_Current = 1 THEN 'Post pinned.' ELSE 'Post unpinned.' END AS Message;
@@ -8047,7 +8056,48 @@ BEGIN
 END //
 
 
--- ── 3.20 Org_GetVolunteerProfile ────────────────────────────────────────────
+-- ── 3.20 Org_GetFollowedByUser ──────────────────────────────────────────────
+-- Returns orgs the user actively follows (IsFollowing=1) where they are NOT
+-- already an approved member — those already show in the Linked section.
+DROP PROCEDURE IF EXISTS Org_GetFollowedByUser //
+CREATE PROCEDURE Org_GetFollowedByUser(IN p_UserId INT UNSIGNED)
+BEGIN
+    SELECT
+        o.OrgId,
+        o.OrgName,
+        o.LogoUrl,
+        o.City,
+        o.State,
+        o.FollowerCount,
+        IFNULL((
+            SELECT COUNT(*) FROM OrgMembers om2
+            JOIN  LookupValues lv2 ON om2.StatusLkpId  = lv2.LookupValueId
+            JOIN  LookupTypes  lt2 ON lv2.LookupTypeId = lt2.LookupTypeId
+            WHERE om2.OrgId    = o.OrgId
+              AND om2.IsDeleted = 0
+              AND lt2.TypeCode  = 'MEMBER_STATUS'
+              AND lv2.ValueCode = 'APPROVED'
+        ), 0) AS MemberCount,
+        f.FollowedAt
+    FROM OrgFollowers f
+    JOIN Organisations o ON f.OrgId = o.OrgId AND o.IsDeleted = 0
+    WHERE f.UserId      = p_UserId
+      AND f.IsFollowing = 1
+      -- Exclude orgs where the user is already an active member
+      AND NOT EXISTS (
+          SELECT 1 FROM OrgMembers om
+          JOIN  LookupValues ms ON om.StatusLkpId  = ms.LookupValueId
+          JOIN  LookupTypes  mt ON ms.LookupTypeId = mt.LookupTypeId
+          WHERE om.OrgId    = o.OrgId
+            AND om.UserId   = p_UserId
+            AND om.IsDeleted = 0
+            AND mt.TypeCode  = 'MEMBER_STATUS'
+            AND ms.ValueCode = 'APPROVED'
+      )
+    ORDER BY f.FollowedAt DESC;
+END //
+
+-- ── 3.21 Org_GetVolunteerProfile ────────────────────────────────────────────
 -- Updated: adds Bio, VolunteerExp, State, membership request fields
 -- NOTE: The impact stats sub-queries in this SP reference pa.AttendanceStatus
 -- (a column that does not exist) and pa.ProjectId (ProjectAttendance has no

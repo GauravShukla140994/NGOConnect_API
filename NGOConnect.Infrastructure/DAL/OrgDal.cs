@@ -861,6 +861,23 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
+        public async Task<ApiResponse<List<DynamicRow>>> GetFollowedOrgsAsync(int userId)
+        {
+            try
+            {
+                var list = await ExecuteDynamicListAsync("Org_GetFollowedByUser", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_UserId", userId);
+                });
+                return ApiResponse<List<DynamicRow>>.Ok(list, "Success.");
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetFollowedOrgsAsync failed UserId={UserId}", userId);
+                return ApiResponse<List<DynamicRow>>.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
         public async Task<ApiResponse<List<DynamicRow>>> GetDocumentsAsync(int orgId)
         {
             try

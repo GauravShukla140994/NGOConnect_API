@@ -45,6 +45,7 @@ namespace NGOConnect.Core.Interfaces
         // ── Follow / Unfollow ───────────────────────────────────────────────────────
         Task<ApiResponse>                                  FollowOrgAsync(int orgId, int userId);
         Task<ApiResponse>                                  UnfollowOrgAsync(int orgId, int userId);
+        Task<ApiResponse<List<DynamicRow>>>                GetFollowedOrgsAsync(int userId);
         // ── Documents ───────────────────────────────────────────────────────────
         Task<ApiResponse<List<DynamicRow>>>                GetDocumentsAsync(int orgId);
         Task<ApiResponse>                                  UploadDocumentAsync(int orgId, int userId, UploadOrgDocumentRequest request);

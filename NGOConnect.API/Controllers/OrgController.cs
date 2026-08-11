@@ -153,6 +153,11 @@ namespace NGOConnect.API.Controllers
         // ── Follow / Unfollow ─────────────────────────────────────────────────────
         // POST  /org/{orgId}/follow — follow or re-follow an NGO
         // DELETE /org/{orgId}/follow — soft-unfollow (keeps row in OrgFollowers)
+        // GET /org/following — orgs the current user follows but is not a member of
+        [HttpGet("following")] [Authorize]
+        public async Task<ApiResponse<List<DynamicRow>>> GetFollowedOrgs()
+            => await _org.GetFollowedOrgsAsync(GetUserId());
+
         [HttpPost("{orgId:int}/follow")] [Authorize]
         public async Task<ApiResponse> FollowOrg(int orgId)
             => await _org.FollowOrgAsync(orgId, GetUserId());

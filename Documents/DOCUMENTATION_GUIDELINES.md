@@ -1621,3 +1621,77 @@ Documents to update when "update documents" is called:
 - **Apply to Railway**: Run `patch_sos_visibility_fanout.sql` on local → Railway staging → production.
 - **Database Documentation**: Add `Notification_GetSosMemberTokens` SP with parameters and visibility logic.
 - **API Documentation**: No endpoint change — internal fan-out logic only.
+
+**Org_PinPost SP — wrong table (2026-08-10)**
+- Bug: `Org_PinPost` SP was querying `Posts` (feed posts) with `PostId`. Admin Community tab sends `CommunityPostId` from `CommunityPosts` — a completely different table with a different PK. SP always returned "Post not found."
+- Fix (SP-only — no C#/mobile change):
+  - `SELECT IsPinned ... FROM CommunityPosts WHERE CommunityPostId = p_PostId ...`
+  - `UPDATE CommunityPosts SET IsPinned = NOT v_Current, UpdatedBy = p_PinnedBy WHERE CommunityPostId = p_PostId ...`
+  - Removed `PinnedAt`/`PinnedBy` from UPDATE — `CommunityPosts` table has neither column (only `IsPinned` + `UpdatedBy`/`UpdatedAt`).
+- `NGOConnect_Complete_Setup_v5.0.sql` → `Org_PinPost` SP corrected.
+- Patch file: `Documents/patch_org_pinpost_community.sql`
+- **Apply to Railway**: Run `patch_org_pinpost_community.sql` on local → Railway staging → production.
+- **Database Documentation**: Update `Org_PinPost` SP description — note it operates on `CommunityPosts`, not `Posts`.
+
+**Admin posts — full content display + media thumbnails (2026-08-10)**
+- Bug 1: `AdminCommunityScreen.tsx` `CommunityCard` had `numberOfLines={5}` on `postContent` — long community post content was clipped after 5 lines.
+- Bug 2: `AdminVolunteersScreen.tsx` `PostCard` had `numberOfLines={3}` on `postContent` — long feed post content was clipped after 3 lines.
+- Bug 3: `AdminVolunteersScreen.tsx` Posts tab showed no media (images/videos) attached to feed posts. `Org_GetAdminPosts` SP did not join `PostMedia`.
+- Fixes:
+  - `AdminCommunityScreen.tsx`: removed `numberOfLines={5}` → full content always visible. (Community posts have no media table; no MediaPreviewModal needed.)
+  - `AdminVolunteersScreen.tsx`:
+    - Removed `numberOfLines={3}` from `PostCard`.
+    - Added `Image` to RN imports; added `MediaPreviewModal` import.
+    - `PostCard` now normalises `mediaUrls` (CSV → string[]), renders a horizontal thumbnail strip (90×90, tap-to-fullscreen), and mounts `MediaPreviewModal` per card.
+    - Added `mediaThumbnail`, `videoPlayOverlay`, `videoPlayIcon` to StyleSheet.
+  - `api.types.ts` `AdminPost` interface: added `mediaUrls?: string[] | string` and `mediaTypes?: string`.
+  - `Org_GetAdminPosts` SP: added `LEFT JOIN PostMedia pm` + `LEFT JOIN LookupValues lv_mt` + `GROUP BY` + `GROUP_CONCAT(pm.FileUrl ... ) AS MediaUrls` + `GROUP_CONCAT(lv_mt.ValueCode ... ) AS MediaTypes`.
+  - `NGOConnect_Complete_Setup_v5.0.sql` → SP updated.
+- Patch file: `Documents/patch_admin_posts_media.sql`
+- **Apply to Railway**: Run `patch_admin_posts_media.sql` on local → Railway staging → production.
+- **Database Documentation**: Update `Org_GetAdminPosts` SP description — note new `MediaUrls` and `MediaTypes` output columns.
+
+**Explore tab — missing category filter chips (2026-08-10)**
+- Bug: `ExploreScreen.tsx` had a hardcoded `CATEGORIES` array with only 7 entries. Five DB-backed categories were absent from the filter chips: `WOMEN_EMP` (Women Empowerment), `RURAL_DEV` (Rural Development), `CHILD_WELFARE` (Child Welfare), `SENIOR` (Elderly Care), and `ARTS_CULTURE` (Arts & Culture). Additionally, `WELFARE` was present in the array but has no matching `ValueCode` in `ORG_CATEGORY` — the chip matched no NGOs.
+- `ARTS_CULTURE` did not exist in `ORG_CATEGORY` LookupValues at all; the other four codes did.
+- Fixes:
+  - `App/NGOConnectApp/src/screens/ngo/ExploreScreen.tsx`: replaced hardcoded `CATEGORIES` with the complete 12-entry list matching all `ORG_CATEGORY` LookupValues. Removed `WELFARE`. Added `WOMEN_EMP`, `DISASTER`, `RURAL_DEV`, `CHILD_WELFARE`, `SENIOR` (labelled "Elderly Care"), `ARTS_CULTURE` (labelled "Arts & Culture").
+  - `Documents/NGOConnect_Complete_Setup_v5.0.sql`: added `ARTS_CULTURE` / 'Arts & Culture' / OrderNo 11 to the `ORG_CATEGORY` seed INSERT.
+- Patch file: `Documents/patch_org_category_arts_culture.sql`
+- **Apply to Railway**: Run `patch_org_category_arts_culture.sql` on local → Railway staging → production.
+- **Database Documentation**: Add `ARTS_CULTURE` to `ORG_CATEGORY` LookupValues table.
+
+**Explore category filter — "No NGOs found" for all categories (data fix) (2026-08-11)**
+- Bug: Selecting any category chip on the Explore All NGOs tab returned 0 results, despite NGOs existing for those categories.
+- Root cause: `TestSeed_ExploreNGOs.sql` and `TestSeed_BulkData_v1.sql` inserted `Organisations.Category` using the display name (e.g. `'Animal Welfare'`, `'Education'`) instead of the `ValueCode` (`'ANIMAL_WELFARE'`, `'EDUCATION'`). The `Org_List` SP filter is `o.Category = p_Category` where `p_Category` is the ValueCode sent by the mobile. Exact string mismatch → 0 rows for every category chip. NGOs registered via the app (CreateOrgScreen) were unaffected — the form sends `cat.valueCode` correctly.
+- Fix: **data-only** — no SP/C#/mobile change needed.
+  - `Documents/patch_fix_org_category_codes.sql` (NEW): Step 1 — `UPDATE Organisations JOIN LookupValues ON ValueName = Category ... SET Category = ValueCode` normalises all rows that stored a display name. Step 2 — explicit `UPDATE ... SET Category = 'COMMUNITY' WHERE Category = 'Community Dev'` covers the alias used in `TestSeed_ExploreNGOs.sql` (different from `'Community Service'` ValueName).
+- **Apply to Railway**: Run `patch_fix_org_category_codes.sql` on local → Railway staging → production.
+- No SP / API / document changes needed (the SP filter was always correct; only the data was wrong).
+
+**Edit project — "Required Approval for Attendance" toggle always OFF (2026-08-11)**
+- Bug: Admin Dashboard → Project → Manage → Edit → "Required Approval for Attendance" toggle rendered as disabled (OFF) even when the project had RequiresApproval = 1.
+- Root cause: `Project_GetById` SP did not SELECT `RequiresApproval`. The `DynamicRow` API response therefore never included the `requiresApproval` key. `CreateProjectScreen.tsx` prefill reads `p.requiresApproval ?? false` → `undefined ?? false` = `false` → toggle always OFF. `AgeRestriction` (the "18+ only" toggle) was returned correctly and was not affected.
+- Fix: Added `IF(jtv.ValueCode = 'APPROVE_REQ', 1, 0) AS RequiresApproval` to the `Project_GetById` SP SELECT. `jtv` (`LookupValues` alias for `JoinTypeLkpId`) was already LEFT JOINed — this is a zero-cost derived column identical to the pattern used in all `Project_List*` SPs. No DAL, C#, or mobile change needed; `DynamicRow` auto-camelCases the column name.
+- `NGOConnect_Complete_Setup_v5.0.sql` → `Project_GetById` SP updated.
+- Patch file: `Documents/patch_fix_project_requires_approval.sql`
+- **Apply to Railway**: Run `patch_fix_project_requires_approval.sql` on local → Railway staging → production.
+- **Database Documentation**: Update `Project_GetById` SP return columns — add `RequiresApproval` (derived: 1 if JoinType = APPROVE_REQ, else 0).
+
+**My Organizations — "Following" section for non-member followers (2026-08-11)**
+- Feature: Users who follow an NGO without being a member had no way to find or access those organizations from their own profile. Added a "Following" section to the My Organizations screen.
+- Section appears between "Linked Organizations" and "Pending Review" — only shown when the user has at least one followed org that they are not an active member of.
+- Stack:
+  - `Documents/NGOConnect_Complete_Setup_v5.0.sql` → new `Org_GetFollowedByUser` SP added (section 3.20; subsequent sections renumbered).
+  - `NGOConnect.Core/Interfaces/IOrgDal.cs` → added `GetFollowedOrgsAsync(int userId)`.
+  - `NGOConnect.Infrastructure/DAL/OrgDal.cs` → implemented `GetFollowedOrgsAsync` using `ExecuteDynamicListAsync("Org_GetFollowedByUser", ...)`.
+  - `NGOConnect.API/Controllers/OrgController.cs` → added `GET /org/following` endpoint (Authorize).
+  - `App/NGOConnectApp/src/api/org.api.ts` → added `getFollowedOrgs()` method + named export.
+  - `App/NGOConnectApp/src/screens/ngo/MyOrgsScreen.tsx`:
+    - Added `followedOrgs` state; `load()` now calls `getMyOrgs()` and `getFollowedOrgs()` in parallel via `Promise.all`. Following orgs failure is non-fatal.
+    - Added `FollowingOrgCard` component — shows logo/initials, org name, city/state, member + follower counts, and a blue "Following" pill.
+    - "Following" section renders between Linked Organizations and Pending Review, with a subtitle prompting the user to join as a member to participate.
+- Patch file: `Documents/patch_followed_orgs.sql`
+- **Apply to Railway**: Run `patch_followed_orgs.sql` on local → Railway staging → production.
+- **API Documentation**: Add `GET /org/following` — returns array of followed orgs (OrgId, OrgName, LogoUrl, City, State, MemberCount, FollowerCount, FollowedAt). Auth required.
+- **Database Documentation**: Add `Org_GetFollowedByUser` SP description.
