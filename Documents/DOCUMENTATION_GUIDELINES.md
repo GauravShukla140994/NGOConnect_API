@@ -495,6 +495,21 @@ When there is a conflict between files, this priority order applies:
 - **Database Documentation**: Update `OrgReview_Add`, `OrgReview_Delete`, `OrgReview_AddResponse`, `OrgReview_GetList` SP descriptions — new result columns, 30-day guard, CanDelete column, ORDER BY change.
 - **API Documentation**: No endpoint signature changes — internal DAL behaviour only.
 
+**All Opportunities — "Applied ✓" button for already-applied projects (2026-08-11)**
+- Root cause: `Project_List` SP had no `p_UserId` parameter and returned no `ApplicationStatusCode`, so the All Opportunities screen had no way to distinguish projects already applied to from new ones.
+- `NGOConnect_Complete_Setup_v5.0.sql` → `Project_List`: added `IN p_UserId INT UNSIGNED` (11th param). Added `ApplicationStatusCode` correlated subquery to SELECT (CASE-guarded: returns NULL when `p_UserId IS NULL OR p_UserId = 0`, so anonymous browse has zero extra cost). No other SP or table changes.
+- `NGOConnect.Core/Interfaces/IProjectDal.cs` → `ListAsync`: added `int userId = 0` trailing param.
+- `NGOConnect.Infrastructure/DAL/ProjectDal.cs` → `ListAsync`: passes `p_UserId` to SP (`DBNull.Value` when userId = 0).
+- `NGOConnect.API/Controllers/ProjectController.cs` → `List`: calls `GetUserId()` (already returns 0 for unauthenticated requests) and passes it as `userId` to `ListAsync`.
+- `App/NGOConnectApp/src/screens/volunteer/AllOpportunitiesScreen.tsx`:
+  - `OppCard` accepts new `applied: boolean` prop; renders green "✓ Applied" badge (non-tappable) instead of the Apply button when true.
+  - `appliedIds` Set state tracks projectIds applied to in the current session (optimistic update — button changes immediately on apply without waiting for a list refresh).
+  - `renderItem` sets `applied={appliedIds.has(item.projectId) || !!item.applicationStatusCode}` — covers both newly applied (local Set) and pre-existing applications (from API).
+  - `ApplyModal.onSuccess` callback adds the projectId to `appliedIds`.
+- Patch file: `Documents/patch_fix_applied_status.sql`
+- **Database Documentation**: Update `Project_List` SP — new `p_UserId` param, new `ApplicationStatusCode` column.
+- **API Documentation**: `GET /project/list` — new optional `userId` internal param (not a query param — extracted from JWT by controller); response items now include `applicationStatusCode` field.
+
 **v5.0 Release Summary (2026-08-05)**
 All 4 documents bumped from v4.9 → v5.0. All Railway staging patches through 2026-08-05 absorbed. Documents:
 - `NGOConnect_Complete_Setup_v5.0.sql` — ✅ Created (all SPs and tables current)

@@ -7166,6 +7166,8 @@ END //
 --           DRAFT, CANCELLED, COMPLETED from volunteer browse)
 -- Updated: adds p_Keyword for name/description search
 -- Updated: COUNT query now has same JOINs as main SELECT (was missing org JOIN)
+-- Updated: adds p_UserId (nullable); returns ApplicationStatusCode so AllOpportunities
+--          screen can show "Applied" state for projects already applied to
 DROP PROCEDURE IF EXISTS Project_List //
 CREATE PROCEDURE Project_List(
     IN p_OrgId      INT UNSIGNED,
@@ -7177,7 +7179,8 @@ CREATE PROCEDURE Project_List(
     IN p_PageNumber INT,
     IN p_PageSize   INT,
     IN p_UserLat    DECIMAL(10,7),
-    IN p_UserLon    DECIMAL(10,7)
+    IN p_UserLon    DECIMAL(10,7),
+    IN p_UserId     INT UNSIGNED
 )
 BEGIN
     DECLARE v_Offset             INT;
@@ -7255,6 +7258,13 @@ BEGIN
          WHERE pa2.ProjectId = p.ProjectId
            AND alv.ValueCode = 'APPROVED'
            AND pa2.IsDeleted = 0) AS ApprovedCount,
+        -- ApplicationStatusCode: non-null only when p_UserId provided and user has applied
+        CASE WHEN p_UserId IS NOT NULL AND p_UserId > 0 THEN
+            (SELECT lv2.ValueCode FROM ProjectApplications pa3
+             JOIN LookupValues lv2 ON pa3.StatusLkpId = lv2.LookupValueId
+             WHERE pa3.ProjectId = p.ProjectId AND pa3.UserId = p_UserId AND pa3.IsDeleted = 0
+             LIMIT 1)
+        ELSE NULL END AS ApplicationStatusCode,
         p.CreatedAt,
         CASE
             WHEN p_UserLat IS NOT NULL AND p_UserLon IS NOT NULL
@@ -7934,7 +7944,7 @@ BEGIN
         sv.ValueCode                                       AS StatusCode,
         sv.ValueName                                       AS StatusName,
         om.CanPost, om.CanComment, om.CanCommunityPost, om.MaxPostsPerDay,
-        CASE WHEN lsv.ValueCode IS NOT NULL AND lsv.ValueCode != 'DISABLED' THEN 1 ELSE 0 END AS LocationSharing,
+        CASE WHEN lsv.ValueCode = 'ALWAYS' OR lsv.ValueCode = 'DURING_SOS' THEN 1 ELSE 0 END AS LocationSharing,
         om.JoinedAt,
         u.IsActive,
         u.LastLoginAt                                      AS LastActiveAt,

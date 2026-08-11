@@ -149,7 +149,8 @@ namespace NGOConnect.Infrastructure.DAL
         public async Task<ApiResponse<PagedResult<DynamicRow>>> ListAsync(
             int pageNumber, int pageSize, int? orgId = null, string? category = null,
             string? city = null, string? statusCode = null, string? typeCode = null,
-            string? keyword = null, decimal? userLat = null, decimal? userLon = null)
+            string? keyword = null, decimal? userLat = null, decimal? userLon = null,
+            int userId = 0)
         {
             try
             {
@@ -165,6 +166,7 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_PageSize",   pageSize);
                     _db.AddParameter(cmd, "p_UserLat",    userLat);
                     _db.AddParameter(cmd, "p_UserLon",    userLon);
+                    _db.AddParameter(cmd, "p_UserId",     userId > 0 ? (object)userId : DBNull.Value);
                 });
                 return ApiResponse<PagedResult<DynamicRow>>.Success(paged);
             }

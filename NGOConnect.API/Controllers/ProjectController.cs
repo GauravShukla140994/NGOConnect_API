@@ -39,7 +39,7 @@ namespace NGOConnect.API.Controllers
             [FromQuery] int      pageSize   = 20,
             [FromQuery] decimal? userLat    = null,
             [FromQuery] decimal? userLon    = null)
-            => await _project.ListAsync(pageNumber, pageSize, orgId, category, city, statusCode, typeCode, keyword, userLat, userLon);
+            => await _project.ListAsync(pageNumber, pageSize, orgId, category, city, statusCode, typeCode, keyword, userLat, userLon, GetUserId());
 
         [HttpGet("nearby-feed")] [Authorize]
         public async Task<ApiResponse<PagedResult<DynamicRow>>> GetNearbyFeed(
