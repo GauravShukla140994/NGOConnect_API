@@ -352,6 +352,16 @@ When there is a conflict between files, this priority order applies:
 - `App/NGOConnectApp/src/screens/volunteer/MyProjectsScreen.tsx`: added `projectApi` import; added `handleSelfCheckIn(app)` handler (calls `projectApi.selfCheckIn`, shows Alert, refreshes list); passes `onSelfCheckIn` to `ProjectDetailModal`.
 - No documents to update.
 
+**Location Sharing toggle not saving — Admin Member Permissions (2026-08-11)**
+- Root cause (3 layers): (1) Mobile `saveAll()` omitted `locationSharing` from the API payload. (2) Backend model had `LocationSharingLkpId (int?)` — no JSON mapping from the mobile's boolean field, always deserialised as null. (3) SP used `COALESCE(p_LocationSharingLkpId, LocationSharingLkpId)` — null silently kept old value.
+- `NGOConnect_Complete_Setup_v5.0.sql` → `Org_UpdateMemberPermissions`: changed param `p_LocationSharingLkpId INT UNSIGNED` → `p_LocationSharing TINYINT(1)`. SP now declares `v_LocLkpId`, does a single `SELECT INTO` from `LookupValues` WHERE `ValueCode = IF(p_LocationSharing = 1, 'ALWAYS', 'NEVER')`, and uses `COALESCE(v_LocLkpId, LocationSharingLkpId)` in the UPDATE.
+- `NGOConnect.Core/Models/Org/OrgModels.cs` → `UpdateMemberPermissionsRequest`: replaced `int? LocationSharingLkpId` with `bool? LocationSharing`.
+- `NGOConnect.Infrastructure/DAL/OrgDal.cs` → `UpdateMemberPermissionsAsync`: param renamed `p_LocationSharing`; passes `1`/`0`/`DBNull.Value` from `request.LocationSharing`.
+- `App/NGOConnectApp/src/screens/admin/AdminVolunteersScreen.tsx` → `saveAll()`: added `locationSharing: locSharing` to the `updateMemberPermissions` call.
+- Patch file: `Documents/patch_fix_location_sharing.sql`
+- **Database Documentation**: Update `Org_UpdateMemberPermissions` SP — param change, LkpId resolution logic.
+- **API Documentation**: `PUT /org/{orgId}/members/{memberId}/permissions` — request field changed from `locationSharingLkpId: int` → `locationSharing: bool`.
+
 **Project expiry — timezone fix + time picker 24-hour fix (2026-08-07)**
 - Mobile-only, no SP/API/DB changes.
 - `App/NGOConnectApp/src/utils/dateUtils.ts` → `isProjectExpired`: `sessionEndTime` is stored in IST (not UTC); was using `Z` suffix (`new Date(\`..T..Z\`)`) which shifted the expiry 5.5 hours late. Changed to `+05:30` suffix (`new Date(\`..T..+05:30\`)`). Also corrected the JSDoc comment (removed "stored as UTC" — was wrong) and changed the default fallback from `'18:29:59'` (UTC 23:59 IST) to `'23:59:59'` (IST end of day directly).

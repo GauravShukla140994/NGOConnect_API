@@ -131,7 +131,7 @@ namespace NGOConnect.Core.Models.Org
         public bool? CanComment              { get; set; }
         public bool? CanCommunityPost        { get; set; }
         public int?  MaxPostsPerDay          { get; set; }
-        public int?  LocationSharingLkpId    { get; set; }
+        public bool? LocationSharing         { get; set; }
     }
 
     // ── Upload Org Document (v4.1) ──────────────────────────────────────────────

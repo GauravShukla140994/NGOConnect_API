@@ -2919,26 +2919,41 @@ BEGIN
 END //
 
 -- v4.0 NEW: Update per-member permissions + location sharing
+-- v5.1 FIX: p_LocationSharingLkpId → p_LocationSharing TINYINT(1); SP resolves LkpId internally
 CREATE PROCEDURE Org_UpdateMemberPermissions(
-    IN p_OrgMemberId         INT UNSIGNED,
-    IN p_OrgId               INT UNSIGNED,
-    IN p_UpdatedBy           INT UNSIGNED,
-    IN p_CanPost             TINYINT(1),
-    IN p_CanComment          TINYINT(1),
-    IN p_CanCommunityPost    TINYINT(1),
-    IN p_MaxPostsPerDay      TINYINT,
-    IN p_LocationSharingLkpId INT UNSIGNED
+    IN p_OrgMemberId      INT UNSIGNED,
+    IN p_OrgId            INT UNSIGNED,
+    IN p_UpdatedBy        INT UNSIGNED,
+    IN p_CanPost          TINYINT(1),
+    IN p_CanComment       TINYINT(1),
+    IN p_CanCommunityPost TINYINT(1),
+    IN p_MaxPostsPerDay   TINYINT,
+    IN p_LocationSharing  TINYINT(1)
 )
 BEGIN
+    DECLARE v_LocLkpId INT UNSIGNED DEFAULT NULL;
+
+    -- Resolve boolean → LookupValueId for LOCATION_SHARING (ALWAYS / NEVER)
+    IF p_LocationSharing IS NOT NULL THEN
+        SELECT lv.LookupValueId INTO v_LocLkpId
+        FROM   LookupValues lv
+        JOIN   LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
+        WHERE  lt.TypeCode   = 'LOCATION_SHARING'
+          AND  lv.ValueCode  = IF(p_LocationSharing = 1, 'ALWAYS', 'NEVER')
+        LIMIT 1;
+    END IF;
+
     UPDATE OrgMembers SET
-        CanPost              = COALESCE(p_CanPost, CanPost),
-        CanComment           = COALESCE(p_CanComment, CanComment),
+        CanPost              = COALESCE(p_CanPost,          CanPost),
+        CanComment           = COALESCE(p_CanComment,       CanComment),
         CanCommunityPost     = COALESCE(p_CanCommunityPost, CanCommunityPost),
-        MaxPostsPerDay       = COALESCE(p_MaxPostsPerDay, MaxPostsPerDay),
-        LocationSharingLkpId = COALESCE(p_LocationSharingLkpId, LocationSharingLkpId),
+        MaxPostsPerDay       = COALESCE(p_MaxPostsPerDay,   MaxPostsPerDay),
+        -- v_LocLkpId is NULL when p_LocationSharing was not sent → COALESCE keeps old value
+        LocationSharingLkpId = COALESCE(v_LocLkpId, LocationSharingLkpId),
         UpdatedBy            = p_UpdatedBy,
         UpdatedAt            = NOW()
     WHERE OrgMemberId = p_OrgMemberId AND OrgId = p_OrgId AND IsDeleted = 0;
+
     SELECT 1 AS IsSuccess, 'Permissions updated.' AS Message;
 END //
 

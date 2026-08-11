@@ -740,8 +740,8 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_CanPost",              request.CanPost);
                     _db.AddParameter(cmd, "p_CanComment",           request.CanComment);
                     _db.AddParameter(cmd, "p_CanCommunityPost",     request.CanCommunityPost);
-                    _db.AddParameter(cmd, "p_MaxPostsPerDay",       request.MaxPostsPerDay);
-                    _db.AddParameter(cmd, "p_LocationSharingLkpId", request.LocationSharingLkpId);
+                    _db.AddParameter(cmd, "p_MaxPostsPerDay",   request.MaxPostsPerDay);
+                    _db.AddParameter(cmd, "p_LocationSharing", request.LocationSharing.HasValue ? (object)(request.LocationSharing.Value ? 1 : 0) : DBNull.Value);
                 });
                 return result.ToApiResponse();
             }
