@@ -1720,3 +1720,55 @@ Documents to update when "update documents" is called:
 - **Apply to Railway**: Run `patch_followed_orgs.sql` on local → Railway staging → production.
 - **API Documentation**: Add `GET /org/following` — returns array of followed orgs (OrgId, OrgName, LogoUrl, City, State, MemberCount, FollowerCount, FollowedAt). Auth required.
 - **Database Documentation**: Add `Org_GetFollowedByUser` SP description.
+
+**All Opportunities — "Apply" button stays after applying (2026-08-11)**
+- Bug: After a volunteer submitted an application, the "Apply" button on the All Opportunities screen did not change state — it remained tappable as if no application existed.
+- Root cause: `Project_List` SP had no `p_UserId` parameter and returned no `ApplicationStatusCode`, so the mobile screen had no way to distinguish already-applied projects.
+- Fix:
+  - `Documents/NGOConnect_Complete_Setup_v5.0.sql` → `Project_List` SP: added `IN p_UserId INT UNSIGNED` as 11th parameter; added `ApplicationStatusCode` correlated subquery with `CASE WHEN p_UserId IS NOT NULL AND p_UserId > 0` guard (zero cost for anonymous browse).
+  - `NGOConnect.Core/Interfaces/IProjectDal.cs` → `ListAsync` signature: added `int userId = 0` trailing param.
+  - `NGOConnect.Infrastructure/DAL/ProjectDal.cs` → passes `userId > 0 ? (object)userId : DBNull.Value` to SP.
+  - `NGOConnect.API/Controllers/ProjectController.cs` → `List` endpoint passes `GetUserId()`.
+  - `App/NGOConnectApp/src/screens/volunteer/AllOpportunitiesScreen.tsx`: two-layer applied detection — `!!item.applicationStatusCode` (pre-existing) + `appliedIds.has(item.projectId)` local Set (optimistic, current session); renders green non-tappable "✓ Applied" badge.
+- Patch file: `Documents/patch_fix_applied_status.sql`
+- **Apply to Railway**: Run `patch_fix_applied_status.sql` on local → Railway staging → production.
+- **API Documentation**: Update `GET /project/list` — new optional query param `userId` (resolved from JWT by controller; not a client param); response now includes `applicationStatusCode` (nullable string: PENDING | APPROVED | REJECTED | null).
+- **Database Documentation**: Update `Project_List` SP — new `IN p_UserId INT UNSIGNED` param; new `ApplicationStatusCode` column in result set.
+
+**Project cards — category + schedule type missing; redundant day names on Recurring cards (2026-08-11)**
+- Bug: Upcoming cards on the Impact tab and My Projects screen showed no project category or schedule type pill. Recurring cards showed a redundant `🔄 Monday,Wednesday` line duplicating info already in `scheduleOneLiner`. Schedule type label was also wrong (ONE_TIME and FLEXIBLE showed as "Event").
+- Root cause:
+  1. `User_GetImpactSummary` — all 4 result sets (RS0 Applied, RS1 Upcoming, RS2 Completed, RS3 Cancelled) omitted `p.Category`.
+  2. `Application_GetByUser` — also omitted `p.Category`.
+  3. `UserApplication` TypeScript interface had no `categoryName?` field.
+  4. `ImpactScreen.tsx` `UpcomingCard`: `typeLabel = app.scheduleTypeCode === 'RECURRING' ? 'Recurring' : 'Event'` was wrong for ONE_TIME and FLEXIBLE.
+  5. `MyProjectsScreen.tsx` Upcoming tab: `🔄 {item.recurDays}` sessionText line rendered redundantly on top of `scheduleOneLiner`.
+- Fix:
+  - `Documents/NGOConnect_Complete_Setup_v5.0.sql` → added `p.Category AS CategoryName` to all 4 SELECTs in `User_GetImpactSummary` and to `Application_GetByUser`.
+  - `App/NGOConnectApp/src/types/api.types.ts` → added `categoryName?: string` to `UserApplication` interface.
+  - `App/NGOConnectApp/src/screens/profile/ImpactScreen.tsx` → `UpcomingCard`: corrected `typeLabel` (ONE_TIME → "One-time", RECURRING → "Recurring", FLEXIBLE → "Flexible"); added blue category pill below org name.
+  - `App/NGOConnectApp/src/screens/volunteer/MyProjectsScreen.tsx` → Upcoming tab: removed redundant `🔄 {item.recurDays}` line; added category (blue) + schedule type (purple) pills. Applied and Cancelled tabs: added category pill for consistency.
+- Patch file: `Documents/patch_fix_project_card_category.sql`
+- **Apply to Railway**: Run `patch_fix_project_card_category.sql` on local → Railway staging → production.
+- **Database Documentation**: Update `User_GetImpactSummary` and `Application_GetByUser` SP return columns — add `CategoryName` (VARCHAR, from `Projects.Category`).
+
+**ParticipantsScreen — "Mark Attended" button silently fails (2026-08-11)**
+- Bug: Admin → Project → Manage → View All Participants → "Mark Attended" button did nothing for projects that had never had a QR session created.
+- Root cause: `Project_ManualAttendance` SP auto-creates a `ProjectSessions` row when no past session exists, but the INSERT omitted `SessionStatusLkpId` — a `NOT NULL` column with no default. MySQL rejects the INSERT; the SP exits without writing the attendance record. The identical bug was fixed for `Project_SelfCheckIn` in a prior patch but `Project_ManualAttendance` was missed.
+- Fix: Resolve `SESSION_STATUS / UPCOMING` `LookupValueId` into `v_SessionStatusLkpId` and include it in the auto-create INSERT. No change for the normal path (existing session found).
+- `Documents/NGOConnect_Complete_Setup_v5.0.sql` → `Project_ManualAttendance` SP updated.
+- Patch file: `Documents/patch_fix_manual_attendance.sql`
+- **Apply to Railway**: Run `patch_fix_manual_attendance.sql` on local → Railway staging → production.
+- No DAL, C#, or mobile changes needed.
+
+**Project_ManualAttendance — project-state + time-window validation added (2026-08-11)**
+- Enhancement: Admin "Mark Attended" now validates project state and session time window before writing attendance.
+- New validations added to SP:
+  1. **CANCELLED / EXPIRED projects** → rejected immediately with descriptive message.
+  2. **ACTIVE / UPCOMING projects** → time window enforced: `[SessionStartTime − QR_BUFFER_MINUTES, SessionEndTime]` in IST (same window as QR scan and `Project_SelfCheckIn`). Rejected if no session scheduled today, too early, or session already ended.
+  3. **COMPLETED projects** → no time restriction (post-session admin cleanup use-case).
+- Initial SELECT refactored: single JOIN now fetches application status, project status, schedule type, and all schedule date/time fields (was two separate SELECTs).
+- `Documents/NGOConnect_Complete_Setup_v5.0.sql` → `Project_ManualAttendance` SP updated.
+- Patch file: `Documents/patch_fix_manual_attendance.sql` — rebuilt (this version supersedes the SessionStatusLkpId-only fix above).
+- **Apply to Railway**: Re-run `patch_fix_manual_attendance.sql` on local → Railway staging → production (replaces prior version).
+- No DAL, C#, or mobile changes needed.

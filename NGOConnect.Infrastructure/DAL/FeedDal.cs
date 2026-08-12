@@ -8,12 +8,12 @@ namespace NGOConnect.Infrastructure.DAL
 {
     public class FeedDal : BaseDal, IFeedDal
     {
-        // How many days the SP remembers a post as "seen".
-        // Matches the FEED_SEEN_EXPIRY_DAYS Settings row (default 30).
-        // Move to ISettingsCache injection when dynamic tuning is needed.
-        private const int SeenExpiryDays = 30;
+        private readonly ISettingsCache _settings;
 
-        public FeedDal(IDbProvider db) : base(db) { }
+        public FeedDal(IDbProvider db, ISettingsCache settings) : base(db)
+        {
+            _settings = settings;
+        }
 
         // ── GetPersonalizedAsync ──────────────────────────────────────────────
         // SP returns 3× pageSize candidates (scored, cursor-filtered).
@@ -33,7 +33,7 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_CursorPostId",    cursorPostId.HasValue ? (object)cursorPostId.Value : DBNull.Value);
                     _db.AddParameter(cmd, "p_CursorScore",     cursorScore.HasValue  ? (object)cursorScore.Value  : DBNull.Value);
                     _db.AddParameter(cmd, "p_PageSize",        pageSize);
-                    _db.AddParameter(cmd, "p_SeenExpiryDays",  SeenExpiryDays);
+                    _db.AddParameter(cmd, "p_SeenExpiryDays",  _settings.GetValue<int>("FEED_SEEN_EXPIRY_DAYS", 1));
                 });
 
                 var page = ApplyDiversityEngine(candidates, pageSize);
