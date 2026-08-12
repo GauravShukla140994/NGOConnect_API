@@ -80,7 +80,7 @@ namespace NGOConnect.API.Controllers
         public async Task<ApiResponse<string>> GetCertificateHtml(string certCode)
         {
             var res = await _certificate.GetDataAsync(certCode);
-            if (!res.IsSuccess || res.Data == null)
+            if (res.IsSuccess == 0 || res.Data == null)
                 return ApiResponse<string>.Failure(res.Message, res.ErrorCode);
 
             var row = res.Data;
@@ -105,7 +105,7 @@ namespace NGOConnect.API.Controllers
                 return ApiResponse<string>.Failure("Certificate not found.", "NOT_FOUND");
 
             var res = await _certificate.GetDataByIdAsync(decrypted.Value.Id);
-            if (!res.IsSuccess || res.Data == null)
+            if (res.IsSuccess == 0 || res.Data == null)
                 return ApiResponse<string>.Failure(res.Message, res.ErrorCode);
 
             var row = res.Data;
