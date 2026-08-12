@@ -1772,3 +1772,33 @@ Documents to update when "update documents" is called:
 - Patch file: `Documents/patch_fix_manual_attendance.sql` — rebuilt (this version supersedes the SessionStatusLkpId-only fix above).
 - **Apply to Railway**: Re-run `patch_fix_manual_attendance.sql` on local → Railway staging → production (replaces prior version).
 - No DAL, C#, or mobile changes needed.
+
+**UserBadge_Award SP — accepts BadgeCode string instead of BadgeLkpId (2026-08-12)**
+- Root cause: SP `UserBadge_Award` took `p_BadgeLkpId INT UNSIGNED`. Mobile `BADGE_DEFS` uses `ValueCode` strings (`STAR_VOL`, `TEAM_PLAYER`, etc.). There was no way for the client to know LookupValueIds — the badge award was TODO and badges never persisted to DB.
+- Also: `TOP_PERFORMER` key in mobile `BADGE_DEFS` didn't match DB seed `TOP_PERFORM` ValueCode — silent mismatch.
+- Fix:
+  - `UserBadge_Award` SP: replaced `p_BadgeLkpId INT UNSIGNED` with `p_BadgeCode VARCHAR(50)`. SP now resolves `LookupValueId` internally via `SELECT INTO` from `LookupValues JOIN LookupTypes WHERE TypeCode='BADGE_TYPE' AND ValueCode=p_BadgeCode`. Duplicate-award guard updated to use resolved `v_BadgeLkpId`.
+  - `NGOConnect.Core/Models/Org/OrgModels.cs` → `AwardBadgeRequest.BadgeLkpId int` → `BadgeCode string`.
+  - `NGOConnect.Core/Models/Skill/SkillModels.cs` → same change (used by BadgeDal/CertificateController path).
+  - `NGOConnect.Infrastructure/DAL/OrgDal.cs` → `AwardBadgeAsync`: param `p_BadgeLkpId` → `p_BadgeCode`, value `request.BadgeLkpId` → `request.BadgeCode`.
+  - `NGOConnect.Infrastructure/DAL/BadgeDal.cs` → `AwardAsync`: same param change.
+  - `App/NGOConnectApp/src/api/org.api.ts` → `awardBadge` signature: `badgeLkpId: number` → `badgeCode: string`.
+  - `App/NGOConnectApp/src/screens/admin/VolunteerProfileScreen.tsx`: BADGE_DEFS key `TOP_PERFORMER` → `TOP_PERFORM`; `handleAwardBadge` now calls `orgApi.awardBadge` with `badgeCode: key`; optimistic UI + revert on failure.
+  - `App/NGOConnectApp/src/screens/admin/ParticipantsScreen.tsx`: removed `badgeLkpMap` state + `useEffect` that fetched BADGE_TYPE lookups; `handleAwardBadge` passes `badgeCode: key` directly; removed `lookupApi` import.
+- Patch file: `Documents/patch_fix_badge_award_code.sql`
+- Validator: Phases 5 & 6 clean. Pre-existing false positives (Org_GetDashboard 'not' alias, FeedDal p_SeenExpiryDays case) unchanged.
+- **Apply to Railway**: Run `patch_fix_badge_award_code.sql` on local → Railway staging → production; redeploy C# backend.
+- **API Documentation**: `POST /org/{orgId}/badges` — request field changed from `badgeLkpId: int` → `badgeCode: string` (BADGE_TYPE ValueCode).
+- **Database Documentation**: Update `UserBadge_Award` SP — param change from `p_BadgeLkpId INT` to `p_BadgeCode VARCHAR(50)`, note internal resolution logic.
+
+**Application_Apply — re-apply after rejection crashes with 500 (2026-08-12)**
+- Bug: A volunteer rejected from a project got "an error occurred" when trying to re-apply.
+- Root cause: `Application_Apply` SP did a plain `INSERT` with no duplicate check. `ProjectApplications` has `UNIQUE KEY (ProjectId, UserId, IsDeleted)`. After rejection the row remains with `IsDeleted=0`, so the re-apply INSERT hits the unique key constraint → MySQL throws an error → API returns 500.
+- Fix: Before INSERT, check if a non-deleted application already exists and branch on status:
+  - `PENDING` / `APPROVED` → return `IsSuccess=0` with friendly message ("You already have a PENDING application…")
+  - `REJECTED` → UPDATE the existing row back to PENDING (re-opens motivation, clears RejectionReason)
+  - None → fresh INSERT (original path unchanged)
+- `Documents/NGOConnect_Complete_Setup_v5.0.sql` → `Application_Apply` SP updated (both the initial seed copy and the authoritative 3.04 section).
+- Patch file: `Documents/patch_fix_reapply_after_rejection.sql`
+- **Apply to Railway**: Run `patch_fix_reapply_after_rejection.sql` on local → Railway staging → production.
+- No DAL, C#, or mobile changes needed (SP result shape unchanged — same columns returned).

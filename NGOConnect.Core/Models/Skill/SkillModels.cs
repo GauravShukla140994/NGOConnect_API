@@ -23,8 +23,8 @@ namespace NGOConnect.Core.Models.Skill
 
     public class AwardBadgeRequest
     {
-        [Required] public int    UserId      { get; set; }
-        [Required] public int    BadgeLkpId  { get; set; }
+        [Required] public int    UserId    { get; set; }
+        [Required] public string BadgeCode { get; set; } = string.Empty;  // BADGE_TYPE ValueCode e.g. STAR_VOL
         public int? ProjectId { get; set; }
     }
 }

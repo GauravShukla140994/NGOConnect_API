@@ -3461,18 +3461,40 @@ END //
 
 -- ── APPLICATION SPs ─────────────────────────────────────────────
 
+-- Superseded by the updated version further in this file (3.04 block).
+-- Kept here as initial seed; the DROP+CREATE at section 3.04 is the authoritative definition.
 CREATE PROCEDURE Application_Apply(IN p_ProjectId INT UNSIGNED, IN p_UserId INT UNSIGNED, IN p_Motivation TEXT, IN p_RequestedSessions VARCHAR(200))
 BEGIN
-    DECLARE v_Exists INT DEFAULT 0;
-    DECLARE v_StatusLkpId INT UNSIGNED;
-    SELECT COUNT(*) INTO v_Exists FROM ProjectApplications WHERE ProjectId = p_ProjectId AND UserId = p_UserId AND IsDeleted = 0;
-    IF v_Exists > 0 THEN
-        SELECT 0 AS IsSuccess, 'Already applied to this project.' AS Message, NULL AS ApplicationId;
+    DECLARE v_PendingLkpId   INT UNSIGNED;
+    DECLARE v_ExistingId     INT UNSIGNED DEFAULT NULL;
+    DECLARE v_ExistingStatus VARCHAR(50)  DEFAULT NULL;
+
+    SELECT lv.LookupValueId INTO v_PendingLkpId
+    FROM   LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE  lt.TypeCode = 'APPLICATION_STATUS' AND lv.ValueCode = 'PENDING' LIMIT 1;
+
+    SELECT pa.ApplicationId, lv.ValueCode
+    INTO   v_ExistingId, v_ExistingStatus
+    FROM   ProjectApplications pa
+    JOIN   LookupValues lv ON pa.StatusLkpId = lv.LookupValueId
+    WHERE  pa.ProjectId = p_ProjectId AND pa.UserId = p_UserId AND pa.IsDeleted = 0
+    LIMIT  1;
+
+    IF v_ExistingStatus IN ('PENDING', 'APPROVED') THEN
+        SELECT 0 AS IsSuccess,
+               CONCAT('You already have a ', v_ExistingStatus, ' application for this project.') AS Message,
+               NULL AS ApplicationId;
+    ELSEIF v_ExistingStatus = 'REJECTED' THEN
+        UPDATE ProjectApplications
+        SET    StatusLkpId = v_PendingLkpId, Motivation = p_Motivation,
+               RequestedSessions = p_RequestedSessions, RejectionReason = NULL,
+               StatusUpdatedAt = NOW(), StatusUpdatedBy = p_UserId,
+               UpdatedBy = p_UserId, UpdatedAt = NOW()
+        WHERE  ApplicationId = v_ExistingId;
+        SELECT 1 AS IsSuccess, 'Application re-submitted successfully.' AS Message, v_ExistingId AS ApplicationId;
     ELSE
-        SELECT LookupValueId INTO v_StatusLkpId FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
-        WHERE lt.TypeCode = 'APPLICATION_STATUS' AND lv.ValueCode = 'PENDING' LIMIT 1;
         INSERT INTO ProjectApplications (ProjectId, UserId, Motivation, RequestedSessions, StatusLkpId, CreatedBy)
-        VALUES (p_ProjectId, p_UserId, p_Motivation, p_RequestedSessions, v_StatusLkpId, p_UserId);
+        VALUES (p_ProjectId, p_UserId, p_Motivation, p_RequestedSessions, v_PendingLkpId, p_UserId);
         SELECT 1 AS IsSuccess, 'Application submitted.' AS Message, LAST_INSERT_ID() AS ApplicationId;
     END IF;
 END //
@@ -4575,46 +4597,57 @@ BEGIN
     SELECT 1 AS IsSuccess, 'Skill rating saved.' AS Message;
 END //
 
--- Award a badge to a volunteer (with duplicate guard + BadgeName for notification)
+-- Award a badge to a volunteer (accepts ValueCode string; resolves LookupValueId internally)
 CREATE PROCEDURE UserBadge_Award(
-    IN p_UserId     INT UNSIGNED,
-    IN p_BadgeLkpId INT UNSIGNED,
-    IN p_AwardedBy  INT UNSIGNED,
-    IN p_OrgId      INT UNSIGNED,
-    IN p_ProjectId  INT UNSIGNED
+    IN p_UserId    INT UNSIGNED,
+    IN p_BadgeCode VARCHAR(50),
+    IN p_AwardedBy INT UNSIGNED,
+    IN p_OrgId     INT UNSIGNED,
+    IN p_ProjectId INT UNSIGNED
 )
 BEGIN
-    DECLARE v_BadgeName VARCHAR(100) DEFAULT 'Badge';
-    DECLARE v_Exists    INT DEFAULT 0;
+    DECLARE v_BadgeLkpId INT UNSIGNED DEFAULT NULL;
+    DECLARE v_BadgeName  VARCHAR(100) DEFAULT 'Badge';
+    DECLARE v_Exists     INT DEFAULT 0;
 
-    -- Prevent double-awarding the same badge on the same project
-    SELECT COUNT(*) INTO v_Exists
-    FROM   UserBadges
-    WHERE  UserId      = p_UserId
-      AND  BadgeLkpId  = p_BadgeLkpId
-      AND  (p_ProjectId IS NULL OR ProjectId = p_ProjectId)
-      AND  IsDeleted   = 0;
+    -- Resolve LookupValueId from ValueCode
+    SELECT lv.LookupValueId INTO v_BadgeLkpId
+    FROM   LookupValues lv
+    JOIN   LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE  lt.TypeCode = 'BADGE_TYPE' AND lv.ValueCode = p_BadgeCode LIMIT 1;
 
-    IF v_Exists > 0 THEN
-        SELECT 0    AS IsSuccess,
-               'This badge has already been awarded to this volunteer.' AS Message,
-               NULL AS BadgeId,
-               NULL AS BadgeName,
-               NULL AS UserId;
+    IF v_BadgeLkpId IS NULL THEN
+        SELECT 0 AS IsSuccess,
+               CONCAT('Unknown badge code: ', p_BadgeCode) AS Message,
+               NULL AS BadgeId, NULL AS BadgeName, NULL AS UserId;
     ELSE
-        SELECT ValueName INTO v_BadgeName
-        FROM   LookupValues WHERE LookupValueId = p_BadgeLkpId LIMIT 1;
+        -- Prevent double-awarding the same badge on the same project
+        SELECT COUNT(*) INTO v_Exists
+        FROM   UserBadges
+        WHERE  UserId     = p_UserId
+          AND  BadgeLkpId = v_BadgeLkpId
+          AND  (p_ProjectId IS NULL OR ProjectId = p_ProjectId)
+          AND  IsDeleted   = 0;
 
-        INSERT INTO UserBadges
-            (UserId, BadgeLkpId, AwardedBy, AwardedByOrgId, ProjectId, IsDeleted, CreatedAt)
-        VALUES
-            (p_UserId, p_BadgeLkpId, p_AwardedBy, p_OrgId, p_ProjectId, 0, NOW());
+        IF v_Exists > 0 THEN
+            SELECT 0 AS IsSuccess,
+                   'This badge has already been awarded to this volunteer.' AS Message,
+                   NULL AS BadgeId, NULL AS BadgeName, NULL AS UserId;
+        ELSE
+            SELECT ValueName INTO v_BadgeName
+            FROM   LookupValues WHERE LookupValueId = v_BadgeLkpId LIMIT 1;
 
-        SELECT 1                   AS IsSuccess,
-               'Badge awarded successfully.' AS Message,
-               LAST_INSERT_ID()   AS BadgeId,
-               v_BadgeName        AS BadgeName,
-               p_UserId           AS UserId;
+            INSERT INTO UserBadges
+                (UserId, BadgeLkpId, AwardedBy, AwardedByOrgId, ProjectId, IsDeleted, CreatedAt)
+            VALUES
+                (p_UserId, v_BadgeLkpId, p_AwardedBy, p_OrgId, p_ProjectId, 0, NOW());
+
+            SELECT 1 AS IsSuccess,
+                   'Badge awarded successfully.' AS Message,
+                   LAST_INSERT_ID() AS BadgeId,
+                   v_BadgeName      AS BadgeName,
+                   p_UserId         AS UserId;
+        END IF;
     END IF;
 END //
 
@@ -7140,6 +7173,8 @@ END //
 
 -- ── 3.04 Application_Apply ─────────────────────────────────────────────────
 -- Updated: p_Note → p_Motivation; added p_RequestedSessions
+-- Updated: re-apply after REJECTED — UPDATE existing row to PENDING instead of INSERT
+--          (plain INSERT crashed with duplicate key on (ProjectId, UserId, IsDeleted=0))
 -- (Source: NGOConnect_Patch_ImpactSPs.sql)
 DROP PROCEDURE IF EXISTS Application_Apply //
 CREATE PROCEDURE Application_Apply(
@@ -7149,18 +7184,56 @@ CREATE PROCEDURE Application_Apply(
     IN p_RequestedSessions TEXT
 )
 BEGIN
-    DECLARE v_PendingLkpId INT UNSIGNED;
+    DECLARE v_PendingLkpId   INT UNSIGNED;
+    DECLARE v_ExistingId     INT UNSIGNED DEFAULT NULL;
+    DECLARE v_ExistingStatus VARCHAR(50)  DEFAULT NULL;
 
+    -- Resolve PENDING lookup id
     SELECT lv.LookupValueId INTO v_PendingLkpId
     FROM   LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
     WHERE  lt.TypeCode = 'APPLICATION_STATUS' AND lv.ValueCode = 'PENDING' LIMIT 1;
 
-    INSERT INTO ProjectApplications (ProjectId, UserId, StatusLkpId, Motivation, RequestedSessions, CreatedBy)
-    VALUES (p_ProjectId, p_UserId, v_PendingLkpId, p_Motivation, p_RequestedSessions, p_UserId);
+    -- Check for any existing non-deleted application for this user + project
+    SELECT pa.ApplicationId, lv.ValueCode
+    INTO   v_ExistingId, v_ExistingStatus
+    FROM   ProjectApplications pa
+    JOIN   LookupValues lv ON pa.StatusLkpId = lv.LookupValueId
+    WHERE  pa.ProjectId = p_ProjectId AND pa.UserId = p_UserId AND pa.IsDeleted = 0
+    LIMIT  1;
 
-    SELECT 1 AS IsSuccess, 'Application submitted.' AS Message,
-           LAST_INSERT_ID() AS ApplicationId,
-           (SELECT OrgId FROM Projects WHERE ProjectId = p_ProjectId) AS OrgId;
+    IF v_ExistingStatus IN ('PENDING', 'APPROVED') THEN
+        -- Cannot re-apply while a live application exists
+        SELECT 0 AS IsSuccess,
+               CONCAT('You already have a ', v_ExistingStatus, ' application for this project.') AS Message,
+               NULL AS ApplicationId,
+               NULL AS OrgId;
+
+    ELSEIF v_ExistingStatus = 'REJECTED' THEN
+        -- Re-application: reset the rejected row to PENDING
+        UPDATE ProjectApplications
+        SET    StatusLkpId       = v_PendingLkpId,
+               Motivation        = p_Motivation,
+               RequestedSessions = p_RequestedSessions,
+               RejectionReason   = NULL,
+               StatusUpdatedAt   = NOW(),
+               StatusUpdatedBy   = p_UserId,
+               UpdatedBy         = p_UserId,
+               UpdatedAt         = NOW()
+        WHERE  ApplicationId = v_ExistingId;
+
+        SELECT 1 AS IsSuccess, 'Application re-submitted successfully.' AS Message,
+               v_ExistingId AS ApplicationId,
+               (SELECT OrgId FROM Projects WHERE ProjectId = p_ProjectId) AS OrgId;
+
+    ELSE
+        -- No existing application — fresh INSERT
+        INSERT INTO ProjectApplications (ProjectId, UserId, StatusLkpId, Motivation, RequestedSessions, CreatedBy)
+        VALUES (p_ProjectId, p_UserId, v_PendingLkpId, p_Motivation, p_RequestedSessions, p_UserId);
+
+        SELECT 1 AS IsSuccess, 'Application submitted.' AS Message,
+               LAST_INSERT_ID() AS ApplicationId,
+               (SELECT OrgId FROM Projects WHERE ProjectId = p_ProjectId) AS OrgId;
+    END IF;
 END //
 
 

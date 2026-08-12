@@ -148,8 +148,8 @@ namespace NGOConnect.Core.Models.Org
     // ── Award Badge to volunteer (s-vol-profile, s-participants screens) ─────────
     public class AwardBadgeRequest
     {
-        [Required] public int  UserId     { get; set; }
-        [Required] public int  BadgeLkpId { get; set; }   // LookupType: BADGE_TYPE
+        [Required] public int    UserId    { get; set; }
+        [Required] public string BadgeCode { get; set; } = string.Empty;  // LookupType: BADGE_TYPE ValueCode e.g. STAR_VOL
         public int? ProjectId             { get; set; }   // project it was earned on (optional)
     }
 
