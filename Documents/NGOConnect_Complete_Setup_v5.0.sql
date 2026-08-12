@@ -8256,7 +8256,12 @@ BEGIN
         lv_status.ValueCode AS StatusCode, lv_status.ValueName AS StatusName,
         om.CreatedAt AS JoinedAt,
         mr.PrevNgoExperience, mr.VolunteerSkills, mr.AreasOfInterest, mr.WhyJoin,
-        mr.CreatedAt AS RequestedAt
+        mr.CreatedAt AS RequestedAt,
+        -- Badges awarded to this volunteer (any org/project) — comma-separated ValueCodes
+        (SELECT GROUP_CONCAT(DISTINCT lv_b.ValueCode ORDER BY lv_b.ValueCode SEPARATOR ',')
+         FROM   UserBadges ub
+         JOIN   LookupValues lv_b ON ub.BadgeLkpId = lv_b.LookupValueId
+         WHERE  ub.UserId = p_UserId AND ub.IsDeleted = 0) AS AwardedBadgeCodes
     FROM Users u
     JOIN  UserProfiles     up       ON up.UserId = u.UserId AND up.IsDeleted = 0
     LEFT JOIN OrgMembers   om       ON om.OrgId = p_OrgId AND om.UserId = p_UserId AND om.IsDeleted = 0

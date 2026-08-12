@@ -285,6 +285,8 @@ namespace NGOConnect.Core.Models.Org
         public string?   AreasOfInterest   { get; set; }
         public string?   WhyJoin           { get; set; }
         public DateTime? RequestedAt       { get; set; }
+        // Badges — comma-separated BADGE_TYPE ValueCodes awarded to this volunteer
+        public string?   AwardedBadgeCodes { get; set; }
     }
 
     // ── Admin Posts requests ─────────────────────────────────────────────────────

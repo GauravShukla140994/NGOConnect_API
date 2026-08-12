@@ -416,7 +416,8 @@ namespace NGOConnect.Infrastructure.DAL
                         RoleName       = Col<string>(r,   "RoleName"),
                         StatusCode     = Col<string>(r,   "StatusCode"),
                         StatusName     = Col<string>(r,   "StatusName"),
-                        JoinedAt       = ColNullable<DateTime>(r, "JoinedAt"),
+                        JoinedAt           = ColNullable<DateTime>(r, "JoinedAt"),
+                        AwardedBadgeCodes  = Col<string>(r, "AwardedBadgeCodes"),
                     },
                     cmd =>
                     {

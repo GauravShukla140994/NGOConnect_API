@@ -1789,7 +1789,7 @@ Documents to update when "update documents" is called:
 - Validator: Phases 5 & 6 clean. Pre-existing false positives (Org_GetDashboard 'not' alias, FeedDal p_SeenExpiryDays case) unchanged.
 - **Apply to Railway**: Run `patch_fix_badge_award_code.sql` on local → Railway staging → production; redeploy C# backend.
 - **API Documentation**: `POST /org/{orgId}/badges` — request field changed from `badgeLkpId: int` → `badgeCode: string` (BADGE_TYPE ValueCode).
-- **Database Documentation**: Update `UserBadge_Award` SP — param change from `p_BadgeLkpId INT` to `p_BadgeCode VARCHAR(50)`, note internal resolution logic.
+- **Database Documentation**: Update `UserBadge_Award` SP — param change from `p_BadgeLkpId INT` to `p_BadgeCode VARCHAR(50)`, note internal resolution logic. Update `Org_GetVolunteerProfile` SP — new output column `AwardedBadgeCodes` (GROUP_CONCAT of BADGE_TYPE ValueCodes from UserBadges).
 
 **Application_Apply — re-apply after rejection crashes with 500 (2026-08-12)**
 - Bug: A volunteer rejected from a project got "an error occurred" when trying to re-apply.
@@ -1802,3 +1802,13 @@ Documents to update when "update documents" is called:
 - Patch file: `Documents/patch_fix_reapply_after_rejection.sql`
 - **Apply to Railway**: Run `patch_fix_reapply_after_rejection.sql` on local → Railway staging → production.
 - No DAL, C#, or mobile changes needed (SP result shape unchanged — same columns returned).
+
+**Badge highlight not showing after award — C# typed mapper missing AwardedBadgeCodes (2026-08-12)**
+- Root cause: `Org_GetVolunteerProfile` SP was updated (last session) to return `AwardedBadgeCodes` column. `OrgDal.GetVolunteerProfileAsync` uses `ExecuteGetAsync` with a typed mapper — the new SP column was silently dropped (never read) because `OrgVolunteerProfileModel` had no matching property.
+- Effect: `profile.awardedBadgeCodes` was always `undefined` in TypeScript → `setExistingBadges` never called → badges never highlighted on the admin volunteer profile screen, even though they were correctly saved in DB (the SP's duplicate guard confirmed this).
+- Fix:
+  - `NGOConnect.Core/Models/Org/OrgModels.cs` → `OrgVolunteerProfileModel`: added `public string? AwardedBadgeCodes { get; set; }`.
+  - `NGOConnect.Infrastructure/DAL/OrgDal.cs` → typed mapper for `Org_GetVolunteerProfile`: added `AwardedBadgeCodes = Col<string>(r, "AwardedBadgeCodes")`.
+- Validator: clean (Org_GetDashboard false positive pre-existing, unrelated).
+- No SP or mobile changes (SP already correct; TypeScript type + mobile screen already correct from prior session).
+- No patch file needed (backend-only C# change; SP was already correct in setup SQL and patch file).
