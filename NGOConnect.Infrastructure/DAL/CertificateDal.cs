@@ -11,7 +11,7 @@ namespace NGOConnect.Infrastructure.DAL
         // than reading from Settings. Fine for now (consistent with the existing pattern),
         // worth moving to Settings (PLATFORM group) if a staging-specific verify link is
         // ever needed.
-        private const string BaseUrl = "https://ripplehub.app";
+        private const string BaseUrl = "https://www.ripplehub.app";
 
         private readonly IUrlTokenService _tokens;
 

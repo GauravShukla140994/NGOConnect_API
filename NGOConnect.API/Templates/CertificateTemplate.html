@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RippleHub — Volunteer Certificate</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#eef2f7;padding:2rem;font-family:"Segoe UI",Arial,sans-serif;min-height:100vh;display:flex;align-items:flex-start;justify-content:center}
+    .cert{width:100%;max-width:710px;margin:0 auto;padding:20px 24px 16px;position:relative;overflow:hidden;background:#fffefa;border:1.5px solid #223b9b;border-radius:4px;color:#172554}
+    .cert::before{content:"";position:absolute;top:-2px;right:-6px;width:155px;height:78px;background:linear-gradient(135deg,#5967d9,#19c7b0 75%,#65e34d);clip-path:polygon(30% 0,100% 0,100% 100%,73% 77%,48% 48%);opacity:.9;z-index:1}
+    .cert::after{content:"";position:absolute;left:-20px;bottom:-22px;width:110px;height:110px;border-radius:50%;border:18px solid rgba(35,194,179,.10);box-shadow:0 0 0 8px rgba(64,95,218,.05)}
+    .top{display:flex;justify-content:space-between;align-items:flex-start;position:relative;z-index:2}
+    .brand{display:flex;align-items:center;gap:10px}
+    .logo-img{width:46px;height:46px;border-radius:12px;object-fit:cover;display:block}
+    .bname{font-size:22px;font-weight:700;letter-spacing:-.5px;color:#172554}
+    .tagline{margin-top:2px;font-size:9px;color:#526174;letter-spacing:.6px}
+    .meta{border-left:1px solid #b8c3d5;padding-left:14px;margin-right:90px;text-align:right}
+    .lbl{color:#526174;font-size:8px;letter-spacing:2px;text-transform:uppercase}
+    .cid{margin-top:4px;font-size:13px;font-weight:800;color:#172554}
+    .cdate{margin-top:3px;color:#526174;font-size:11px}
+    .heading{text-align:center;margin:16px 0 9px;position:relative;z-index:2}
+    .eyebrow{color:#17635a;letter-spacing:3px;font-size:10px;font-weight:600}
+    .eyebrow::before,.eyebrow::after{content:"";display:inline-block;width:24px;height:1px;background:#78a99b;vertical-align:middle;margin:0 10px}
+    .ctitle{margin:7px 0 2px;font-family:Georgia,serif;font-size:26px;color:#14255d;letter-spacing:.4px;font-weight:normal}
+    .powered{color:#657184;font-size:11px}.powered strong{color:#348bd2}
+    .awarded{text-align:center;margin-top:9px}
+    .awarded .lbl{color:#17635a;font-weight:600}
+    .recipient{margin:4px 0 4px;font-family:Georgia,serif;font-size:28px;font-style:italic;color:#13245d}
+    .divider{width:58%;height:1px;margin:0 auto 11px;background:#a9b9d9;position:relative}
+    .divider::after{content:"&#9670;";position:absolute;left:50%;top:-7px;transform:translateX(-50%);color:#3e9b58;background:#fffefa;padding:0 6px;font-size:9px}
+    .stmt{max-width:590px;margin:0 auto;text-align:center;font-size:12px;line-height:1.75;color:#334155}
+    .stmt strong{color:#172554}
+    .skills{margin:9px auto 7px;display:flex;flex-wrap:wrap;justify-content:center;gap:7px}
+    .skill{border:1px solid #c8d4ec;border-radius:20px;padding:4px 11px;background:linear-gradient(90deg,#f4f7ff,#f6fbf9);font-size:11px;color:#172554}
+    .skill b{margin-left:5px}
+    .stats{margin:9px auto;border:1px solid #bfd0dc;border-radius:10px;display:grid;grid-template-columns:repeat(3,1fr);overflow:hidden;background:linear-gradient(100deg,#f5fbf7,#f4f7ff)}
+    .stat{padding:10px;text-align:center}.stat+.stat{border-left:1px solid #cbd5e1}
+    .sv{font-size:15px;font-weight:800;color:#174c3d}.stat:last-child .sv{color:#29358b}
+    .sl{margin-top:2px;color:#526174;font-size:10px}
+    .sigs{display:grid;grid-template-columns:1fr 78px 1fr;gap:10px;align-items:center;margin:9px auto 7px}
+    .sig{text-align:center}
+    .signame{font-family:"Brush Script MT",cursive;font-size:18px;color:#12235d;margin-bottom:4px;border-bottom:1px solid #8997aa;padding-bottom:6px}
+    .sig strong{font-size:10px;color:#172554;display:block;margin-top:5px}
+    .sig small{display:block;margin-top:2px;color:#718096;font-size:9px}
+    .seal{width:62px;height:62px;margin:auto;border-radius:50%;display:grid;place-items:center;text-align:center;color:white;font-weight:800;font-size:8px;line-height:1.3;background:linear-gradient(145deg,#22a879,#2c65d9,#5b3fbd);border:4px solid #e9f7f1;box-shadow:0 0 0 2px #5c78d4}
+    .verify{display:flex;align-items:center;gap:11px;margin:7px auto 0;padding:8px 12px;border:1px solid #c3d1e8;border-radius:10px;background:#fbfdff}
+    .qr{width:55px;height:55px;flex:0 0 55px;border:5px solid white;box-shadow:0 0 0 1px #b8c5d9;overflow:hidden}
+    .qr img{width:100%;height:100%;display:block}
+    .vt{font-weight:800;color:#174c3d;font-size:11px;margin-bottom:4px}
+    .vu{font-size:8px;line-height:1.5;word-break:break-all}
+    .vu a{color:#2845b5;text-decoration:none}
+    .note{text-align:center;margin-top:8px;color:#7a8798;font-size:7.5px;letter-spacing:.3px}
+
+    @media print {
+      *{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;color-adjust:exact !important}
+      body{background:#fff;padding:0}
+      .cert{box-shadow:none;border-radius:0;max-width:100%}
+    }
+    @media (max-width:540px) {
+      body{padding:1rem .5rem}
+      .cert{padding:14px 14px 12px}
+      .recipient{font-size:22px}
+      .stats{grid-template-columns:1fr}
+      .stat+.stat{border-left:none;border-top:1px solid #cbd5e1}
+      .sigs{grid-template-columns:1fr 56px 1fr;gap:6px}
+    }
+  </style>
+</head>
+<body>
+
+<section class="cert">
+  <header class="top">
+    <div class="brand">
+      <img class="logo-img" src="data:image/png;base64,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" alt="RippleHub" />
+      <div>
+        <div class="bname">RippleHub</div>
+        <div class="tagline">Global Social Impact Platform</div>
+      </div>
+    </div>
+    <div class="meta">
+      <div class="lbl">Certificate ID</div>
+      <div class="cid">{{CERTIFICATE_ID}}</div>
+      <div class="cdate">{{ISSUE_DATE}}</div>
+    </div>
+  </header>
+
+  <main>
+    <section class="heading">
+      <div class="eyebrow">Certificate of Volunteer Service</div>
+      <h1 class="ctitle">{{NGO_NAME}}</h1>
+      <div class="powered">Powered by <strong>RippleHub</strong> &middot; Official digital record</div>
+    </section>
+
+    <section class="awarded">
+      <div class="lbl">Awarded To</div>
+      <div class="recipient">{{VOLUNTEER_NAME}}</div>
+      <div class="divider"></div>
+      <p class="stmt">
+        This certificate is awarded to <strong>{{VOLUNTEER_NAME}}</strong> on successful completion
+        of the volunteer program <strong>&ldquo;{{PROJECT_NAME}}&rdquo;</strong>, contributing
+        meaningful time, skills, and effort to create a lasting community impact under the banner of
+        <strong>{{NGO_NAME}}</strong>.
+      </p>
+    </section>
+
+    <div class="skills" style="{{SKILL_CHIPS_STYLE}}">
+      {{SKILL_CHIPS_HTML}}
+    </div>
+
+    <section class="stats">
+      <div class="stat">
+        <div class="sv">{{HOURS_CONTRIBUTED}}</div>
+        <div class="sl">Hours contributed</div>
+      </div>
+      <div class="stat">
+        <div class="sv">{{COMPLETION_DATE}}</div>
+        <div class="sl">Completed</div>
+      </div>
+      <div class="stat">
+        <div class="sv">{{IMPACT_SCORE}}</div>
+        <div class="sl">Impact score</div>
+      </div>
+    </section>
+
+    <section class="sigs">
+      <div class="sig">
+        <div class="signame">{{COORDINATOR_NAME}}</div>
+        <strong>Org Coordinator</strong>
+        <small>Coordinator &middot; {{NGO_NAME}}</small>
+      </div>
+
+      <div class="seal" aria-hidden="true">VERIFIED<br>RIPPLE<br>HUB</div>
+
+      <div class="sig">
+        <div class="signame">RippleHub</div>
+        <strong>RippleHub Platform</strong>
+        <small>Authorised digital signature</small>
+      </div>
+    </section>
+
+    <section class="verify">
+      <div class="qr">
+        <img src="https://api.qrserver.com/v1/create-qr-code/?size=110x110&data={{VERIFY_URL_ENCODED}}&bgcolor=FFFFFF&color=223b9b&format=png" alt="Scan to verify" />
+      </div>
+      <div>
+        <div class="vt">&#10003; Scan to verify certificate</div>
+        <div class="vu">
+          <a href="{{VERIFY_URL}}" target="_blank">{{VERIFY_URL_DISPLAY}}</a>
+        </div>
+      </div>
+    </section>
+
+    <div class="note">This certificate is a digital record of volunteer service issued through RippleHub.</div>
+  </main>
+</section>
+
+</body>
+</html>

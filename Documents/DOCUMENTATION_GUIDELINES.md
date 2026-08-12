@@ -1812,3 +1812,35 @@ Documents to update when "update documents" is called:
 - Validator: clean (Org_GetDashboard false positive pre-existing, unrelated).
 - No SP or mobile changes (SP already correct; TypeScript type + mobile screen already correct from prior session).
 - No patch file needed (backend-only C# change; SP was already correct in setup SQL and patch file).
+
+**Certificate template redesign + verify URL www fix (2026-08-12)**
+- `Documents/ripplehub_volunteer_certificate_template.html` → full visual redesign (new card format: border layout, gradient corner decoration, cursive signature section, QR verify block). All dynamic placeholders and JS `renderCertificate(data)` contract preserved unchanged.
+- Two changes from user request:
+  1. Coordinator `.signame` now shows `data.coordinatorName` dynamically (was hardcoded "Coordinator").
+  2. Verify URL fallback: `https://www.ripplehub.app/verify/` (added `www.`).
+- `NGOConnect.Infrastructure/DAL/CertificateDal.cs` → `BaseUrl` constant: `"https://ripplehub.app"` → `"https://www.ripplehub.app"`. All API-generated `verifyUrl` values now use `www.`.
+- No SP/DB/API endpoint changes. No document updates required.
+
+**Certificate HTML centralization — API as single template source of truth (2026-08-12)**
+- Goal: Mobile app and website both receive rendered certificate HTML from the API. No local templates anywhere else.
+- **DB changes (SP-only — no table changes):**
+  - `Certificate_GetData` + `Certificate_GetDataById`: added `JOIN UserProfiles cp ON vc.IssuedBy = cp.UserId` and `CONCAT(cp.FirstName, ' ', cp.LastName) AS CoordinatorName` to SELECT.
+  - `Documents/NGOConnect_Complete_Setup_v5.0.sql` updated with both SP changes.
+  - Patch file: `Documents/patch_certificate_html_centralization.sql` — run on Railway staging → production.
+- **New backend files:**
+  - `NGOConnect.API/Templates/CertificateTemplate.html` — server-side template with `{{PLACEHOLDER}}` tokens; no JS. Added to `.csproj` as `<Content CopyToOutputDirectory="Always">`.
+  - `NGOConnect.Core/Interfaces/ICertificateHtmlService.cs` — interface with `string Render(DynamicRow row)`.
+  - `NGOConnect.Infrastructure/Services/CertificateHtmlService.cs` — reads template at startup (Singleton), substitutes all tokens, HTML-encodes all values, builds skill chips from pipe-separated skillRatings.
+  - Registered in `ServiceCollectionExtensions.cs` (`AddDataAccessLayer`) as Singleton with factory providing `IWebHostEnvironment.ContentRootPath`.
+- **New API endpoints in `CertificateController.cs`:**
+  - `GET /certificates/{certCode}/html` (auth) → `ApiResponse<string>` — for mobile WebView.
+  - `GET /certificates/verify/{token}/html` (AllowAnonymous) → `ApiResponse<string>` — for website verify page.
+  - Both check `isDeleted == 1` and return `CERT_REVOKED` error before rendering.
+- **Mobile (`App/NGOConnectApp`):**
+  - `src/api/user.api.ts`: added `getCertificateHtml(certCode)` → `GET /certificates/{certCode}/html`.
+  - `src/screens/common/CertificateModal.tsx`: removed `buildCertHtml()`, `RIPPLEHUB_LOGO_B64`, `CertData` interface. New flow: list API → find certCode → `getCertificateHtml(certCode)` → render in WebView. ~300 lines removed (old inline template builder).
+- **Website (not in connected folder — changes to make manually):**
+  - `VerifyCertificatePage.jsx`: replace local template + JSON data approach with `GET /api/v1/certificates/verify/{token}/html`, render via `<iframe srcdoc={html}>` or `dangerouslySetInnerHTML={{ __html: html }}`.
+  - `public/certificate-template.html` (or equivalent): can be removed once website is updated.
+- Validator: clean for this task. Pre-existing mismatches: FeedDal `p_seenexpirydays`, Org_GetDashboard false positive — both unrelated, carry forward.
+- No document version bump needed (no API contract changes visible in Postman/docs; new endpoints are additions only).

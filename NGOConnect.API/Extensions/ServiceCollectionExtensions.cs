@@ -1,6 +1,7 @@
 using System.Text;
 using Hangfire;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using NGOConnect.Core.Interfaces;
@@ -75,6 +76,12 @@ namespace NGOConnect.API.Extensions
             services.AddScoped<ICampaignDispatchService,    CampaignDispatchService>();
             // v5.1 — NGO Reviews
             services.AddScoped<IOrgReviewDal,              OrgReviewDal>();
+            // v5.2 — Certificate HTML service (server-side template renderer; Singleton — reads template once at startup)
+            services.AddSingleton<ICertificateHtmlService>(sp =>
+            {
+                var env = sp.GetRequiredService<IWebHostEnvironment>();
+                return new CertificateHtmlService(env.ContentRootPath);
+            });
             return services;
         }
 

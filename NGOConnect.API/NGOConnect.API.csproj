@@ -25,4 +25,10 @@
     <ProjectReference Include="..\NGOConnect.Core\NGOConnect.Core.csproj" />
     <ProjectReference Include="..\NGOConnect.Infrastructure\NGOConnect.Infrastructure.csproj" />
   </ItemGroup>
+  <!-- Certificate HTML template — must be present in the output directory at runtime -->
+  <ItemGroup>
+    <Content Include="Templates\**">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
 </Project>

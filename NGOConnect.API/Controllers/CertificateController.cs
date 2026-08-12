@@ -13,21 +13,24 @@ namespace NGOConnect.API.Controllers
     [Produces("application/json")]
     public class CertificateController : ControllerBase
     {
-        private readonly ICertificateDal  _certificate;
-        private readonly ISkillRatingDal  _skillRating;
-        private readonly IBadgeDal        _badge;
-        private readonly IUrlTokenService _tokens;
+        private readonly ICertificateDal       _certificate;
+        private readonly ISkillRatingDal       _skillRating;
+        private readonly IBadgeDal             _badge;
+        private readonly IUrlTokenService      _tokens;
+        private readonly ICertificateHtmlService _htmlService;
 
         public CertificateController(
-            ICertificateDal certificate,
-            ISkillRatingDal skillRating,
-            IBadgeDal       badge,
-            IUrlTokenService tokens)
+            ICertificateDal        certificate,
+            ISkillRatingDal        skillRating,
+            IBadgeDal              badge,
+            IUrlTokenService       tokens,
+            ICertificateHtmlService htmlService)
         {
             _certificate = certificate;
             _skillRating = skillRating;
             _badge       = badge;
             _tokens      = tokens;
+            _htmlService = htmlService;
         }
 
         [HttpGet("certificates")]
@@ -66,6 +69,50 @@ namespace NGOConnect.API.Controllers
                 return ApiResponse<DynamicRow>.Failure("Certificate not found.", "NOT_FOUND");
 
             return await _certificate.GetDataByIdAsync(decrypted.Value.Id);
+        }
+
+        /// <summary>
+        /// Returns the fully-rendered certificate HTML for the mobile app WebView.
+        /// Auth-required — same enumeration-attack reasons as GetCertificate above.
+        /// Mobile replaces its local buildCertHtml() with a call to this endpoint.
+        /// </summary>
+        [HttpGet("certificates/{certCode}/html")]
+        public async Task<ApiResponse<string>> GetCertificateHtml(string certCode)
+        {
+            var res = await _certificate.GetDataAsync(certCode);
+            if (!res.IsSuccess || res.Data == null)
+                return ApiResponse<string>.Failure(res.Message, res.ErrorCode);
+
+            var row = res.Data;
+            if (row.Get<int>("isDeleted") == 1)
+                return ApiResponse<string>.Failure("This certificate has been revoked.", "CERT_REVOKED");
+
+            return ApiResponse<string>.Success(_htmlService.Render(row));
+        }
+
+        /// <summary>
+        /// Returns the fully-rendered certificate HTML for the website verify page.
+        /// AllowAnonymous — token is AES-256-GCM encrypted, same as GetCertificateByToken.
+        /// Website replaces its local template file with a call to this endpoint and renders
+        /// the returned HTML via dangerouslySetInnerHTML / srcdoc.
+        /// </summary>
+        [HttpGet("certificates/verify/{token}/html")]
+        [AllowAnonymous]
+        public async Task<ApiResponse<string>> GetCertificateHtmlByToken(string token)
+        {
+            var decrypted = _tokens.Decrypt(token);
+            if (decrypted is null || !string.Equals(decrypted.Value.EntityType, "CERT", StringComparison.OrdinalIgnoreCase))
+                return ApiResponse<string>.Failure("Certificate not found.", "NOT_FOUND");
+
+            var res = await _certificate.GetDataByIdAsync(decrypted.Value.Id);
+            if (!res.IsSuccess || res.Data == null)
+                return ApiResponse<string>.Failure(res.Message, res.ErrorCode);
+
+            var row = res.Data;
+            if (row.Get<int>("isDeleted") == 1)
+                return ApiResponse<string>.Failure("This certificate has been revoked.", "CERT_REVOKED");
+
+            return ApiResponse<string>.Success(_htmlService.Render(row));
         }
 
         /// <summary>Admin issues a certificate after a project is completed.</summary>

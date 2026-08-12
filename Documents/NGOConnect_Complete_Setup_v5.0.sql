@@ -4463,6 +4463,7 @@ BEGIN
 END //
 
 -- Returns all data needed to render a certificate (used by verify page and app)
+-- v5.2: added CoordinatorName (JOIN UserProfiles cp ON vc.IssuedBy = cp.UserId)
 CREATE PROCEDURE Certificate_GetData(IN p_CertCode VARCHAR(20))
 BEGIN
     SELECT
@@ -4477,6 +4478,8 @@ BEGIN
         o.OrgId, o.OrgName, o.LogoUrl AS OrgLogoUrl,
         -- Impact score
         up.ImpactScore,
+        -- Coordinator (admin who issued the certificate)
+        CONCAT(cp.FirstName, ' ', cp.LastName) AS CoordinatorName,
         -- Skill ratings for this project (pipe-separated SkillName:Rating pairs)
         (SELECT GROUP_CONCAT(ps.SkillName, ':', ROUND(usr.Rating, 1)
                              ORDER BY ps.SkillName SEPARATOR '|')
@@ -4492,6 +4495,7 @@ BEGIN
     JOIN  Organisations o  ON vc.OrgId     = o.OrgId
     JOIN  Users         u  ON vc.UserId    = u.UserId
     JOIN  UserProfiles  up ON vc.UserId    = up.UserId
+    JOIN  UserProfiles  cp ON vc.IssuedBy  = cp.UserId
     WHERE vc.CertCode = p_CertCode;
 END //
 
@@ -4503,6 +4507,7 @@ END //
 -- CertificateId is never exposed in a URL, so this SP being keyed by a "guessable"
 -- sequential integer is not a problem: the caller can only reach it by first
 -- successfully decrypting a token, which requires the server's secret key.
+-- v5.2: added CoordinatorName (JOIN UserProfiles cp ON vc.IssuedBy = cp.UserId)
 CREATE PROCEDURE Certificate_GetDataById(IN p_CertificateId INT UNSIGNED)
 BEGIN
     SELECT
@@ -4517,6 +4522,8 @@ BEGIN
         o.OrgId, o.OrgName, o.LogoUrl AS OrgLogoUrl,
         -- Impact score
         up.ImpactScore,
+        -- Coordinator (admin who issued the certificate)
+        CONCAT(cp.FirstName, ' ', cp.LastName) AS CoordinatorName,
         -- Skill ratings for this project (pipe-separated SkillName:Rating pairs)
         (SELECT GROUP_CONCAT(ps.SkillName, ':', ROUND(usr.Rating, 1)
                              ORDER BY ps.SkillName SEPARATOR '|')
@@ -4532,6 +4539,7 @@ BEGIN
     JOIN  Organisations o  ON vc.OrgId     = o.OrgId
     JOIN  Users         u  ON vc.UserId    = u.UserId
     JOIN  UserProfiles  up ON vc.UserId    = up.UserId
+    JOIN  UserProfiles  cp ON vc.IssuedBy  = cp.UserId
     WHERE vc.CertificateId = p_CertificateId;
 END //
 
