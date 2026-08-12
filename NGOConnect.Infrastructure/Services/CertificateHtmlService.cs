@@ -20,7 +20,6 @@ namespace NGOConnect.Infrastructure.Services
     ///   {{PROJECT_NAME}}        — project name
     ///   {{HOURS_CONTRIBUTED}}   — e.g. "16 hrs" or "—" if zero
     ///   {{COMPLETION_DATE}}     — month + year e.g. "Aug 2026"
-    ///   {{IMPACT_SCORE}}        — e.g. "+240 pts" or "—" if zero
     ///   {{COORDINATOR_NAME}}    — admin who issued the certificate
     ///   {{SKILL_CHIPS_HTML}}    — pre-built <div class="skill">…</div> fragments
     ///   {{SKILL_CHIPS_STYLE}}   — "" (visible) or "display:none" (no skills)
@@ -52,14 +51,12 @@ namespace NGOConnect.Infrastructure.Services
             var skillRatings    = row.Get<string>("skillRatings")    ?? "";
             var verifyUrl       = row.Get<string>("verifyUrl")       ?? "";
 
-            var totalHours  = row.Get<decimal>("totalHours");
-            var impactScore = row.Get<decimal>("impactScore");
-            var issuedAt    = row.Get<DateTime>("issuedAt");
+            var totalHours = row.Get<decimal>("totalHours");
+            var issuedAt   = row.Get<DateTime>("issuedAt");
 
             var issueDateStr      = issuedAt == default ? "" : issuedAt.ToString("d MMMM yyyy");
             var completionDateStr = issuedAt == default ? "" : issuedAt.ToString("MMM yyyy");
-            var hoursStr          = totalHours  > 0 ? $"{totalHours} hrs" : "—";
-            var impactStr         = impactScore > 0 ? $"+{(int)impactScore} pts" : "—";
+            var hoursStr          = totalHours > 0 ? $"{totalHours} hrs" : "—";
 
             var verifyDisplay  = verifyUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
                                  ? verifyUrl[8..] : verifyUrl;
@@ -76,7 +73,6 @@ namespace NGOConnect.Infrastructure.Services
                 .Replace("{{PROJECT_NAME}}",       Enc(projectName))
                 .Replace("{{HOURS_CONTRIBUTED}}",  Enc(hoursStr))
                 .Replace("{{COMPLETION_DATE}}",    Enc(completionDateStr))
-                .Replace("{{IMPACT_SCORE}}",       Enc(impactStr))
                 .Replace("{{COORDINATOR_NAME}}",   Enc(coordinatorName))
                 .Replace("{{SKILL_CHIPS_HTML}}",   skillChipsHtml)   // already safe HTML built below
                 .Replace("{{SKILL_CHIPS_STYLE}}",  skillChipsStyle)
