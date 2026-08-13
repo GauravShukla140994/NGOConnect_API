@@ -1447,7 +1447,9 @@ SELECT LookupTypeId, 'CERT_ISSUED', 'Certificate Issued', 7, 1, 1 FROM LookupTyp
 SELECT LookupTypeId, 'MEM_REQ_REVIEWED', 'Membership Reviewed', 8, 1, 1 FROM LookupTypes WHERE TypeCode = 'NOTIFICATION_TYPE' UNION ALL
 SELECT LookupTypeId, 'REVIEW_NEW',      'New Review',          9,  1, 1 FROM LookupTypes WHERE TypeCode = 'NOTIFICATION_TYPE' UNION ALL
 SELECT LookupTypeId, 'REVIEW_RESPONSE', 'Review Response',     10, 1, 1 FROM LookupTypes WHERE TypeCode = 'NOTIFICATION_TYPE' UNION ALL
-SELECT LookupTypeId, 'REVIEW_DELETED',  'Review Deleted',      11, 1, 1 FROM LookupTypes WHERE TypeCode = 'NOTIFICATION_TYPE';
+SELECT LookupTypeId, 'REVIEW_DELETED',       'Review Deleted',            11, 1, 1 FROM LookupTypes WHERE TypeCode = 'NOTIFICATION_TYPE' UNION ALL
+SELECT LookupTypeId, 'MEMBERSHIP_REQUEST',   'Membership Request',         12, 1, 1 FROM LookupTypes WHERE TypeCode = 'NOTIFICATION_TYPE' UNION ALL
+SELECT LookupTypeId, 'MEMBERSHIP_CANCELLED', 'Membership Request Withdrawn', 13, 1, 1 FROM LookupTypes WHERE TypeCode = 'NOTIFICATION_TYPE';
 
 -- LOCATION_TYPE
 INSERT INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue, CreatedBy)
@@ -2843,8 +2845,18 @@ BEGIN
     WHERE  lt.TypeCode = 'MEMBER_STATUS' AND lv.ValueCode = 'PENDING'
     LIMIT  1;
 
-    UPDATE OrgMembershipRequests
-    SET    IsDeleted = 1
+    -- Hard-delete instead of soft-delete (IsDeleted=1).
+    --
+    -- Root cause of intermittent "An error occurred":
+    --   The unique key uq_memreq_org_user is on (OrgId, UserId, IsDeleted).
+    --   After a first cancel cycle a row with IsDeleted=1 already exists.
+    --   A second cancel attempt tried UPDATE ... SET IsDeleted=1 on the new
+    --   PENDING row, producing a duplicate-key violation → MySQL exception.
+    --
+    -- Hard-delete is safe: Org_RequestMembership only checks for IsDeleted=0
+    -- rows before allowing re-apply, so deleting the PENDING row here lets
+    -- the user re-apply cleanly with a fresh INSERT on the next attempt.
+    DELETE FROM OrgMembershipRequests
     WHERE  OrgId       = p_OrgId
       AND  UserId      = p_UserId
       AND  StatusLkpId = v_PendingLkpId

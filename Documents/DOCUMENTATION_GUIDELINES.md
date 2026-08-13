@@ -272,6 +272,20 @@ When there is a conflict between files, this priority order applies:
 
 ## Current Pending Document Updates
 
+**Certificate verify page — moved to server-rendered HTML + real PDF download (2026-08-13)**
+- API side (already implemented locally, confirmed in `CertificateController.cs`): new `GET /certificates/verify/{token}/html` (`[AllowAnonymous]`) returns `ApiResponse<string>` — the fully server-rendered certificate HTML (`ICertificateHtmlService`/`CertificateHtmlService`, substitutes `{{PLACEHOLDER}}` tokens into `NGOConnect.API/Templates/CertificateTemplate.html`). Mirrors the existing auth-required `GET /certificates/{certCode}/html` used by the mobile WebView. Old `GET /certificates/verify/{token}` (JSON) endpoint unchanged, still used elsewhere. **This new endpoint was not yet deployed to Railway staging as of this session — confirm before relying on it in prod.**
+- `Website/src/pages/VerifyCertificatePage.jsx` — rewritten to call the new `/html` endpoint instead of fetching JSON + building the certificate client-side from a local template. Removed `mapToTemplateData`/`parseSkillRatings`/date-formatting helpers and the local template import entirely. `errorCode === 'CERT_REVOKED'` and `NOT_FOUND` handled as distinct states. Renders via `<iframe srcDoc={certHtml}>`.
+- `Website/src/assets/certificate-template.html` — deleted (no longer needed; the API now owns the template).
+- **Known trade-off**: since the website no longer receives structured certificate JSON, the per-certificate browser-tab title / OG meta personalization the old JSON-based version did is gone — page now keeps its static default title.
+- **Height-sizing bug found and fixed across 3 rounds this session** (all Website-only, in `VerifyCertificatePage.jsx`): (1) `minHeight: '100vh'` on the iframe fought against the dynamic height and forced full-viewport-tall boxes on short certificates — removed. (2) The server template's own `body{min-height:100vh}` caused the same one-way-ratchet bug as the old client template when measuring `doc.body.scrollHeight` — fixed by measuring the `.cert` card element directly. (3) The outer "fit to view" wrapper read `contentRef.current.scrollHeight` synchronously during React render (a one-render-behind stale value) — moved into the same effect that computes `scale`, stored in a new `wrapperHeight` state var. (4) Switched from a single `onLoad`-time height snapshot to a continuous `ResizeObserver` on `.cert`, since a one-shot measurement kept missing layout settling (fonts, sub-pixel rounding) even after the above fixes.
+- `main`'s padding trimmed (`py-6 sm:py-10` → `py-4 sm:py-6`) — the new template is a single compact ~700px card, not the old multi-section taller layout, so the old spacing read as excessive.
+- **New: real PDF download** — Download button now renders the `.cert` element to a high-res canvas (`html2canvas`, scale 3, `useCORS: true` for the QR image from api.qrserver.com) and drops it into a `jsPDF` page sized to exactly match (`unit: 'px'`, `format: [canvas.width, canvas.height]`) — no more relying on the browser's inconsistent print-to-PDF dialog. Filename built from the certificate ID + volunteer name parsed out of the rendered DOM (`.cid`, `.recipient`), e.g. `RippleHub-Certificate-CERT-2026-000014-Arjun-Sharma.pdf`.
+- New deps added to `Website/package.json`: `html2canvas@^1.4.1`, `jspdf@^2.5.2`, `core-js@^3.50.0` (transitive requirement of `html2canvas`'s `canvg` sub-dependency — without it the build fails resolving `core-js/modules/es.promise.js`). Sandbox `node_modules` got corrupted mid-session from several interrupted `npm install` calls (partial/mismatched package extractions — `canvg`, `react-router`, `framer-motion` all needed individual re-installs before the build went clean); not expected to affect a normal `npm install` on Railway, but worth a clean-slate install if the Website build ever fails on these packages specifically.
+- Build verified clean (`npm run build`, 880 modules). Note: main JS bundle grew from ~340KB to ~880KB gzip 270KB — html2canvas/jspdf/core-js aren't code-split. Not addressed (low-traffic feature page, not the main bundle) — flagging in case bundle size becomes a concern later; `React.lazy()` + dynamic `import()` on the download handler would fix it.
+- No documents to update (Website-only feature change, no SP/API contract or table changes — the new `/html` endpoint itself was NOT built this session, just confirmed already present).
+
+---
+
 **Certificate verify page — height-reporting ratchet bug (2026-08-07)**
 - Website-only, no SP/API/DB changes.
 - `Website/src/assets/certificate-template.html` → `reportHeight()`: was measuring `document.body.scrollHeight`, but body has `min-height: 100vh` and inside an iframe `100vh` == the iframe's own current CSS height — so the reported height could only ratchet upward, never shrink back down once the iframe grew to its 900px default. Left a permanent gap between the certificate card and the buttons below it whenever the real certificate was shorter than 900px. Fixed by measuring the `.certificate` element's own `getBoundingClientRect().height` (+ body padding) instead.
@@ -1844,3 +1858,29 @@ Documents to update when "update documents" is called:
   - `public/certificate-template.html` (or equivalent): can be removed once website is updated.
 - Validator: clean for this task. Pre-existing mismatches: FeedDal `p_seenexpirydays`, Org_GetDashboard false positive — both unrelated, carry forward.
 - No document version bump needed (no API contract changes visible in Postman/docs; new endpoints are additions only).
+
+---
+
+### [2026-08-12] Fix: Org_CancelMembershipRequest — duplicate-key crash on 2nd cancel
+
+- **Root cause:** `UNIQUE KEY uq_memreq_org_user (OrgId, UserId, IsDeleted)` on `OrgMembershipRequests` allows only one row with `IsDeleted=1` per `(OrgId, UserId)`. After a first cancel a row with `IsDeleted=1` already existed. A second cancel ran `UPDATE ... SET IsDeleted=1`, violating the unique constraint → MySQL exception → DAL catch → "An error occurred" on mobile (intermittent, only on 2nd+ cancel).
+- **Fix:** Changed SP body from `UPDATE ... SET IsDeleted=1` to `DELETE FROM OrgMembershipRequests`. Hard-delete is safe: `Org_RequestMembership` only checks `IsDeleted=0` rows before re-apply, so deletion lets the user reapply cleanly.
+- **Files changed:**
+  - `Documents/NGOConnect_Complete_Setup_v5.0.sql` — `Org_CancelMembershipRequest` SP updated (UPDATE → DELETE).
+  - `Documents/patch_fix_cancel_membership_request.sql` — **run on local DB → Railway staging → Railway production**.
+- No C# code changes. No API contract changes. No doc version bump needed.
+
+---
+
+### [2026-08-12] Fix: Org_CancelMembershipRequest — add admin notification on cancel
+
+- **Problem:** `CancelMembershipRequestAsync` fired no notification to org admins, unlike `RequestMembershipAsync` which fires `FireAdminNotifAsync`. Admins had no way to know a volunteer withdrew their request.
+- **Fix:** Added `_ = FireAdminNotifAsync(orgId, "Membership Request Withdrawn", "A volunteer has withdrawn their join request.", "MEMBERSHIP_CANCELLED", orgId, "ORG")` after successful SP execution in `CancelMembershipRequestAsync`.
+- **Also fixed:** `MEMBERSHIP_REQUEST` and new `MEMBERSHIP_CANCELLED` LookupValues were missing from `NOTIFICATION_TYPE` seed — added to setup SQL and patch file.
+- **Files changed:**
+  - `NGOConnect.Infrastructure/DAL/OrgDal.cs` — `CancelMembershipRequestAsync`: added `FireAdminNotifAsync` call after `result.Succeeded`.
+  - `Documents/NGOConnect_Complete_Setup_v5.0.sql` — added `MEMBERSHIP_REQUEST` (order 12) and `MEMBERSHIP_CANCELLED` (order 13) to `NOTIFICATION_TYPE` LookupValues.
+  - `Documents/patch_fix_cancel_membership_request.sql` — prepended two `INSERT IGNORE` statements for the new LookupValues (run this updated patch on all DBs).
+  - `App/NGOConnectApp/src/screens/home/NotificationsScreen.tsx` — added `MEMBERSHIP_CANCELLED` to `notifMeta` (↩️ grey) and `resolveScreen` (→ MyOrgs).
+  - `App/NGOConnectApp/src/navigation/RootNavigator.tsx` — added `MEMBERSHIP_CANCELLED` case (→ MyOrgs).
+- No API contract changes. No doc version bump needed.

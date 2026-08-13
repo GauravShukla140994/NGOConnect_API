@@ -671,6 +671,10 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_OrgId",  orgId);
                     _db.AddParameter(cmd, "p_UserId", userId);
                 });
+                if (result.Succeeded)
+                    _ = FireAdminNotifAsync(orgId, "Membership Request Withdrawn",
+                        "A volunteer has withdrawn their join request.",
+                        "MEMBERSHIP_CANCELLED", orgId, "ORG");
                 return result.ToApiResponse();
             }
             catch (Exception ex)
