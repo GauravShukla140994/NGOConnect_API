@@ -293,6 +293,8 @@ CREATE TABLE Organisations (
     UpdatedBy       INT UNSIGNED    NULL,
     FollowerCount           INT UNSIGNED    NOT NULL DEFAULT 0    COMMENT 'Denormalized follower count — maintained by Org_Follow / Org_Unfollow SPs',
     VerificationStatusLkpId INT UNSIGNED    NULL     COMMENT 'Super Admin document/legal verification state — FK to ORG_VERIFICATION_STATUS LookupType',
+    CanCreateRecurring      TINYINT(1)      NOT NULL DEFAULT 0    COMMENT 'Super Admin grants right to create RECURRING projects (subscription/plan gate)',
+    CanCreateFlexible       TINYINT(1)      NOT NULL DEFAULT 0    COMMENT 'Super Admin grants right to create FLEXIBLE projects (subscription/plan gate)',
     PRIMARY KEY (OrgId),
     UNIQUE KEY uq_org_regnumber (RegNumber, IsDeleted),
     INDEX idx_org_status       (StatusLkpId, IsDeleted),
@@ -466,6 +468,9 @@ CREATE TABLE Projects (
     FlexFromDate      DATE          NULL,
     FlexToDate        DATE          NULL,
     MinHoursRequired  INT UNSIGNED  NULL,
+    MinAttendPct      DECIMAL(5,2)  NULL COMMENT '% attendance required for cert eligibility',
+    MaxDailyHours     DECIMAL(4,2)  NULL COMMENT 'FLEXIBLE: max hours per day cap',
+    MinSessionHours   DECIMAL(4,2)  NULL COMMENT 'Min session hours to count as attended',
     LocationTypeLkpId INT UNSIGNED  NOT NULL,
     AddressLine       VARCHAR(300)  NULL,
     Landmark          VARCHAR(200)  NULL,
@@ -580,6 +585,47 @@ CREATE TABLE ProjectAttendance (
     INDEX idx_attend_user (UserId),
     CONSTRAINT fk_attend_session FOREIGN KEY (SessionId) REFERENCES ProjectSessions(SessionId),
     CONSTRAINT fk_attend_user    FOREIGN KEY (UserId)    REFERENCES Users(UserId)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- v5.1: Per-session skill ratings for RECURRING + FLEXIBLE projects
+CREATE TABLE UserSessionSkillRatings (
+    SessionSkillRatingId INT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    SessionId            INT UNSIGNED  NOT NULL,
+    UserId               INT UNSIGNED  NOT NULL,
+    ProjectId            INT UNSIGNED  NOT NULL,
+    SkillId              INT UNSIGNED  NOT NULL,   -- ProjectSkills.ProjectSkillId
+    Rating               DECIMAL(3,2) NOT NULL,   -- 1.0–5.0
+    RatedBy              INT UNSIGNED  NOT NULL,
+    Notes                TEXT          NULL,
+    CreatedAt            DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UpdatedAt            DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (SessionSkillRatingId),
+    UNIQUE KEY uq_ssr (SessionId, UserId, SkillId),
+    INDEX idx_ssr_user    (UserId),
+    INDEX idx_ssr_session (SessionId),
+    INDEX idx_ssr_project (ProjectId),
+    CONSTRAINT fk_ssr_session  FOREIGN KEY (SessionId)  REFERENCES ProjectSessions(SessionId),
+    CONSTRAINT fk_ssr_user     FOREIGN KEY (UserId)     REFERENCES Users(UserId),
+    CONSTRAINT fk_ssr_ratedby  FOREIGN KEY (RatedBy)    REFERENCES Users(UserId)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- v5.1: Session-level opt-outs (SELF / ADMIN_EXCUSED / ADMIN_REMOVED)
+CREATE TABLE VolunteerSessionOptOuts (
+    OptOutId        INT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    SessionId       INT UNSIGNED  NOT NULL,
+    UserId          INT UNSIGNED  NOT NULL,
+    ProjectId       INT UNSIGNED  NOT NULL,
+    OptOutTypeLkpId INT UNSIGNED  NOT NULL,
+    Reason          TEXT          NULL,
+    CreatedAt       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CreatedBy       INT UNSIGNED  NOT NULL,
+    PRIMARY KEY (OptOutId),
+    UNIQUE KEY uq_session_optout (SessionId, UserId),
+    INDEX idx_optout_user    (UserId),
+    INDEX idx_optout_session (SessionId),
+    INDEX idx_optout_project (ProjectId),
+    CONSTRAINT fk_optout_session FOREIGN KEY (SessionId) REFERENCES ProjectSessions(SessionId),
+    CONSTRAINT fk_optout_user    FOREIGN KEY (UserId)    REFERENCES Users(UserId)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE VolunteerCertificates (
@@ -3057,7 +3103,7 @@ BEGIN
     SELECT 1 AS IsSuccess, 'Project created.' AS Message, LAST_INSERT_ID() AS ProjectId;
 END //
 
--- v4.0 MODIFIED: returns all 17 schedule/location/restriction fields
+-- v5.1 MODIFIED: returns all 17 schedule/location/restriction fields + MinAttendPct/MaxDailyHours/MinSessionHours/TotalSessions
 CREATE PROCEDURE Project_GetById(IN p_ProjectId INT UNSIGNED, IN p_UserId INT UNSIGNED)
 BEGIN
     SELECT
@@ -3073,6 +3119,7 @@ BEGIN
         DATE_FORMAT(p.FlexFromDate,  '%Y-%m-%d') AS FlexFromDate,
         DATE_FORMAT(p.FlexToDate,    '%Y-%m-%d') AS FlexToDate,
         p.MinHoursRequired,
+        p.MinAttendPct, p.MaxDailyHours, p.MinSessionHours,
         ltv.ValueCode AS LocationTypeCode, ltv.ValueName AS LocationType,
         p.AddressLine, p.Landmark, p.City, p.State,
         p.Latitude, p.Longitude, p.GoogleMapsUrl,
@@ -3086,6 +3133,7 @@ BEGIN
         (SELECT COUNT(*) FROM ProjectApplications WHERE ProjectId = p.ProjectId
             AND StatusLkpId = (SELECT LookupValueId FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId=lt.LookupTypeId WHERE lt.TypeCode='APPLICATION_STATUS' AND lv.ValueCode='APPROVED')
             AND IsDeleted = 0) AS ApprovedCount,
+        (SELECT COUNT(*) FROM ProjectSessions WHERE ProjectId = p.ProjectId AND IsDeleted = 0) AS TotalSessions,
         (SELECT lv2.ValueCode FROM ProjectApplications pa2
             JOIN LookupValues lv2 ON pa2.StatusLkpId = lv2.LookupValueId
             WHERE pa2.ProjectId = p.ProjectId AND pa2.UserId = p_UserId AND pa2.IsDeleted = 0
@@ -3781,7 +3829,7 @@ BEGIN
     SELECT
         p.PostId, p.Content,
         ptv.ValueCode AS PostType, ptv.ValueName AS PostTypeName,
-        p.LikeCount, p.CommentCount, p.IsPinned, p.CreatedAt, p.UpdatedAt,
+        p.LikeCount, p.CommentCount, p.ViewCount, p.IsPinned, p.CreatedAt, p.UpdatedAt,
         p.UserId, CONCAT(up.FirstName,' ',up.LastName) AS AuthorName, up.ProfilePhoto,
         p.OrgId, o.OrgName, o.LogoUrl AS OrgLogo,
         IF(pl.PostLikeId IS NOT NULL, 1, 0) AS IsLiked,
@@ -4555,18 +4603,25 @@ BEGIN
     WHERE vc.CertificateId = p_CertificateId;
 END //
 
--- Issues (or returns existing) certificate for a volunteer on a project
+-- v5.1: Issues (or returns existing) certificate. TotalHours computed from DB (p_TotalHours removed).
 CREATE PROCEDURE Certificate_Issue(
-    IN p_ProjectId  INT UNSIGNED,
-    IN p_UserId     INT UNSIGNED,
-    IN p_OrgId      INT UNSIGNED,
-    IN p_IssuedBy   INT UNSIGNED,
-    IN p_TotalHours DECIMAL(6,2)
+    IN p_ProjectId INT UNSIGNED,
+    IN p_UserId    INT UNSIGNED,
+    IN p_OrgId     INT UNSIGNED,
+    IN p_IssuedBy  INT UNSIGNED
 )
 BEGIN
-    DECLARE v_CertCode VARCHAR(20);
+    DECLARE v_CertCode   VARCHAR(20);
+    DECLARE v_TotalHours DECIMAL(6,2) DEFAULT 0;
 
-    -- Return existing cert if already issued
+    SELECT COALESCE(SUM(pa.HoursLogged), 0) INTO v_TotalHours
+    FROM   ProjectAttendance pa
+    JOIN   ProjectSessions   ps ON pa.SessionId = ps.SessionId
+    JOIN   LookupValues      lv ON pa.AttendStatusLkpId = lv.LookupValueId
+    JOIN   LookupTypes       lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE  ps.ProjectId = p_ProjectId AND pa.UserId = p_UserId
+      AND  lt.TypeCode = 'ATTENDANCE_STATUS' AND lv.ValueCode = 'ATTENDED';
+
     SELECT CertCode INTO v_CertCode
     FROM   VolunteerCertificates
     WHERE  ProjectId = p_ProjectId AND UserId = p_UserId AND IsDeleted = 0
@@ -4575,7 +4630,10 @@ BEGIN
     IF v_CertCode IS NOT NULL THEN
         SELECT 1 AS IsSuccess, 'Certificate already issued.' AS Message, v_CertCode AS CertCode;
     ELSE
-        -- Generate CERT-YYYY-NNNNNN
+        -- Self-healing: ensure the current-year row exists (handles year rollover)
+        INSERT IGNORE INTO IdSequences (SequenceName, CurrentYear, LastValue)
+        VALUES ('CERT', YEAR(NOW()), 0);
+
         UPDATE IdSequences SET LastValue = LastValue + 1
         WHERE  SequenceName = 'CERT' AND CurrentYear = YEAR(NOW());
 
@@ -4583,7 +4641,7 @@ BEGIN
         FROM   IdSequences WHERE SequenceName = 'CERT' AND CurrentYear = YEAR(NOW());
 
         INSERT INTO VolunteerCertificates (CertCode, ProjectId, UserId, OrgId, TotalHours, IssuedBy)
-        VALUES (v_CertCode, p_ProjectId, p_UserId, p_OrgId, p_TotalHours, p_IssuedBy);
+        VALUES (v_CertCode, p_ProjectId, p_UserId, p_OrgId, v_TotalHours, p_IssuedBy);
 
         SELECT 1 AS IsSuccess, 'Certificate issued successfully.' AS Message, v_CertCode AS CertCode;
     END IF;
@@ -5950,16 +6008,131 @@ CREATE PROCEDURE Project_Create(
     IN p_CoverImageUrl     VARCHAR(255),
     IN p_City              VARCHAR(100),
     IN p_State             VARCHAR(100),
-    IN p_IsDraft           TINYINT(1)
+    IN p_IsDraft           TINYINT(1),
+    IN p_MinAttendPct      DECIMAL(5,2),
+    IN p_MaxDailyHours     DECIMAL(4,2),
+    IN p_MinSessionHours   DECIMAL(4,2)
 )
 BEGIN
-    DECLARE v_ProjectTypeLkpId  INT UNSIGNED DEFAULT NULL;
-    DECLARE v_LocationTypeLkpId INT UNSIGNED DEFAULT NULL;
-    DECLARE v_JoinTypeLkpId     INT UNSIGNED DEFAULT NULL;
-    DECLARE v_StatusLkpId       INT UNSIGNED DEFAULT NULL;
+    DECLARE v_ProjectTypeLkpId   INT UNSIGNED    DEFAULT NULL;
+    DECLARE v_LocationTypeLkpId  INT UNSIGNED    DEFAULT NULL;
+    DECLARE v_JoinTypeLkpId      INT UNSIGNED    DEFAULT NULL;
+    DECLARE v_StatusLkpId        INT UNSIGNED    DEFAULT NULL;
+
+    -- Settings-based validation variables
+    DECLARE v_Error              VARCHAR(500)    DEFAULT NULL;
+    DECLARE v_OtMaxHours         INT             DEFAULT 12;
+    DECLARE v_RecurMaxDays       INT             DEFAULT 90;
+    DECLARE v_RecurMinDays       INT             DEFAULT 7;
+    DECLARE v_FlexMaxDays        INT             DEFAULT 60;
+    DECLARE v_FlexMinDays        INT             DEFAULT 3;
+    DECLARE v_FlexMaxDailyHrs    DECIMAL(4,2)    DEFAULT 8;
+    DECLARE v_FlexMinSessHrs     DECIMAL(4,2)    DEFAULT 1;
+    DECLARE v_FlexMinAttendPct   DECIMAL(5,2)    DEFAULT 70;
+    DECLARE v_RecurMinAttendPct  DECIMAL(5,2)    DEFAULT 70;
+    DECLARE v_SessionDurHours    DECIMAL(6,2)    DEFAULT NULL;
+    DECLARE v_SpanDays           INT             DEFAULT NULL;
+
+    -- Load settings (fall back to declared defaults if setting row missing)
+    SELECT CAST(SettingValue AS SIGNED)          INTO v_OtMaxHours        FROM Settings WHERE SettingKey = 'OT_MAX_DURATION_HOURS'       AND IsDeleted = 0 LIMIT 1;
+    SELECT CAST(SettingValue AS SIGNED)          INTO v_RecurMaxDays       FROM Settings WHERE SettingKey = 'RECURRING_MAX_DURATION_DAYS'  AND IsDeleted = 0 LIMIT 1;
+    SELECT CAST(SettingValue AS SIGNED)          INTO v_RecurMinDays       FROM Settings WHERE SettingKey = 'RECURRING_MIN_DURATION_DAYS'  AND IsDeleted = 0 LIMIT 1;
+    SELECT CAST(SettingValue AS SIGNED)          INTO v_FlexMaxDays        FROM Settings WHERE SettingKey = 'FLEXIBLE_MAX_DURATION_DAYS'   AND IsDeleted = 0 LIMIT 1;
+    SELECT CAST(SettingValue AS SIGNED)          INTO v_FlexMinDays        FROM Settings WHERE SettingKey = 'FLEXIBLE_MIN_DURATION_DAYS'   AND IsDeleted = 0 LIMIT 1;
+    SELECT CAST(SettingValue AS DECIMAL(4,2))    INTO v_FlexMaxDailyHrs    FROM Settings WHERE SettingKey = 'FLEXIBLE_MAX_DAILY_HOURS'     AND IsDeleted = 0 LIMIT 1;
+    SELECT CAST(SettingValue AS DECIMAL(4,2))    INTO v_FlexMinSessHrs     FROM Settings WHERE SettingKey = 'FLEXIBLE_MIN_SESSION_HOURS'   AND IsDeleted = 0 LIMIT 1;
+    SELECT CAST(SettingValue AS DECIMAL(5,2))    INTO v_FlexMinAttendPct   FROM Settings WHERE SettingKey = 'FLEXIBLE_MIN_ATTEND_PCT'      AND IsDeleted = 0 LIMIT 1;
+    SELECT CAST(SettingValue AS DECIMAL(5,2))    INTO v_RecurMinAttendPct  FROM Settings WHERE SettingKey = 'RECURRING_MIN_ATTEND_PCT'     AND IsDeleted = 0 LIMIT 1;
+
+    -- ── Validation ────────────────────────────────────────────────────────────
+    -- ONE_TIME: session duration must not exceed OT_MAX_DURATION_HOURS
+    IF v_Error IS NULL AND p_ScheduleType = 'ONE_TIME'
+       AND p_StartTime IS NOT NULL AND p_EndTime IS NOT NULL THEN
+        SET v_SessionDurHours = (
+            TIME_TO_SEC(CAST(p_EndTime AS TIME)) - TIME_TO_SEC(CAST(p_StartTime AS TIME))
+        ) / 3600.0;
+        IF v_SessionDurHours <= 0 THEN
+            SET v_Error = 'Session end time must be after start time.';
+        ELSEIF v_SessionDurHours > v_OtMaxHours THEN
+            SET v_Error = CONCAT('Session duration cannot exceed ', v_OtMaxHours,
+                                 ' hours for a ONE_TIME project. Please adjust start and end times.');
+        END IF;
+    END IF;
+
+    -- RECURRING: date span must be within RECURRING_MIN/MAX_DURATION_DAYS
+    IF v_Error IS NULL AND p_ScheduleType = 'RECURRING'
+       AND p_StartDate IS NOT NULL AND p_EndDate IS NOT NULL THEN
+        SET v_SpanDays = DATEDIFF(p_EndDate, p_StartDate);
+        IF v_SpanDays < v_RecurMinDays THEN
+            SET v_Error = CONCAT('RECURRING projects must span at least ', v_RecurMinDays, ' days.');
+        ELSEIF v_SpanDays > v_RecurMaxDays THEN
+            SET v_Error = CONCAT('RECURRING projects cannot span more than ', v_RecurMaxDays, ' days.');
+        END IF;
+    END IF;
+
+    -- FLEXIBLE: date span must be within FLEXIBLE_MIN/MAX_DURATION_DAYS
+    IF v_Error IS NULL AND p_ScheduleType = 'FLEXIBLE'
+       AND p_StartDate IS NOT NULL AND p_EndDate IS NOT NULL THEN
+        SET v_SpanDays = DATEDIFF(p_EndDate, p_StartDate);
+        IF v_SpanDays < v_FlexMinDays THEN
+            SET v_Error = CONCAT('FLEXIBLE projects must span at least ', v_FlexMinDays, ' days.');
+        ELSEIF v_SpanDays > v_FlexMaxDays THEN
+            SET v_Error = CONCAT('FLEXIBLE projects cannot span more than ', v_FlexMaxDays, ' days.');
+        END IF;
+    END IF;
+
+    -- FLEXIBLE: MaxDailyHours must be >= system floor (project can override upward only)
+    IF v_Error IS NULL AND p_ScheduleType = 'FLEXIBLE' AND p_MaxDailyHours IS NOT NULL THEN
+        IF p_MaxDailyHours < v_FlexMaxDailyHrs THEN
+            SET v_Error = CONCAT('Max daily hours cannot be less than the platform minimum of ',
+                                 v_FlexMaxDailyHrs, ' hours.');
+        END IF;
+    END IF;
+
+    -- FLEXIBLE: MinSessionHours must be >= system floor
+    IF v_Error IS NULL AND p_ScheduleType = 'FLEXIBLE' AND p_MinSessionHours IS NOT NULL THEN
+        IF p_MinSessionHours < v_FlexMinSessHrs THEN
+            SET v_Error = CONCAT('Minimum session hours cannot be less than the platform minimum of ',
+                                 v_FlexMinSessHrs, ' hour(s).');
+        END IF;
+    END IF;
+
+    -- FLEXIBLE: MinAttendPct must be >= system floor
+    IF v_Error IS NULL AND p_ScheduleType = 'FLEXIBLE' AND p_MinAttendPct IS NOT NULL THEN
+        IF p_MinAttendPct < v_FlexMinAttendPct THEN
+            SET v_Error = CONCAT('Minimum attendance % cannot be below the platform minimum of ',
+                                 v_FlexMinAttendPct, '% for FLEXIBLE projects.');
+        END IF;
+    END IF;
+
+    -- RECURRING: MinAttendPct must be >= system floor
+    IF v_Error IS NULL AND p_ScheduleType = 'RECURRING' AND p_MinAttendPct IS NOT NULL THEN
+        IF p_MinAttendPct < v_RecurMinAttendPct THEN
+            SET v_Error = CONCAT('Minimum attendance % cannot be below the platform minimum of ',
+                                 v_RecurMinAttendPct, '% for RECURRING projects.');
+        END IF;
+    END IF;
+
+    -- ORG PERMISSION: RECURRING projects require Super Admin grant
+    IF v_Error IS NULL AND p_ScheduleType = 'RECURRING' THEN
+        IF NOT EXISTS (SELECT 1 FROM Organisations WHERE OrgId = p_OrgId AND CanCreateRecurring = 1 AND IsDeleted = 0) THEN
+            SET v_Error = 'Your organisation does not have permission to create RECURRING projects. Please contact support to upgrade your plan.';
+        END IF;
+    END IF;
+
+    -- ORG PERMISSION: FLEXIBLE projects require Super Admin grant
+    IF v_Error IS NULL AND p_ScheduleType = 'FLEXIBLE' THEN
+        IF NOT EXISTS (SELECT 1 FROM Organisations WHERE OrgId = p_OrgId AND CanCreateFlexible = 1 AND IsDeleted = 0) THEN
+            SET v_Error = 'Your organisation does not have permission to create FLEXIBLE projects. Please contact support to upgrade your plan.';
+        END IF;
+    END IF;
+
+    -- Return validation error if any check failed
+    IF v_Error IS NOT NULL THEN
+        SELECT 0 AS IsSuccess, v_Error AS Message, NULL AS ProjectId;
 
     -- Duplicate check 1: same org + same title (case-insensitive, trimmed)
-    IF EXISTS (
+    ELSEIF EXISTS (
         SELECT 1 FROM Projects
         WHERE OrgId                    = p_OrgId
           AND LOWER(TRIM(ProjectName)) = LOWER(TRIM(p_Title))
@@ -6058,7 +6231,7 @@ BEGIN
             Latitude, Longitude, GoogleMapsUrl,
             MaxVolunteers, JoinTypeLkpId, IsPublic,
             AgeRestriction, IdVerRequired, MinReliability,
-            StatusLkpId, CreatedBy
+            StatusLkpId, MinAttendPct, MaxDailyHours, MinSessionHours, CreatedBy
         ) VALUES (
             p_OrgId,
             p_Title,
@@ -6085,6 +6258,7 @@ BEGIN
             0,
             0.00,
             v_StatusLkpId,
+            p_MinAttendPct, p_MaxDailyHours, p_MinSessionHours,
             p_UserId
         );
 
@@ -6127,13 +6301,121 @@ CREATE PROCEDURE Project_Update(
     IN p_CoverImageUrl     VARCHAR(255),
     IN p_City              VARCHAR(100),
     IN p_State             VARCHAR(100),
-    IN p_IsDraft           TINYINT(1)
+    IN p_IsDraft           TINYINT(1),
+    IN p_MinAttendPct      DECIMAL(5,2),
+    IN p_MaxDailyHours     DECIMAL(4,2),
+    IN p_MinSessionHours   DECIMAL(4,2)
 )
 BEGIN
     DECLARE v_ProjectTypeLkpId  INT UNSIGNED DEFAULT NULL;
-    DECLARE v_LocationTypeLkpId INT UNSIGNED DEFAULT NULL;
-    DECLARE v_JoinTypeLkpId     INT UNSIGNED DEFAULT NULL;
-    DECLARE v_StatusLkpId       INT UNSIGNED DEFAULT NULL;
+    DECLARE v_LocationTypeLkpId  INT UNSIGNED    DEFAULT NULL;
+    DECLARE v_JoinTypeLkpId      INT UNSIGNED    DEFAULT NULL;
+    DECLARE v_StatusLkpId        INT UNSIGNED    DEFAULT NULL;
+
+    -- Settings-based validation variables
+    DECLARE v_Error              VARCHAR(500)    DEFAULT NULL;
+    DECLARE v_OtMaxHours         INT             DEFAULT 12;
+    DECLARE v_RecurMaxDays       INT             DEFAULT 90;
+    DECLARE v_RecurMinDays       INT             DEFAULT 7;
+    DECLARE v_FlexMaxDays        INT             DEFAULT 60;
+    DECLARE v_FlexMinDays        INT             DEFAULT 3;
+    DECLARE v_FlexMaxDailyHrs    DECIMAL(4,2)    DEFAULT 8;
+    DECLARE v_FlexMinSessHrs     DECIMAL(4,2)    DEFAULT 1;
+    DECLARE v_FlexMinAttendPct   DECIMAL(5,2)    DEFAULT 70;
+    DECLARE v_RecurMinAttendPct  DECIMAL(5,2)    DEFAULT 70;
+    DECLARE v_SessionDurHours    DECIMAL(6,2)    DEFAULT NULL;
+    DECLARE v_SpanDays           INT             DEFAULT NULL;
+
+    -- Load settings
+    SELECT CAST(SettingValue AS SIGNED)          INTO v_OtMaxHours        FROM Settings WHERE SettingKey = 'OT_MAX_DURATION_HOURS'       AND IsDeleted = 0 LIMIT 1;
+    SELECT CAST(SettingValue AS SIGNED)          INTO v_RecurMaxDays       FROM Settings WHERE SettingKey = 'RECURRING_MAX_DURATION_DAYS'  AND IsDeleted = 0 LIMIT 1;
+    SELECT CAST(SettingValue AS SIGNED)          INTO v_RecurMinDays       FROM Settings WHERE SettingKey = 'RECURRING_MIN_DURATION_DAYS'  AND IsDeleted = 0 LIMIT 1;
+    SELECT CAST(SettingValue AS SIGNED)          INTO v_FlexMaxDays        FROM Settings WHERE SettingKey = 'FLEXIBLE_MAX_DURATION_DAYS'   AND IsDeleted = 0 LIMIT 1;
+    SELECT CAST(SettingValue AS SIGNED)          INTO v_FlexMinDays        FROM Settings WHERE SettingKey = 'FLEXIBLE_MIN_DURATION_DAYS'   AND IsDeleted = 0 LIMIT 1;
+    SELECT CAST(SettingValue AS DECIMAL(4,2))    INTO v_FlexMaxDailyHrs    FROM Settings WHERE SettingKey = 'FLEXIBLE_MAX_DAILY_HOURS'     AND IsDeleted = 0 LIMIT 1;
+    SELECT CAST(SettingValue AS DECIMAL(4,2))    INTO v_FlexMinSessHrs     FROM Settings WHERE SettingKey = 'FLEXIBLE_MIN_SESSION_HOURS'   AND IsDeleted = 0 LIMIT 1;
+    SELECT CAST(SettingValue AS DECIMAL(5,2))    INTO v_FlexMinAttendPct   FROM Settings WHERE SettingKey = 'FLEXIBLE_MIN_ATTEND_PCT'      AND IsDeleted = 0 LIMIT 1;
+    SELECT CAST(SettingValue AS DECIMAL(5,2))    INTO v_RecurMinAttendPct  FROM Settings WHERE SettingKey = 'RECURRING_MIN_ATTEND_PCT'     AND IsDeleted = 0 LIMIT 1;
+
+    -- ── Validation (only when relevant fields are being changed) ──────────────
+    IF v_Error IS NULL AND p_ScheduleType = 'ONE_TIME'
+       AND p_StartTime IS NOT NULL AND p_EndTime IS NOT NULL THEN
+        SET v_SessionDurHours = (
+            TIME_TO_SEC(CAST(p_EndTime AS TIME)) - TIME_TO_SEC(CAST(p_StartTime AS TIME))
+        ) / 3600.0;
+        IF v_SessionDurHours <= 0 THEN
+            SET v_Error = 'Session end time must be after start time.';
+        ELSEIF v_SessionDurHours > v_OtMaxHours THEN
+            SET v_Error = CONCAT('Session duration cannot exceed ', v_OtMaxHours,
+                                 ' hours for a ONE_TIME project. Please adjust start and end times.');
+        END IF;
+    END IF;
+
+    IF v_Error IS NULL AND p_ScheduleType = 'RECURRING'
+       AND p_StartDate IS NOT NULL AND p_EndDate IS NOT NULL THEN
+        SET v_SpanDays = DATEDIFF(p_EndDate, p_StartDate);
+        IF v_SpanDays < v_RecurMinDays THEN
+            SET v_Error = CONCAT('RECURRING projects must span at least ', v_RecurMinDays, ' days.');
+        ELSEIF v_SpanDays > v_RecurMaxDays THEN
+            SET v_Error = CONCAT('RECURRING projects cannot span more than ', v_RecurMaxDays, ' days.');
+        END IF;
+    END IF;
+
+    IF v_Error IS NULL AND p_ScheduleType = 'FLEXIBLE'
+       AND p_StartDate IS NOT NULL AND p_EndDate IS NOT NULL THEN
+        SET v_SpanDays = DATEDIFF(p_EndDate, p_StartDate);
+        IF v_SpanDays < v_FlexMinDays THEN
+            SET v_Error = CONCAT('FLEXIBLE projects must span at least ', v_FlexMinDays, ' days.');
+        ELSEIF v_SpanDays > v_FlexMaxDays THEN
+            SET v_Error = CONCAT('FLEXIBLE projects cannot span more than ', v_FlexMaxDays, ' days.');
+        END IF;
+    END IF;
+
+    IF v_Error IS NULL AND p_ScheduleType = 'FLEXIBLE' AND p_MaxDailyHours IS NOT NULL THEN
+        IF p_MaxDailyHours < v_FlexMaxDailyHrs THEN
+            SET v_Error = CONCAT('Max daily hours cannot be less than the platform minimum of ',
+                                 v_FlexMaxDailyHrs, ' hours.');
+        END IF;
+    END IF;
+
+    IF v_Error IS NULL AND p_ScheduleType = 'FLEXIBLE' AND p_MinSessionHours IS NOT NULL THEN
+        IF p_MinSessionHours < v_FlexMinSessHrs THEN
+            SET v_Error = CONCAT('Minimum session hours cannot be less than the platform minimum of ',
+                                 v_FlexMinSessHrs, ' hour(s).');
+        END IF;
+    END IF;
+
+    IF v_Error IS NULL AND p_ScheduleType = 'FLEXIBLE' AND p_MinAttendPct IS NOT NULL THEN
+        IF p_MinAttendPct < v_FlexMinAttendPct THEN
+            SET v_Error = CONCAT('Minimum attendance % cannot be below the platform minimum of ',
+                                 v_FlexMinAttendPct, '% for FLEXIBLE projects.');
+        END IF;
+    END IF;
+
+    IF v_Error IS NULL AND p_ScheduleType = 'RECURRING' AND p_MinAttendPct IS NOT NULL THEN
+        IF p_MinAttendPct < v_RecurMinAttendPct THEN
+            SET v_Error = CONCAT('Minimum attendance % cannot be below the platform minimum of ',
+                                 v_RecurMinAttendPct, '% for RECURRING projects.');
+        END IF;
+    END IF;
+
+    -- ORG PERMISSION: RECURRING projects require Super Admin grant
+    IF v_Error IS NULL AND p_ScheduleType = 'RECURRING' THEN
+        IF NOT EXISTS (SELECT 1 FROM Organisations WHERE OrgId = p_OrgId AND CanCreateRecurring = 1 AND IsDeleted = 0) THEN
+            SET v_Error = 'Your organisation does not have permission to create RECURRING projects. Please contact support to upgrade your plan.';
+        END IF;
+    END IF;
+
+    -- ORG PERMISSION: FLEXIBLE projects require Super Admin grant
+    IF v_Error IS NULL AND p_ScheduleType = 'FLEXIBLE' THEN
+        IF NOT EXISTS (SELECT 1 FROM Organisations WHERE OrgId = p_OrgId AND CanCreateFlexible = 1 AND IsDeleted = 0) THEN
+            SET v_Error = 'Your organisation does not have permission to create FLEXIBLE projects. Please contact support to upgrade your plan.';
+        END IF;
+    END IF;
+
+    IF v_Error IS NOT NULL THEN
+        SELECT 0 AS IsSuccess, v_Error AS Message;
+    ELSE
 
     IF p_ProjectTypeLkpId IS NOT NULL THEN
         SET v_ProjectTypeLkpId = p_ProjectTypeLkpId;
@@ -6196,11 +6478,16 @@ BEGIN
         IsPublic          = COALESCE(p_IsPublic,          IsPublic),
         AgeRestriction    = IF(p_MinAge IS NOT NULL, IF(p_MinAge >= 18, 1, 0), AgeRestriction),
         StatusLkpId       = COALESCE(v_StatusLkpId,       StatusLkpId),
+        MinAttendPct      = COALESCE(p_MinAttendPct,      MinAttendPct),
+        MaxDailyHours     = COALESCE(p_MaxDailyHours,     MaxDailyHours),
+        MinSessionHours   = COALESCE(p_MinSessionHours,   MinSessionHours),
         UpdatedBy         = p_UserId,
         UpdatedAt         = NOW()
     WHERE ProjectId = p_ProjectId AND IsDeleted = 0;
 
     SELECT 1 AS IsSuccess, 'Project updated successfully.' AS Message;
+
+    END IF; -- v_Error IS NOT NULL check
 END //
 
 -- ── Project_List: v4.3 — adds ScheduleType, LocationName, Address,
@@ -7991,6 +8278,7 @@ BEGIN
         COALESCE(vv.ValueCode, 'PENDING') AS VerificationStatusCode,
         o.AvgRating, o.RatingCount, o.Latitude, o.Longitude, o.CreatedAt,
         o.FollowerCount,
+        o.CanCreateRecurring, o.CanCreateFlexible,
         IFNULL((SELECT of2.IsFollowing
                 FROM OrgFollowers of2
                 WHERE of2.OrgId = o.OrgId AND of2.UserId = p_UserId
@@ -8548,7 +8836,7 @@ BEGIN
         IF v_ProjectStatus IN ('CANCELLED', 'EXPIRED') THEN
             SET v_ValidationError = CONCAT('Cannot mark attendance: project is ', v_ProjectStatus, '.');
 
-        ELSEIF v_ProjectStatus IN ('ACTIVE', 'UPCOMING') THEN
+        ELSEIF v_ProjectStatus IN ('ACTIVE', 'UPCOMING', 'CLOSING') THEN
             -- Resolve today's session date in IST
             SET v_NowIST   = CONVERT_TZ(NOW(), '+00:00', '+05:30');
             SET v_TodayIST = DATE(v_NowIST);
@@ -9138,6 +9426,10 @@ BEGIN
         o.ContactEmail, o.ContactPhone, o.Website,
         o.AddressLine1, o.AddressLine2, o.City, o.State, o.Pincode, o.Country,
         o.Is80GEligible, o.Is12AEligible,
+        -- v5.1-org-perms: needed by the Super Admin website's Project Permissions
+        -- toggle section — was only ever added to Org_GetProfile (mobile-facing),
+        -- not here, so the Super Admin org detail response never carried these.
+        o.CanCreateRecurring, o.CanCreateFlexible,
         tv.ValueName AS OrgType,
         sv.ValueCode AS StatusCode, sv.ValueName AS StatusName,
         o.CreatedAt AS SubmittedAt, o.StatusUpdatedAt,
@@ -12519,3 +12811,1154 @@ VALUES ('v5.1', 'v5.1: NGO Reviews module — 3 new LookupTypes (REVIEWER_TYPE, 
 -- ============================================================
 -- END OF v5.1 ADDITIONS
 -- ============================================================
+
+-- ============================================================
+-- v5.1 ADDITIONS: RECURRING + FLEXIBLE Project Flow
+-- ============================================================
+
+-- ── Lookup Seeds ─────────────────────────────────────────────
+
+INSERT IGNORE INTO LookupTypes (TypeCode, TypeName, Description, IsActive, IsSystemType)
+VALUES ('SESSION_OPT_OUT_TYPE', 'Session Opt-Out Type',
+        'Reason a volunteer was removed from a specific session', 1, 1);
+
+INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsActive, IsSystemValue)
+SELECT lt.LookupTypeId, 'CLOSING', 'Closing', 6, 1, 1
+FROM LookupTypes lt WHERE lt.TypeCode = 'PROJECT_STATUS';
+
+INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsActive, IsSystemValue)
+SELECT lt.LookupTypeId, 'CHECKED_IN', 'Checked In', 4, 1, 1
+FROM LookupTypes lt WHERE lt.TypeCode = 'ATTENDANCE_STATUS';
+
+INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsActive, IsSystemValue)
+SELECT lt.LookupTypeId, 'CHECKOUT_MISSED', 'Checkout Missed', 5, 1, 1
+FROM LookupTypes lt WHERE lt.TypeCode = 'ATTENDANCE_STATUS';
+
+INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsActive, IsSystemValue)
+SELECT lt.LookupTypeId, 'SELF', 'Self Opt-Out', 1, 1, 1
+FROM LookupTypes lt WHERE lt.TypeCode = 'SESSION_OPT_OUT_TYPE';
+
+INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsActive, IsSystemValue)
+SELECT lt.LookupTypeId, 'ADMIN_EXCUSED', 'Admin Excused', 2, 1, 1
+FROM LookupTypes lt WHERE lt.TypeCode = 'SESSION_OPT_OUT_TYPE';
+
+INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsActive, IsSystemValue)
+SELECT lt.LookupTypeId, 'ADMIN_REMOVED', 'Admin Removed', 3, 1, 1
+FROM LookupTypes lt WHERE lt.TypeCode = 'SESSION_OPT_OUT_TYPE';
+
+INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsActive, IsSystemValue)
+SELECT lt.LookupTypeId, 'PROJECT_COMPLETE', 'Project Completed', 8, 1, 1
+FROM LookupTypes lt WHERE lt.TypeCode = 'BADGE_TYPE';
+
+-- ATTENDANCE_STATUS: volunteer withdrew from a specific session (opt-out). No penalty.
+INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsActive, IsSystemValue)
+SELECT lt.LookupTypeId, 'WITHDRAWN', 'Withdrawn', 6, 1, 1
+FROM LookupTypes lt WHERE lt.TypeCode = 'ATTENDANCE_STATUS';
+
+-- NOTIFICATION_TYPE: sent to checked-in FLEXIBLE volunteers 15 min before session end
+INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsActive, IsSystemValue)
+SELECT lt.LookupTypeId, 'CHECKOUT_REMINDER', 'Checkout Reminder', 85, 1, 1
+FROM LookupTypes lt WHERE lt.TypeCode = 'NOTIFICATION_TYPE';
+
+-- NOTIFICATION_TYPE: sent to all approved participants when admin cancels a session
+INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsActive, IsSystemValue)
+SELECT lt.LookupTypeId, 'SESSION_CANCELLED', 'Session Cancelled', 86, 1, 1
+FROM LookupTypes lt WHERE lt.TypeCode = 'NOTIFICATION_TYPE';
+
+-- ── Settings Seeds ────────────────────────────────────────────
+
+INSERT IGNORE INTO Settings (SettingGroup, SettingKey, SettingValue, DataType, Description, IsPublic) VALUES
+-- ── PROJECT_VALIDATION ─────────────────────────────────────────
+('PROJECT',  'OT_MAX_DURATION_HOURS',         '12',          'NUMBER',  'Max hours a ONE_TIME project session can span',                               0),
+('PROJECT',  'RECURRING_MAX_DURATION_DAYS',   '90',          'NUMBER',  'Max calendar days a RECURRING project can span',                              0),
+('PROJECT',  'RECURRING_MIN_DURATION_DAYS',   '7',           'NUMBER',  'Min calendar days a RECURRING project must span',                             0),
+('PROJECT',  'FLEXIBLE_MAX_DURATION_DAYS',    '60',          'NUMBER',  'Max calendar days a FLEXIBLE project can span',                               0),
+('PROJECT',  'FLEXIBLE_MIN_DURATION_DAYS',    '3',           'NUMBER',  'Min calendar days a FLEXIBLE project must span',                              0),
+-- ── ATTENDANCE ────────────────────────────────────────────────
+('PROJECT',  'FLEXIBLE_MAX_DAILY_HOURS',      '8',           'NUMBER',  'Default max hours a volunteer can log per day on FLEXIBLE projects. Project can override upward.',                                           1),
+('PROJECT',  'FLEXIBLE_MIN_SESSION_HOURS',    '1',           'NUMBER',  'Default minimum check-in duration (hours) for a FLEXIBLE session to count toward attendance. Project can override.',                        0),
+('PROJECT',  'FLEXIBLE_MIN_ATTEND_PCT',       '70',          'NUMBER',  'Default min attendance % (hours-based) for certificate eligibility on FLEXIBLE projects. Project can override upward.',                     1),
+('PROJECT',  'RECURRING_MIN_ATTEND_PCT',      '70',          'NUMBER',  'Default min attendance % (session-based) for certificate eligibility on RECURRING projects. Project can override upward.',                  1),
+('PROJECT',  'CHECKIN_BUFFER_MINUTES',        '15',          'NUMBER',  'Minutes before SessionStartTime that check-in window opens. Applies to both RECURRING and FLEXIBLE.',                                       0),
+('PROJECT',  'AUTO_CHECKOUT_GRACE_MINUTES',   '30',          'NUMBER',  'Minutes after SessionEndTime before Hangfire auto-marks CHECKED_IN records as CHECKOUT_MISSED.',                                            0),
+-- ── (legacy keys — kept for backward compat with existing SPs; will be removed when SPs are updated) ──
+('PROJECT',  'FLEX_CHECKIN_OPEN_MINUTES',     '15',          'NUMBER',  'LEGACY: use CHECKIN_BUFFER_MINUTES. Minutes before session start that FLEXIBLE check-in opens.',                                           0),
+('PROJECT',  'FLEX_CHECKOUT_BUFFER_MINUTES',  '30',          'NUMBER',  'LEGACY: use AUTO_CHECKOUT_GRACE_MINUTES. Minutes after session end before CHECKOUT_MISSED is applied.',                                     0),
+('PROJECT',  'RECURRING_NOSHOW_GRACE_MINUTES','30',          'NUMBER',  'Minutes after RECURRING session end before marking absent volunteers NO_SHOW.',                                                              0),
+('PROJECT',  'AUTO_ACTIVATE_LEAD_DAYS',       '0',           'NUMBER',  'Days before start date to auto-activate (0 = same day).',                                                                                   0),
+('PROJECT',  'CLOSING_TRIGGER_OFFSET_DAYS',   '0',           'NUMBER',  'LEGACY: use CLOSING_SAME_DAY. Days after project end date to auto-transition to CLOSING.',                                                  0),
+('PROJECT',  'SKILL_RATING_WINDOW_DAYS',      '7',           'NUMBER',  'LEGACY: use SESSION_SKILL_RATING_EDIT_DAYS. Days after CLOSING that session skill ratings can be submitted.',                               0),
+-- ── CERTIFICATE ───────────────────────────────────────────────
+('PROJECT',  'CERT_ISSUE_WINDOW_DAYS',        '14',          'NUMBER',  'Days after project end that admin can manually issue certificates.',                                                                         0),
+('PROJECT',  'CERT_AUTO_CLOSE_DAYS',          '21',          'NUMBER',  'Days after CLOSING starts before Hangfire auto-transitions project to COMPLETED (safety net).',                                             0),
+-- ── MILESTONE_NOTIFICATION ────────────────────────────────────
+('PROJECT',  'MILESTONE_1_PCT',               '25',          'NUMBER',  'First milestone push-notification threshold (% attendance). Sends once per volunteer per project.',                                         0),
+('PROJECT',  'MILESTONE_2_PCT',               '50',          'NUMBER',  'Second milestone push-notification threshold (% attendance).',                                                                              0),
+('PROJECT',  'MILESTONE_3_PCT',               '75',          'NUMBER',  'Third milestone push-notification threshold (% attendance).',                                                                               0),
+('PROJECT',  'MILESTONE_25_ENABLED',          'true',        'BOOLEAN', 'LEGACY: use MILESTONE_1_PCT. Push notification at 25% attendance milestone.',                                                              0),
+('PROJECT',  'MILESTONE_50_ENABLED',          'true',        'BOOLEAN', 'LEGACY: use MILESTONE_2_PCT. Push notification at 50% attendance milestone.',                                                              0),
+('PROJECT',  'MILESTONE_75_ENABLED',          'true',        'BOOLEAN', 'LEGACY: use MILESTONE_3_PCT. Push notification at 75% attendance milestone.',                                                              0),
+-- ── SKILL_RATING ──────────────────────────────────────────────
+('PROJECT',  'SESSION_SKILL_RATING_EDIT_DAYS','7',           'NUMBER',  'Days after a session date that admin can edit its per-session skill ratings.',                                                              0),
+('PROJECT',  'FINAL_SKILL_RATING_EDIT_DAYS',  '14',          'NUMBER',  'Days after CLOSING starts that admin can still enter/edit final skill ratings before Finalize.',                                            0),
+-- ── LIFECYCLE ─────────────────────────────────────────────────
+('PROJECT',  'RECURRING_SESSION_GEN_DAYS',    '7',           'NUMBER',  'Days ahead Hangfire pre-generates sessions for RECURRING projects (rolling window).',                                                       0),
+('PROJECT',  'PROJECT_REOPEN_ALLOWED',        '1',           'BOOLEAN', 'Whether FLEXIBLE projects can be reopened from CANCELLED state (1=allowed, 0=blocked).',                                                   0),
+('PROJECT',  'CLOSING_SAME_DAY',              '1',           'BOOLEAN', 'Auto-move project to CLOSING on the project end date itself (1=yes, 0=next day).',                                                         0),
+-- ── PUBLIC: mobile UI defaults ────────────────────────────────
+('PROJECT',  'DEFAULT_MIN_ATTEND_PCT',        '70',          'NUMBER',  'Mobile UI floor: min % a volunteer must attend (RECURRING/FLEXIBLE). Admin can raise per-project but not lower below this.',               1),
+('PROJECT',  'DEFAULT_MAX_DAILY_HOURS',       '8',           'NUMBER',  'Mobile UI floor: max hours per day on FLEXIBLE projects. Admin can raise per-project but not lower below this.',                           1),
+-- ── HANGFIRE_CRON ─────────────────────────────────────────────
+('HANGFIRE', 'CRON_GENERATE_SESSIONS',        '0 0 * * *',   'STRING',  'Cron: GenerateSessionsJob — daily midnight UTC',                                                                                            0),
+('HANGFIRE', 'CRON_AUTO_ACTIVATE',            '0 * * * *',   'STRING',  'Cron: AutoActivateProjectsJob — hourly',                                                                                                    0),
+('HANGFIRE', 'CRON_AUTO_COMPLETE_SESSIONS',   '30 * * * *',  'STRING',  'Cron: AutoCompleteSessionsJob — hourly at :30',                                                                                             0),
+('HANGFIRE', 'CRON_AUTO_CHECKOUT',            '*/15 * * * *','STRING',  'Cron: AutoCheckoutMissedJob — every 15 min',                                                                                                0),
+('HANGFIRE', 'CRON_CHECKOUT_REMINDER',        '*/5 * * * *', 'STRING',  'Cron: CheckoutReminderJob — every 5 min',                                                                                                  0),
+('HANGFIRE', 'CRON_AUTO_CLOSING',             '0 1 * * *',   'STRING',  'Cron: TransitionToClosingJob — daily 1:00 AM UTC',                                                                                         0),
+('HANGFIRE', 'CRON_MARK_NOSHOW',              '0 2 * * *',   'STRING',  'Cron: MarkNoShowJob — daily 2:00 AM UTC (RECURRING only)',                                                                                  0),
+('HANGFIRE', 'CRON_MILESTONE_CHECK',          '0 3 * * *',   'STRING',  'Cron: MilestoneCheckJob — daily 3:00 AM UTC',                                                                                              0),
+('HANGFIRE', 'CRON_AUTO_FINALIZE_CLOSING',    '0 4 * * *',   'STRING',  'Cron: AutoFinalizeStaleClosingJob — daily 4:00 AM UTC (safety net)',                                                                        0),
+-- ── (legacy cron keys — used by existing C# Program.cs; kept until Hangfire wiring is updated) ──
+('HANGFIRE', 'AUTO_ACTIVATE_CRON',            '0 1 * * *',   'STRING',  'LEGACY: use CRON_AUTO_ACTIVATE. AutoActivateProjectsJob cron.',                                                                            0),
+('HANGFIRE', 'MARK_NOSHOW_CRON',              '*/30 * * * *','STRING',  'LEGACY: use CRON_MARK_NOSHOW. MarkNoShowJob cron.',                                                                                         0),
+('HANGFIRE', 'AUTO_CHECKOUT_MISSED_CRON',     '*/30 * * * *','STRING',  'LEGACY: use CRON_AUTO_CHECKOUT. AutoCheckoutMissedJob cron.',                                                                              0),
+('HANGFIRE', 'TRANSITION_CLOSING_CRON',       '0 2 * * *',   'STRING',  'LEGACY: use CRON_AUTO_CLOSING. TransitionToClosingJob cron.',                                                                              0);
+
+-- ── New Stored Procedures ─────────────────────────────────────
+
+DELIMITER //
+
+DROP PROCEDURE IF EXISTS Project_GenerateSessions //
+CREATE PROCEDURE Project_GenerateSessions(IN p_ProjectId INT UNSIGNED, IN p_CreatedBy INT UNSIGNED)
+BEGIN
+    DECLARE v_TypeCode     VARCHAR(20);
+    DECLARE v_RecurStart   DATE;
+    DECLARE v_RecurEnd     DATE;
+    DECLARE v_RecurDays    VARCHAR(100);
+    DECLARE v_FlexFrom     DATE;
+    DECLARE v_FlexTo       DATE;
+    DECLARE v_StartTime    TIME;
+    DECLARE v_EndTime      TIME;
+    DECLARE v_MaxVol       INT UNSIGNED;
+    DECLARE v_CurrDate     DATE;
+    DECLARE v_UpcomingLkpId INT UNSIGNED;
+    DECLARE v_Count        INT DEFAULT 0;
+    DECLARE v_DayAbbr      VARCHAR(3);
+
+    SELECT ptv.ValueCode, p.RecurStart, p.RecurEnd, p.RecurDays,
+           p.FlexFromDate, p.FlexToDate, p.SessionStartTime, p.SessionEndTime, p.MaxVolunteers
+    INTO   v_TypeCode, v_RecurStart, v_RecurEnd, v_RecurDays,
+           v_FlexFrom, v_FlexTo, v_StartTime, v_EndTime, v_MaxVol
+    FROM   Projects p
+    JOIN   LookupValues ptv ON p.ProjectTypeLkpId = ptv.LookupValueId
+    WHERE  p.ProjectId = p_ProjectId AND p.IsDeleted = 0;
+
+    SELECT lv.LookupValueId INTO v_UpcomingLkpId
+    FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE lt.TypeCode = 'SESSION_STATUS' AND lv.ValueCode = 'UPCOMING' LIMIT 1;
+
+    IF EXISTS (SELECT 1 FROM ProjectSessions WHERE ProjectId = p_ProjectId AND IsDeleted = 0 LIMIT 1) THEN
+        SELECT 1 AS IsSuccess, 'Sessions already generated.' AS Message, 0 AS SessionCount;
+    ELSEIF v_TypeCode = 'RECURRING' AND v_RecurStart IS NOT NULL AND v_RecurEnd IS NOT NULL THEN
+        SET v_CurrDate = v_RecurStart;
+        WHILE v_CurrDate <= v_RecurEnd DO
+            SET v_DayAbbr = LEFT(UPPER(DAYNAME(v_CurrDate)), 3);
+            IF FIND_IN_SET(v_DayAbbr, UPPER(REPLACE(COALESCE(v_RecurDays, ''), ' ', ''))) > 0 THEN
+                INSERT INTO ProjectSessions (ProjectId, SessionDate, StartTime, EndTime, MaxVolunteers, QrCode, SessionStatusLkpId, CreatedBy)
+                VALUES (p_ProjectId, v_CurrDate, v_StartTime, v_EndTime, v_MaxVol, UUID(), v_UpcomingLkpId, p_CreatedBy);
+                SET v_Count = v_Count + 1;
+            END IF;
+            SET v_CurrDate = DATE_ADD(v_CurrDate, INTERVAL 1 DAY);
+        END WHILE;
+        SELECT 1 AS IsSuccess, CONCAT('Generated ', v_Count, ' recurring sessions.') AS Message, v_Count AS SessionCount;
+    ELSEIF v_TypeCode = 'FLEXIBLE' AND v_FlexFrom IS NOT NULL AND v_FlexTo IS NOT NULL THEN
+        SET v_CurrDate = v_FlexFrom;
+        WHILE v_CurrDate <= v_FlexTo DO
+            INSERT INTO ProjectSessions (ProjectId, SessionDate, StartTime, EndTime, MaxVolunteers, SessionStatusLkpId, CreatedBy)
+            VALUES (p_ProjectId, v_CurrDate, v_StartTime, v_EndTime, v_MaxVol, v_UpcomingLkpId, p_CreatedBy);
+            SET v_Count = v_Count + 1;
+            SET v_CurrDate = DATE_ADD(v_CurrDate, INTERVAL 1 DAY);
+        END WHILE;
+        SELECT 1 AS IsSuccess, CONCAT('Generated ', v_Count, ' flexible sessions.') AS Message, v_Count AS SessionCount;
+    ELSE
+        SELECT 0 AS IsSuccess, 'Project type does not support session generation or missing schedule data.' AS Message, 0 AS SessionCount;
+    END IF;
+END //
+
+DROP PROCEDURE IF EXISTS Project_FlexCheckIn //
+CREATE PROCEDURE Project_FlexCheckIn(IN p_ProjectId INT UNSIGNED, IN p_UserId INT UNSIGNED)
+BEGIN
+    DECLARE v_TypeCode         VARCHAR(20);
+    DECLARE v_SessionId        INT UNSIGNED DEFAULT NULL;
+    DECLARE v_SessionStart     TIME;
+    DECLARE v_SessionEnd       TIME;
+    DECLARE v_OpenMins         INT DEFAULT 15;
+    DECLARE v_CheckedInLkpId   INT UNSIGNED;
+    DECLARE v_InProgressLkpId  INT UNSIGNED;
+    DECLARE v_IsApproved       INT DEFAULT 0;
+    DECLARE v_AlreadyIn        INT DEFAULT 0;
+    DECLARE v_StatusCode       VARCHAR(20);
+
+    SELECT ptv.ValueCode, sv.ValueCode
+    INTO   v_TypeCode, v_StatusCode
+    FROM   Projects p
+    JOIN   LookupValues ptv ON p.ProjectTypeLkpId = ptv.LookupValueId
+    JOIN   LookupValues sv  ON p.StatusLkpId      = sv.LookupValueId
+    WHERE  p.ProjectId = p_ProjectId AND p.IsDeleted = 0;
+
+    IF v_TypeCode != 'FLEXIBLE' THEN
+        SELECT 0 AS IsSuccess, 'Self check-in is only available for FLEXIBLE projects.' AS Message, NULL AS SessionId;
+    ELSEIF v_StatusCode != 'ACTIVE' THEN
+        SELECT 0 AS IsSuccess, 'Project is not currently active.' AS Message, NULL AS SessionId;
+    ELSE
+        SELECT COUNT(*) INTO v_IsApproved
+        FROM ProjectApplications pa
+        JOIN LookupValues lv ON pa.StatusLkpId = lv.LookupValueId
+        JOIN LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
+        WHERE pa.ProjectId = p_ProjectId AND pa.UserId = p_UserId AND pa.IsDeleted = 0
+          AND lt.TypeCode = 'APPLICATION_STATUS' AND lv.ValueCode = 'APPROVED';
+
+        IF v_IsApproved = 0 THEN
+            SELECT 0 AS IsSuccess, 'You are not an approved volunteer for this project.' AS Message, NULL AS SessionId;
+        ELSE
+            SELECT COALESCE(CAST(SettingValue AS UNSIGNED), 15) INTO v_OpenMins
+            FROM Settings WHERE SettingKey = 'FLEX_CHECKIN_OPEN_MINUTES' AND IsDeleted = 0 LIMIT 1;
+
+            SELECT ps.SessionId, ps.StartTime, ps.EndTime
+            INTO   v_SessionId, v_SessionStart, v_SessionEnd
+            FROM   ProjectSessions ps
+            WHERE  ps.ProjectId = p_ProjectId AND ps.SessionDate = CURDATE() AND ps.IsDeleted = 0
+            LIMIT 1;
+
+            IF v_SessionId IS NULL THEN
+                SELECT 0 AS IsSuccess, 'No session is scheduled for today.' AS Message, NULL AS SessionId;
+            ELSEIF CURTIME() < SUBTIME(v_SessionStart, SEC_TO_TIME(v_OpenMins * 60)) THEN
+                SELECT 0 AS IsSuccess,
+                       CONCAT('Check-in opens at ', TIME_FORMAT(SUBTIME(v_SessionStart, SEC_TO_TIME(v_OpenMins * 60)), '%h:%i %p'), '.') AS Message,
+                       NULL AS SessionId;
+            ELSEIF CURTIME() > v_SessionEnd THEN
+                SELECT 0 AS IsSuccess, 'Today''s session has ended. Check-in is closed.' AS Message, NULL AS SessionId;
+            ELSE
+                SELECT COUNT(*) INTO v_AlreadyIn
+                FROM ProjectAttendance WHERE SessionId = v_SessionId AND UserId = p_UserId;
+
+                IF v_AlreadyIn > 0 THEN
+                    SELECT 0 AS IsSuccess, 'You have already checked in for today''s session.' AS Message, v_SessionId AS SessionId;
+                ELSE
+                    SELECT lv.LookupValueId INTO v_CheckedInLkpId
+                    FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+                    WHERE lt.TypeCode = 'ATTENDANCE_STATUS' AND lv.ValueCode = 'CHECKED_IN' LIMIT 1;
+
+                    SELECT lv.LookupValueId INTO v_InProgressLkpId
+                    FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+                    WHERE lt.TypeCode = 'SESSION_STATUS' AND lv.ValueCode = 'IN_PROGRESS' LIMIT 1;
+
+                    INSERT INTO ProjectAttendance (SessionId, UserId, CheckInTime, AttendStatusLkpId, CreatedBy)
+                    VALUES (v_SessionId, p_UserId, NOW(), v_CheckedInLkpId, p_UserId);
+
+                    UPDATE ProjectSessions SET SessionStatusLkpId = v_InProgressLkpId
+                    WHERE SessionId = v_SessionId;
+
+                    SELECT 1 AS IsSuccess, 'Checked in successfully.' AS Message, v_SessionId AS SessionId;
+                END IF;
+            END IF;
+        END IF;
+    END IF;
+END //
+
+DROP PROCEDURE IF EXISTS Project_FlexCheckOut //
+CREATE PROCEDURE Project_FlexCheckOut(IN p_ProjectId INT UNSIGNED, IN p_UserId INT UNSIGNED)
+BEGIN
+    DECLARE v_TypeCode         VARCHAR(20);
+    DECLARE v_SessionId        INT UNSIGNED DEFAULT NULL;
+    DECLARE v_SessionEnd       TIME;
+    DECLARE v_BufferMins       INT DEFAULT 30;
+    DECLARE v_CheckedInLkpId   INT UNSIGNED;
+    DECLARE v_AttendedLkpId    INT UNSIGNED;
+    DECLARE v_AttendId         INT UNSIGNED DEFAULT NULL;
+    DECLARE v_CheckInTime      DATETIME;
+    DECLARE v_HoursLogged      DECIMAL(6,2) DEFAULT 0;
+    DECLARE v_MaxDailyHours    DECIMAL(4,2) DEFAULT NULL;
+
+    SELECT ptv.ValueCode, p.MaxDailyHours INTO v_TypeCode, v_MaxDailyHours
+    FROM Projects p JOIN LookupValues ptv ON p.ProjectTypeLkpId = ptv.LookupValueId
+    WHERE p.ProjectId = p_ProjectId AND p.IsDeleted = 0;
+
+    IF v_TypeCode != 'FLEXIBLE' THEN
+        SELECT 0 AS IsSuccess, 'Check-out is only available for FLEXIBLE projects.' AS Message, 0 AS HoursLogged;
+    ELSE
+        SELECT COALESCE(CAST(SettingValue AS UNSIGNED), 30) INTO v_BufferMins
+        FROM Settings WHERE SettingKey = 'FLEX_CHECKOUT_BUFFER_MINUTES' AND IsDeleted = 0 LIMIT 1;
+
+        SELECT ps.SessionId, ps.EndTime INTO v_SessionId, v_SessionEnd
+        FROM ProjectSessions ps
+        WHERE ps.ProjectId = p_ProjectId AND ps.SessionDate = CURDATE() AND ps.IsDeleted = 0
+        LIMIT 1;
+
+        IF v_SessionId IS NULL THEN
+            SELECT 0 AS IsSuccess, 'No session found for today.' AS Message, 0 AS HoursLogged;
+        ELSEIF ADDTIME(v_SessionEnd, SEC_TO_TIME(v_BufferMins * 60)) < CURTIME() THEN
+            SELECT 0 AS IsSuccess, 'Check-out window has closed.' AS Message, 0 AS HoursLogged;
+        ELSE
+            SELECT lv.LookupValueId INTO v_CheckedInLkpId
+            FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+            WHERE lt.TypeCode = 'ATTENDANCE_STATUS' AND lv.ValueCode = 'CHECKED_IN' LIMIT 1;
+
+            SELECT pa.AttendanceId, pa.CheckInTime INTO v_AttendId, v_CheckInTime
+            FROM ProjectAttendance pa
+            WHERE pa.SessionId = v_SessionId AND pa.UserId = p_UserId
+              AND pa.AttendStatusLkpId = v_CheckedInLkpId
+            LIMIT 1;
+
+            IF v_AttendId IS NULL THEN
+                SELECT 0 AS IsSuccess, 'No active check-in found. Please check in first.' AS Message, 0 AS HoursLogged;
+            ELSE
+                SELECT lv.LookupValueId INTO v_AttendedLkpId
+                FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+                WHERE lt.TypeCode = 'ATTENDANCE_STATUS' AND lv.ValueCode = 'ATTENDED' LIMIT 1;
+
+                SET v_HoursLogged = ROUND(TIMESTAMPDIFF(MINUTE, v_CheckInTime, NOW()) / 60.0, 2);
+                IF v_MaxDailyHours IS NOT NULL AND v_HoursLogged > v_MaxDailyHours THEN
+                    SET v_HoursLogged = v_MaxDailyHours;
+                END IF;
+
+                UPDATE ProjectAttendance
+                SET CheckOutTime = NOW(), HoursLogged = v_HoursLogged,
+                    AttendStatusLkpId = v_AttendedLkpId, UpdatedAt = NOW()
+                WHERE AttendanceId = v_AttendId;
+
+                SELECT 1 AS IsSuccess, 'Checked out successfully.' AS Message, v_HoursLogged AS HoursLogged;
+            END IF;
+        END IF;
+    END IF;
+END //
+
+DROP PROCEDURE IF EXISTS Project_TransitionToClosing //
+CREATE PROCEDURE Project_TransitionToClosing()
+BEGIN
+    DECLARE v_ActiveLkpId  INT UNSIGNED;
+    DECLARE v_ClosingLkpId INT UNSIGNED;
+    DECLARE v_OffsetDays   INT DEFAULT 0;
+    DECLARE v_Count        INT DEFAULT 0;
+
+    SELECT COALESCE(CAST(SettingValue AS SIGNED), 0) INTO v_OffsetDays
+    FROM Settings WHERE SettingKey = 'CLOSING_TRIGGER_OFFSET_DAYS' AND IsDeleted = 0 LIMIT 1;
+
+    SELECT lv.LookupValueId INTO v_ActiveLkpId
+    FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'ACTIVE' LIMIT 1;
+
+    SELECT lv.LookupValueId INTO v_ClosingLkpId
+    FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'CLOSING' LIMIT 1;
+
+    UPDATE Projects p JOIN LookupValues ptv ON p.ProjectTypeLkpId = ptv.LookupValueId
+    SET p.StatusLkpId = v_ClosingLkpId, p.UpdatedAt = NOW()
+    WHERE p.StatusLkpId = v_ActiveLkpId AND p.IsDeleted = 0
+      AND ptv.ValueCode = 'RECURRING' AND p.RecurEnd IS NOT NULL
+      AND DATE_ADD(p.RecurEnd, INTERVAL v_OffsetDays DAY) < CURDATE();
+    SET v_Count = v_Count + ROW_COUNT();
+
+    UPDATE Projects p JOIN LookupValues ptv ON p.ProjectTypeLkpId = ptv.LookupValueId
+    SET p.StatusLkpId = v_ClosingLkpId, p.UpdatedAt = NOW()
+    WHERE p.StatusLkpId = v_ActiveLkpId AND p.IsDeleted = 0
+      AND ptv.ValueCode = 'FLEXIBLE' AND p.FlexToDate IS NOT NULL
+      AND DATE_ADD(p.FlexToDate, INTERVAL v_OffsetDays DAY) < CURDATE();
+    SET v_Count = v_Count + ROW_COUNT();
+
+    SELECT 1 AS IsSuccess, CONCAT('Transitioned ', v_Count, ' project(s) to CLOSING.') AS Message, v_Count AS TransCount;
+END //
+
+DROP PROCEDURE IF EXISTS Project_FinalizeClosing //
+CREATE PROCEDURE Project_FinalizeClosing(
+    IN p_ProjectId       INT UNSIGNED,
+    IN p_CompletedBy     INT UNSIGNED,
+    IN p_ImpactSummary   TEXT,
+    IN p_BeneficiaryCount INT UNSIGNED
+)
+BEGIN
+    DECLARE v_OrgId               INT UNSIGNED;
+    DECLARE v_CompletedLkpId      INT UNSIGNED;
+    DECLARE v_CompletedSessionLkpId INT UNSIGNED;
+
+    SELECT OrgId INTO v_OrgId FROM Projects WHERE ProjectId = p_ProjectId AND IsDeleted = 0;
+
+    IF v_OrgId IS NULL THEN
+        SELECT 0 AS IsSuccess, 'Project not found.' AS Message;
+    ELSE
+        INSERT INTO UserSkillRatings (UserId, OrgId, ProjectId, SkillId, Rating, RatedBy, Notes)
+        SELECT ssr.UserId, v_OrgId, p_ProjectId, ssr.SkillId, ROUND(AVG(ssr.Rating), 2), ssr.RatedBy, NULL
+        FROM UserSessionSkillRatings ssr
+        JOIN ProjectSessions ps ON ssr.SessionId = ps.SessionId
+        WHERE ps.ProjectId = p_ProjectId
+        GROUP BY ssr.UserId, ssr.SkillId, ssr.RatedBy
+        ON DUPLICATE KEY UPDATE Rating = ROUND(VALUES(Rating), 2), UpdatedAt = NOW();
+
+        SELECT lv.LookupValueId INTO v_CompletedSessionLkpId
+        FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+        WHERE lt.TypeCode = 'SESSION_STATUS' AND lv.ValueCode = 'COMPLETED' LIMIT 1;
+
+        UPDATE ProjectSessions SET SessionStatusLkpId = v_CompletedSessionLkpId, UpdatedAt = NOW()
+        WHERE ProjectId = p_ProjectId AND IsDeleted = 0;
+
+        SELECT lv.LookupValueId INTO v_CompletedLkpId
+        FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+        WHERE lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'COMPLETED' LIMIT 1;
+
+        UPDATE Projects SET
+            StatusLkpId = v_CompletedLkpId, CompletedAt = NOW(), CompletedBy = p_CompletedBy,
+            ImpactSummary = COALESCE(p_ImpactSummary, ImpactSummary),
+            BeneficiaryCount = COALESCE(p_BeneficiaryCount, BeneficiaryCount),
+            UpdatedAt = NOW()
+        WHERE ProjectId = p_ProjectId AND IsDeleted = 0;
+
+        SELECT 1 AS IsSuccess, 'Project finalized and marked as COMPLETED.' AS Message;
+    END IF;
+END //
+
+DROP PROCEDURE IF EXISTS Project_AutoActivate //
+CREATE PROCEDURE Project_AutoActivate()
+BEGIN
+    DECLARE v_UpcomingLkpId INT UNSIGNED;
+    DECLARE v_ActiveLkpId   INT UNSIGNED;
+    DECLARE v_LeadDays      INT DEFAULT 0;
+    DECLARE v_Count         INT DEFAULT 0;
+    DECLARE v_ProjectId     INT UNSIGNED;
+    DECLARE v_Done          INT DEFAULT 0;
+
+    SELECT COALESCE(CAST(SettingValue AS SIGNED), 0) INTO v_LeadDays
+    FROM Settings WHERE SettingKey = 'AUTO_ACTIVATE_LEAD_DAYS' AND IsDeleted = 0 LIMIT 1;
+
+    SELECT lv.LookupValueId INTO v_UpcomingLkpId
+    FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'UPCOMING' LIMIT 1;
+
+    SELECT lv.LookupValueId INTO v_ActiveLkpId
+    FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'ACTIVE' LIMIT 1;
+
+    BEGIN
+        DECLARE proj_cursor CURSOR FOR
+            SELECT p.ProjectId FROM Projects p
+            JOIN LookupValues ptv ON p.ProjectTypeLkpId = ptv.LookupValueId
+            WHERE p.StatusLkpId = v_UpcomingLkpId AND p.IsDeleted = 0
+              AND ptv.ValueCode IN ('RECURRING', 'FLEXIBLE')
+              AND (
+                  (ptv.ValueCode = 'RECURRING' AND p.RecurStart IS NOT NULL
+                   AND DATE_SUB(p.RecurStart,  INTERVAL v_LeadDays DAY) <= CURDATE())
+               OR (ptv.ValueCode = 'FLEXIBLE'  AND p.FlexFromDate IS NOT NULL
+                   AND DATE_SUB(p.FlexFromDate, INTERVAL v_LeadDays DAY) <= CURDATE())
+              );
+        DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_Done = 1;
+
+        OPEN proj_cursor;
+        read_loop: LOOP
+            FETCH proj_cursor INTO v_ProjectId;
+            IF v_Done THEN LEAVE read_loop; END IF;
+            UPDATE Projects SET StatusLkpId = v_ActiveLkpId, UpdatedAt = NOW()
+            WHERE ProjectId = v_ProjectId AND IsDeleted = 0;
+            CALL Project_GenerateSessions(v_ProjectId, 1);
+            SET v_Count = v_Count + 1;
+        END LOOP;
+        CLOSE proj_cursor;
+    END;
+
+    SELECT 1 AS IsSuccess, CONCAT('Activated ', v_Count, ' project(s).') AS Message, v_Count AS ActivatedCount;
+END //
+
+DROP PROCEDURE IF EXISTS Project_MarkNoShows //
+CREATE PROCEDURE Project_MarkNoShows()
+BEGIN
+    DECLARE v_NoShowLkpId INT UNSIGNED;
+    DECLARE v_GraceMins   INT DEFAULT 30;
+    DECLARE v_Count       INT DEFAULT 0;
+
+    SELECT COALESCE(CAST(SettingValue AS SIGNED), 30) INTO v_GraceMins
+    FROM Settings WHERE SettingKey = 'RECURRING_NOSHOW_GRACE_MINUTES' AND IsDeleted = 0 LIMIT 1;
+
+    SELECT lv.LookupValueId INTO v_NoShowLkpId
+    FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE lt.TypeCode = 'ATTENDANCE_STATUS' AND lv.ValueCode = 'NO_SHOW' LIMIT 1;
+
+    INSERT INTO ProjectAttendance (SessionId, UserId, CheckInTime, HoursLogged, AttendStatusLkpId, CreatedBy)
+    SELECT ps.SessionId, appr.UserId, NOW(), 0, v_NoShowLkpId, 1
+    FROM ProjectSessions ps
+    JOIN Projects p ON ps.ProjectId = p.ProjectId
+    JOIN LookupValues ptv ON p.ProjectTypeLkpId = ptv.LookupValueId
+    JOIN (
+        SELECT pa.ProjectId, pa.UserId FROM ProjectApplications pa
+        JOIN LookupValues lv ON pa.StatusLkpId = lv.LookupValueId
+        JOIN LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
+        WHERE pa.IsDeleted = 0 AND lt.TypeCode = 'APPLICATION_STATUS' AND lv.ValueCode = 'APPROVED'
+    ) appr ON appr.ProjectId = ps.ProjectId
+    WHERE ptv.ValueCode = 'RECURRING' AND ps.IsDeleted = 0
+      AND ps.SessionDate = CURDATE()
+      AND ADDTIME(ps.EndTime, SEC_TO_TIME(v_GraceMins * 60)) < CURTIME()
+      AND NOT EXISTS (SELECT 1 FROM ProjectAttendance pa2
+                      WHERE pa2.SessionId = ps.SessionId AND pa2.UserId = appr.UserId)
+      AND NOT EXISTS (SELECT 1 FROM VolunteerSessionOptOuts oo
+                      WHERE oo.SessionId = ps.SessionId AND oo.UserId = appr.UserId)
+    ON DUPLICATE KEY UPDATE UpdatedAt = NOW();
+
+    SET v_Count = ROW_COUNT();
+    SELECT 1 AS IsSuccess, CONCAT('Marked ', v_Count, ' volunteer(s) as NO_SHOW.') AS Message, v_Count AS NoShowCount;
+END //
+
+DROP PROCEDURE IF EXISTS Project_AutoCheckoutMissed //
+CREATE PROCEDURE Project_AutoCheckoutMissed()
+BEGIN
+    DECLARE v_CheckedInLkpId      INT UNSIGNED;
+    DECLARE v_CheckoutMissedLkpId INT UNSIGNED;
+    DECLARE v_BufferMins          INT DEFAULT 30;
+    DECLARE v_Count               INT DEFAULT 0;
+
+    SELECT COALESCE(CAST(SettingValue AS SIGNED), 30) INTO v_BufferMins
+    FROM Settings WHERE SettingKey = 'FLEX_CHECKOUT_BUFFER_MINUTES' AND IsDeleted = 0 LIMIT 1;
+
+    SELECT lv.LookupValueId INTO v_CheckedInLkpId
+    FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE lt.TypeCode = 'ATTENDANCE_STATUS' AND lv.ValueCode = 'CHECKED_IN' LIMIT 1;
+
+    SELECT lv.LookupValueId INTO v_CheckoutMissedLkpId
+    FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE lt.TypeCode = 'ATTENDANCE_STATUS' AND lv.ValueCode = 'CHECKOUT_MISSED' LIMIT 1;
+
+    UPDATE ProjectAttendance pa
+    JOIN ProjectSessions ps ON pa.SessionId = ps.SessionId
+    JOIN Projects p ON ps.ProjectId = p.ProjectId
+    JOIN LookupValues ptv ON p.ProjectTypeLkpId = ptv.LookupValueId
+    SET pa.CheckOutTime = ADDTIME(ps.EndTime, SEC_TO_TIME(v_BufferMins * 60)),
+        pa.HoursLogged = 0, pa.AttendStatusLkpId = v_CheckoutMissedLkpId, pa.UpdatedAt = NOW()
+    WHERE ptv.ValueCode = 'FLEXIBLE' AND pa.AttendStatusLkpId = v_CheckedInLkpId
+      AND ps.SessionDate = CURDATE()
+      AND ADDTIME(ps.EndTime, SEC_TO_TIME(v_BufferMins * 60)) < CURTIME();
+
+    SET v_Count = ROW_COUNT();
+    SELECT 1 AS IsSuccess, CONCAT('Marked ', v_Count, ' volunteer(s) as CHECKOUT_MISSED.') AS Message, v_Count AS Count;
+END //
+
+DROP PROCEDURE IF EXISTS Project_GetVolunteerEligibility //
+CREATE PROCEDURE Project_GetVolunteerEligibility(IN p_ProjectId INT UNSIGNED, IN p_UserId INT UNSIGNED)
+BEGIN
+    DECLARE v_TotalSessions  INT DEFAULT 0;
+    DECLARE v_EligSessions   INT DEFAULT 0;
+    DECLARE v_AttendedCount  INT DEFAULT 0;
+    DECLARE v_HoursLogged    DECIMAL(6,2) DEFAULT 0;
+    DECLARE v_MinAttendPct   DECIMAL(5,2) DEFAULT NULL;
+    DECLARE v_ApprovalDate   DATETIME DEFAULT NULL;
+    DECLARE v_AttendPct      DECIMAL(5,2) DEFAULT 0;
+    DECLARE v_IsEligible     TINYINT(1) DEFAULT 0;
+    DECLARE v_AttendedLkpId  INT UNSIGNED;
+
+    SELECT p.MinAttendPct INTO v_MinAttendPct
+    FROM Projects p WHERE p.ProjectId = p_ProjectId AND p.IsDeleted = 0;
+
+    SELECT pa.StatusUpdatedAt INTO v_ApprovalDate
+    FROM ProjectApplications pa
+    JOIN LookupValues lv ON pa.StatusLkpId = lv.LookupValueId
+    JOIN LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE pa.ProjectId = p_ProjectId AND pa.UserId = p_UserId AND pa.IsDeleted = 0
+      AND lt.TypeCode = 'APPLICATION_STATUS' AND lv.ValueCode = 'APPROVED'
+    LIMIT 1;
+
+    SELECT lv.LookupValueId INTO v_AttendedLkpId
+    FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE lt.TypeCode = 'ATTENDANCE_STATUS' AND lv.ValueCode = 'ATTENDED' LIMIT 1;
+
+    SELECT COUNT(*) INTO v_TotalSessions
+    FROM ProjectSessions WHERE ProjectId = p_ProjectId AND IsDeleted = 0;
+
+    SELECT COUNT(*) INTO v_EligSessions
+    FROM ProjectSessions ps
+    WHERE ps.ProjectId = p_ProjectId AND ps.IsDeleted = 0
+      AND (v_ApprovalDate IS NULL OR ps.SessionDate >= DATE(v_ApprovalDate));
+
+    SELECT COUNT(*), COALESCE(SUM(pa.HoursLogged), 0)
+    INTO v_AttendedCount, v_HoursLogged
+    FROM ProjectAttendance pa
+    JOIN ProjectSessions   ps ON pa.SessionId = ps.SessionId
+    WHERE ps.ProjectId = p_ProjectId AND pa.UserId = p_UserId
+      AND pa.AttendStatusLkpId = v_AttendedLkpId;
+
+    IF v_EligSessions > 0 THEN
+        SET v_AttendPct = ROUND((v_AttendedCount / v_EligSessions) * 100, 2);
+    END IF;
+
+    SET v_IsEligible = IF(v_MinAttendPct IS NULL OR v_AttendPct >= v_MinAttendPct, 1, 0);
+
+    SELECT v_TotalSessions AS TotalSessions, v_EligSessions AS EligibleSessions,
+           v_AttendedCount AS AttendedCount, v_HoursLogged AS TotalHoursLogged,
+           v_AttendPct AS AttendancePct, v_MinAttendPct AS MinAttendPct,
+           v_IsEligible AS IsEligibleForCert;
+END //
+
+DROP PROCEDURE IF EXISTS Project_GetMySessionList //
+CREATE PROCEDURE Project_GetMySessionList(IN p_ProjectId INT UNSIGNED, IN p_UserId INT UNSIGNED)
+BEGIN
+    SELECT
+        ps.SessionId,
+        DATE_FORMAT(ps.SessionDate, '%Y-%m-%d') AS SessionDate,
+        TIME_FORMAT(ps.StartTime, '%H:%i') AS StartTime,
+        TIME_FORMAT(ps.EndTime,   '%H:%i') AS EndTime,
+        ssv.ValueCode AS SessionStatus,
+        ssv.ValueName AS SessionStatusName,
+        pa.CheckInTime, pa.CheckOutTime, pa.HoursLogged,
+        asv.ValueCode AS AttendanceStatus,
+        asv.ValueName AS AttendanceStatusName,
+        pa.IsNoShowExcused, pa.AdminNote,
+        oo.OptOutId,
+        oov.ValueCode AS OptOutType,
+        oov.ValueName AS OptOutTypeName,
+        oo.Reason AS OptOutReason,
+        (SELECT COUNT(*) FROM UserSessionSkillRatings ssr
+         WHERE ssr.SessionId = ps.SessionId AND ssr.UserId = p_UserId) AS RatingCount
+    FROM ProjectSessions ps
+    LEFT JOIN ProjectAttendance       pa  ON pa.SessionId = ps.SessionId AND pa.UserId = p_UserId
+    LEFT JOIN VolunteerSessionOptOuts oo  ON oo.SessionId = ps.SessionId AND oo.UserId = p_UserId
+    LEFT JOIN LookupValues            ssv ON ps.SessionStatusLkpId = ssv.LookupValueId
+    LEFT JOIN LookupValues            asv ON pa.AttendStatusLkpId  = asv.LookupValueId
+    LEFT JOIN LookupValues            oov ON oo.OptOutTypeLkpId    = oov.LookupValueId
+    WHERE ps.ProjectId = p_ProjectId AND ps.IsDeleted = 0
+    ORDER BY ps.SessionDate ASC, ps.StartTime ASC;
+END //
+
+DROP PROCEDURE IF EXISTS Session_Cancel //
+CREATE PROCEDURE Session_Cancel(
+    IN p_SessionId   INT UNSIGNED,
+    IN p_CancelledBy INT UNSIGNED,
+    IN p_Reason      TEXT
+)
+BEGIN
+    DECLARE v_CancelledLkpId INT UNSIGNED;
+    DECLARE v_Exists         INT DEFAULT 0;
+
+    SELECT COUNT(*) INTO v_Exists FROM ProjectSessions WHERE SessionId = p_SessionId AND IsDeleted = 0;
+
+    IF v_Exists = 0 THEN
+        SELECT 0 AS IsSuccess, 'Session not found.' AS Message;
+    ELSE
+        SELECT lv.LookupValueId INTO v_CancelledLkpId
+        FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+        WHERE lt.TypeCode = 'SESSION_STATUS' AND lv.ValueCode = 'CANCELLED' LIMIT 1;
+
+        UPDATE ProjectSessions
+        SET SessionStatusLkpId = v_CancelledLkpId, UpdatedBy = p_CancelledBy, UpdatedAt = NOW()
+        WHERE SessionId = p_SessionId AND IsDeleted = 0;
+
+        SELECT 1 AS IsSuccess, 'Session cancelled successfully.' AS Message;
+    END IF;
+END //
+
+DROP PROCEDURE IF EXISTS Session_OptOut //
+CREATE PROCEDURE Session_OptOut(
+    IN p_SessionId  INT UNSIGNED,
+    IN p_UserId     INT UNSIGNED,
+    IN p_OptOutType VARCHAR(20),
+    IN p_Reason     TEXT,
+    IN p_CreatedBy  INT UNSIGNED
+)
+BEGIN
+    DECLARE v_OptOutTypeLkpId INT UNSIGNED;
+    DECLARE v_ProjectId       INT UNSIGNED;
+
+    SELECT ps.ProjectId INTO v_ProjectId
+    FROM ProjectSessions ps WHERE ps.SessionId = p_SessionId AND ps.IsDeleted = 0;
+
+    IF v_ProjectId IS NULL THEN
+        SELECT 0 AS IsSuccess, 'Session not found.' AS Message;
+    ELSE
+        SELECT lv.LookupValueId INTO v_OptOutTypeLkpId
+        FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+        WHERE lt.TypeCode = 'SESSION_OPT_OUT_TYPE'
+          AND lv.ValueCode = COALESCE(p_OptOutType, 'SELF') LIMIT 1;
+
+        INSERT INTO VolunteerSessionOptOuts (SessionId, UserId, ProjectId, OptOutTypeLkpId, Reason, CreatedBy)
+        VALUES (p_SessionId, p_UserId, v_ProjectId, v_OptOutTypeLkpId, p_Reason, p_CreatedBy)
+        ON DUPLICATE KEY UPDATE OptOutTypeLkpId = v_OptOutTypeLkpId, Reason = p_Reason;
+
+        SELECT 1 AS IsSuccess, 'Opt-out recorded successfully.' AS Message;
+    END IF;
+END //
+
+DROP PROCEDURE IF EXISTS Certificate_IssueBulk //
+CREATE PROCEDURE Certificate_IssueBulk(
+    IN p_ProjectId INT UNSIGNED,
+    IN p_IssuedBy  INT UNSIGNED,
+    IN p_OrgId     INT UNSIGNED
+)
+BEGIN
+    DECLARE v_UserId       INT UNSIGNED;
+    DECLARE v_IssuedCount  INT DEFAULT 0;
+    DECLARE v_SkippedCount INT DEFAULT 0;
+    DECLARE v_MinAttendPct DECIMAL(5,2) DEFAULT NULL;
+    DECLARE v_TotalSessions INT DEFAULT 0;
+    DECLARE v_AttendedCount INT DEFAULT 0;
+    DECLARE v_AttendPct     DECIMAL(5,2) DEFAULT 0;
+    DECLARE v_TotalHours    DECIMAL(6,2) DEFAULT 0;
+    DECLARE v_CertCode      VARCHAR(20);
+    DECLARE v_Done          INT DEFAULT 0;
+    DECLARE v_AttendedLkpId INT UNSIGNED;
+
+    SELECT MinAttendPct INTO v_MinAttendPct FROM Projects WHERE ProjectId = p_ProjectId AND IsDeleted = 0;
+
+    SELECT lv.LookupValueId INTO v_AttendedLkpId
+    FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE lt.TypeCode = 'ATTENDANCE_STATUS' AND lv.ValueCode = 'ATTENDED' LIMIT 1;
+
+    SELECT COUNT(*) INTO v_TotalSessions
+    FROM ProjectSessions WHERE ProjectId = p_ProjectId AND IsDeleted = 0;
+
+    BEGIN
+        DECLARE vol_cursor CURSOR FOR
+            SELECT pa.UserId FROM ProjectApplications pa
+            JOIN LookupValues lv ON pa.StatusLkpId = lv.LookupValueId
+            JOIN LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
+            WHERE pa.ProjectId = p_ProjectId AND pa.IsDeleted = 0
+              AND lt.TypeCode = 'APPLICATION_STATUS' AND lv.ValueCode = 'APPROVED';
+        DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_Done = 1;
+
+        OPEN vol_cursor;
+        read_loop: LOOP
+            FETCH vol_cursor INTO v_UserId;
+            IF v_Done THEN LEAVE read_loop; END IF;
+
+            IF EXISTS (SELECT 1 FROM VolunteerCertificates
+                       WHERE ProjectId = p_ProjectId AND UserId = v_UserId AND IsDeleted = 0) THEN
+                SET v_SkippedCount = v_SkippedCount + 1;
+            ELSE
+                SELECT COUNT(*), COALESCE(SUM(pa2.HoursLogged), 0)
+                INTO v_AttendedCount, v_TotalHours
+                FROM ProjectAttendance pa2
+                JOIN ProjectSessions   ps2 ON pa2.SessionId = ps2.SessionId
+                WHERE ps2.ProjectId = p_ProjectId AND pa2.UserId = v_UserId
+                  AND pa2.AttendStatusLkpId = v_AttendedLkpId;
+
+                SET v_AttendPct = IF(v_TotalSessions > 0,
+                    ROUND((v_AttendedCount / v_TotalSessions) * 100, 2), 0);
+
+                IF v_MinAttendPct IS NULL OR v_AttendPct >= v_MinAttendPct THEN
+                    -- Self-healing: ensure the current-year row exists (handles year rollover)
+                    INSERT IGNORE INTO IdSequences (SequenceName, CurrentYear, LastValue)
+                    VALUES ('CERT', YEAR(NOW()), 0);
+
+                    UPDATE IdSequences SET LastValue = LastValue + 1
+                    WHERE SequenceName = 'CERT' AND CurrentYear = YEAR(NOW());
+
+                    SELECT CONCAT('CERT-', CurrentYear, '-', LPAD(LastValue, 6, '0')) INTO v_CertCode
+                    FROM IdSequences WHERE SequenceName = 'CERT' AND CurrentYear = YEAR(NOW());
+
+                    INSERT INTO VolunteerCertificates (CertCode, ProjectId, UserId, OrgId, TotalHours, IssuedBy)
+                    VALUES (v_CertCode, p_ProjectId, v_UserId, p_OrgId, v_TotalHours, p_IssuedBy);
+
+                    SET v_IssuedCount = v_IssuedCount + 1;
+                ELSE
+                    SET v_SkippedCount = v_SkippedCount + 1;
+                END IF;
+            END IF;
+        END LOOP;
+        CLOSE vol_cursor;
+    END;
+
+    SELECT 1 AS IsSuccess,
+           CONCAT('Issued ', v_IssuedCount, ' certificate(s). Skipped ', v_SkippedCount, '.') AS Message,
+           v_IssuedCount AS IssuedCount, v_SkippedCount AS SkippedCount;
+END //
+
+DROP PROCEDURE IF EXISTS UserSessionSkillRating_AddUpdate //
+CREATE PROCEDURE UserSessionSkillRating_AddUpdate(
+    IN p_SessionId INT UNSIGNED,
+    IN p_UserId    INT UNSIGNED,
+    IN p_SkillId   INT UNSIGNED,
+    IN p_Rating    DECIMAL(3,2),
+    IN p_RatedBy   INT UNSIGNED,
+    IN p_Notes     TEXT
+)
+BEGIN
+    DECLARE v_ProjectId INT UNSIGNED;
+
+    SELECT ProjectId INTO v_ProjectId FROM ProjectSessions
+    WHERE SessionId = p_SessionId AND IsDeleted = 0;
+
+    IF v_ProjectId IS NULL THEN
+        SELECT 0 AS IsSuccess, 'Session not found.' AS Message;
+    ELSE
+        INSERT INTO UserSessionSkillRatings (SessionId, UserId, ProjectId, SkillId, Rating, RatedBy, Notes)
+        VALUES (p_SessionId, p_UserId, v_ProjectId, p_SkillId, p_Rating, p_RatedBy, p_Notes)
+        ON DUPLICATE KEY UPDATE Rating = p_Rating, Notes = p_Notes, RatedBy = p_RatedBy, UpdatedAt = NOW();
+
+        SELECT 1 AS IsSuccess, 'Session skill rating saved.' AS Message;
+    END IF;
+END //
+
+DROP PROCEDURE IF EXISTS Project_CheckMilestoneNotification //
+CREATE PROCEDURE Project_CheckMilestoneNotification(IN p_ProjectId INT UNSIGNED, IN p_UserId INT UNSIGNED)
+BEGIN
+    DECLARE v_TotalSessions INT DEFAULT 0;
+    DECLARE v_AttendedCount INT DEFAULT 0;
+    DECLARE v_AttendPct     DECIMAL(5,2) DEFAULT 0;
+    DECLARE v_Milestone     INT DEFAULT 0;
+    DECLARE v_AttendedLkpId INT UNSIGNED;
+
+    SELECT lv.LookupValueId INTO v_AttendedLkpId
+    FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE lt.TypeCode = 'ATTENDANCE_STATUS' AND lv.ValueCode = 'ATTENDED' LIMIT 1;
+
+    SELECT COUNT(*) INTO v_TotalSessions
+    FROM ProjectSessions WHERE ProjectId = p_ProjectId AND IsDeleted = 0;
+
+    SELECT COUNT(*) INTO v_AttendedCount
+    FROM ProjectAttendance pa
+    JOIN ProjectSessions   ps ON pa.SessionId = ps.SessionId
+    WHERE ps.ProjectId = p_ProjectId AND pa.UserId = p_UserId
+      AND pa.AttendStatusLkpId = v_AttendedLkpId;
+
+    IF v_TotalSessions > 0 THEN
+        SET v_AttendPct = ROUND((v_AttendedCount / v_TotalSessions) * 100, 2);
+    END IF;
+
+    SET v_Milestone = CASE
+        WHEN v_AttendPct >= 75 THEN 75
+        WHEN v_AttendPct >= 50 THEN 50
+        WHEN v_AttendPct >= 25 THEN 25
+        ELSE 0
+    END;
+
+    SELECT v_TotalSessions AS TotalSessions, v_AttendedCount AS AttendedCount,
+           v_AttendPct AS AttendancePct, v_Milestone AS MilestoneReached;
+END //
+
+DELIMITER ;
+
+INSERT IGNORE INTO SchemaVersions (Version, Description, CreatedBy)
+VALUES ('v5.1-rf', 'v5.1 RECURRING+FLEXIBLE: 3 new Projects columns, 2 new tables, 7 new lookups, 15 settings, 2 updated SPs (Project_GetById, Certificate_Issue), 15 new SPs, 4 Hangfire jobs.', 'System');
+
+-- ============================================================
+-- END OF v5.1 RECURRING + FLEXIBLE ADDITIONS
+-- ============================================================
+
+-- ============================================================
+-- v5.1-rf PATCH 2: Missing LookupValues, SP updates, new SPs
+-- ============================================================
+
+-- Missing NOTIFICATION_TYPE LookupValues (PROJECT_CLOSING, MILESTONE_25/50/75)
+INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsActive, IsSystemValue)
+SELECT lt.LookupTypeId, vals.code, vals.name, vals.ord, 1, 1
+FROM LookupTypes lt
+JOIN (
+    SELECT 'NOTIFICATION_TYPE' AS tc, 'PROJECT_CLOSING' AS code, 'Project Closing'          AS name, 81 AS ord UNION ALL
+    SELECT 'NOTIFICATION_TYPE',        'MILESTONE_25',             'Attendance Milestone 25%',           82       UNION ALL
+    SELECT 'NOTIFICATION_TYPE',        'MILESTONE_50',             'Attendance Milestone 50%',           83       UNION ALL
+    SELECT 'NOTIFICATION_TYPE',        'MILESTONE_75',             'Attendance Milestone 75%',           84
+) vals ON lt.TypeCode = vals.tc;
+
+DELIMITER //
+
+-- ── Updated: UserBadge_Award — add p_SessionId param ────────────────────────
+DROP PROCEDURE IF EXISTS UserBadge_Award //
+CREATE PROCEDURE UserBadge_Award(
+    IN p_UserId    INT UNSIGNED,
+    IN p_BadgeCode VARCHAR(50),
+    IN p_AwardedBy INT UNSIGNED,
+    IN p_OrgId     INT UNSIGNED,
+    IN p_ProjectId INT UNSIGNED,
+    IN p_SessionId INT UNSIGNED
+)
+BEGIN
+    DECLARE v_BadgeLkpId INT UNSIGNED DEFAULT NULL;
+    DECLARE v_BadgeName  VARCHAR(100) DEFAULT 'Badge';
+    DECLARE v_Exists     INT          DEFAULT 0;
+    DECLARE v_BadgeId    INT UNSIGNED;
+
+    SELECT lv.LookupValueId INTO v_BadgeLkpId
+    FROM   LookupValues lv
+    JOIN   LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE  lt.TypeCode = 'BADGE_TYPE' AND lv.ValueCode = p_BadgeCode LIMIT 1;
+
+    IF v_BadgeLkpId IS NULL THEN
+        SELECT 0 AS IsSuccess,
+               CONCAT('Unknown badge code: ', p_BadgeCode) AS Message,
+               NULL AS BadgeId, NULL AS BadgeName, NULL AS UserId;
+    ELSE
+        SELECT COUNT(*) INTO v_Exists
+        FROM   UserBadges
+        WHERE  UserId     = p_UserId
+          AND  BadgeLkpId = v_BadgeLkpId
+          AND  (p_ProjectId IS NULL OR ProjectId = p_ProjectId)
+          AND  IsDeleted   = 0;
+
+        IF v_Exists > 0 THEN
+            SELECT 0 AS IsSuccess,
+                   'This badge has already been awarded to this volunteer.' AS Message,
+                   NULL AS BadgeId, NULL AS BadgeName, NULL AS UserId;
+        ELSE
+            SELECT ValueName INTO v_BadgeName
+            FROM   LookupValues WHERE LookupValueId = v_BadgeLkpId LIMIT 1;
+
+            INSERT INTO UserBadges (UserId, BadgeLkpId, AwardedBy, OrgId, ProjectId)
+            VALUES (p_UserId, v_BadgeLkpId, p_AwardedBy, p_OrgId, p_ProjectId);
+
+            SET v_BadgeId = LAST_INSERT_ID();
+
+            SELECT 1 AS IsSuccess, CONCAT(v_BadgeName, ' badge awarded.') AS Message,
+                   v_BadgeId AS BadgeId, v_BadgeName AS BadgeName, p_UserId AS UserId;
+        END IF;
+    END IF;
+END //
+
+-- ── Updated: Project_GetSkillRatings — p_SessionId switches between final/session ratings ──
+DROP PROCEDURE IF EXISTS Project_GetSkillRatings //
+CREATE PROCEDURE Project_GetSkillRatings(
+    IN p_ProjectId INT UNSIGNED,
+    IN p_UserId    INT UNSIGNED,
+    IN p_SessionId INT UNSIGNED
+)
+BEGIN
+    IF p_SessionId IS NOT NULL THEN
+        -- Per-session ratings from UserSessionSkillRatings
+        SELECT
+            ps.ProjectSkillId,
+            ps.SkillName,
+            COALESCE(ssr.Rating, 0) AS Rating,
+            ssr.Notes
+        FROM  ProjectSkills ps
+        LEFT JOIN UserSessionSkillRatings ssr
+              ON  ssr.SkillId    = ps.ProjectSkillId
+              AND ssr.UserId     = p_UserId
+              AND ssr.ProjectId  = p_ProjectId
+              AND ssr.SessionId  = p_SessionId
+        WHERE ps.ProjectId = p_ProjectId
+        ORDER BY ps.SkillName;
+    ELSE
+        -- Final project ratings from UserSkillRatings
+        SELECT
+            ps.ProjectSkillId,
+            ps.SkillName,
+            COALESCE(usr.Rating, 0) AS Rating,
+            usr.Notes
+        FROM  ProjectSkills ps
+        LEFT JOIN UserSkillRatings usr
+              ON  usr.SkillId   = ps.ProjectSkillId
+              AND usr.UserId    = p_UserId
+              AND usr.ProjectId = p_ProjectId
+        WHERE ps.ProjectId = p_ProjectId
+        ORDER BY ps.SkillName;
+    END IF;
+END //
+
+-- ── New: Project_ReopenFromCancelled (FLEXIBLE projects only) ───────────────
+DROP PROCEDURE IF EXISTS Project_ReopenFromCancelled //
+CREATE PROCEDURE Project_ReopenFromCancelled(
+    IN p_ProjectId   INT UNSIGNED,
+    IN p_AdminUserId INT UNSIGNED
+)
+BEGIN
+    DECLARE v_CurrentStatusCode VARCHAR(50) DEFAULT NULL;
+    DECLARE v_ScheduleTypeCode  VARCHAR(50) DEFAULT NULL;
+    DECLARE v_AllowedSetting    VARCHAR(10) DEFAULT '1';
+    DECLARE v_ActiveLkpId       INT UNSIGNED DEFAULT NULL;
+
+    SELECT SettingValue INTO v_AllowedSetting
+    FROM Settings WHERE SettingKey = 'PROJECT_REOPEN_ALLOWED' AND IsDeleted = 0 LIMIT 1;
+
+    IF v_AllowedSetting IN ('false', '0') THEN
+        SELECT 0 AS IsSuccess, 'Project reopening is disabled by platform settings.' AS Message;
+    ELSE
+        SELECT projSv.ValueCode, ptv.ValueCode
+        INTO   v_CurrentStatusCode, v_ScheduleTypeCode
+        FROM   Projects p
+        JOIN   LookupValues projSv ON p.StatusLkpId       = projSv.LookupValueId
+        LEFT JOIN LookupValues ptv ON p.ProjectTypeLkpId  = ptv.LookupValueId
+        WHERE  p.ProjectId = p_ProjectId AND p.IsDeleted = 0 LIMIT 1;
+
+        IF v_CurrentStatusCode IS NULL THEN
+            SELECT 0 AS IsSuccess, 'Project not found.' AS Message;
+        ELSEIF v_ScheduleTypeCode != 'FLEXIBLE' THEN
+            SELECT 0 AS IsSuccess, 'Only FLEXIBLE projects can be reopened.' AS Message;
+        ELSEIF v_CurrentStatusCode != 'CANCELLED' THEN
+            SELECT 0 AS IsSuccess,
+                   CONCAT('Project cannot be reopened: current status is ', v_CurrentStatusCode, '.') AS Message;
+        ELSE
+            SELECT lv.LookupValueId INTO v_ActiveLkpId
+            FROM   LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+            WHERE  lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'ACTIVE' LIMIT 1;
+
+            UPDATE Projects
+            SET    StatusLkpId  = v_ActiveLkpId,
+                   CancelledAt  = NULL,
+                   CancelledBy  = NULL,
+                   CancelReason = NULL,
+                   UpdatedAt    = NOW()
+            WHERE  ProjectId = p_ProjectId AND IsDeleted = 0;
+
+            SELECT 1 AS IsSuccess, 'Project reopened successfully.' AS Message,
+                   p_ProjectId AS ProjectId;
+        END IF;
+    END IF;
+END //
+
+-- ── Updated: Application_GetByUser — add progress fields (MyAttendedSessions, MyHoursLogged, etc.) ──
+DROP PROCEDURE IF EXISTS Application_GetByUser //
+CREATE PROCEDURE Application_GetByUser(
+    IN p_UserId     INT UNSIGNED,
+    IN p_PageNumber INT,
+    IN p_PageSize   INT
+)
+BEGIN
+    DECLARE v_Offset         INT;
+    DECLARE v_AttendedLkpId  INT UNSIGNED;
+    DECLARE v_CheckedInLkpId INT UNSIGNED;
+
+    SET v_Offset = (p_PageNumber - 1) * p_PageSize;
+
+    SELECT lv.LookupValueId INTO v_AttendedLkpId
+    FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE lt.TypeCode = 'ATTENDANCE_STATUS' AND lv.ValueCode = 'ATTENDED' LIMIT 1;
+
+    SELECT lv.LookupValueId INTO v_CheckedInLkpId
+    FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE lt.TypeCode = 'ATTENDANCE_STATUS' AND lv.ValueCode = 'CHECKED_IN' LIMIT 1;
+
+    SELECT
+        pa.ApplicationId,
+        pa.ProjectId,
+        pa.UserId,
+        p.ProjectName,
+        o.OrgName,
+        o.LogoUrl              AS OrgLogoUrl,
+        appSv.ValueCode        AS StatusCode,
+        appSv.ValueName        AS Status,
+        pa.CreatedAt,
+        pa.StatusUpdatedAt,
+        ptv.ValueCode          AS ScheduleTypeCode,
+        ptv.ValueName          AS ScheduleTypeName,
+        p.RecurStart,
+        p.RecurEnd,
+        p.RecurDays,
+        p.SessionStartTime,
+        p.SessionEndTime,
+        p.OneTimeDate,
+        p.FlexFromDate,
+        p.FlexToDate,
+        p.Landmark             AS LocationName,
+        p.City,
+        p.Category             AS CategoryName,
+        projSv.ValueCode       AS ProjectStatusCode,
+        projSv.ValueName       AS ProjectStatus,
+        IF(jtv.ValueCode = 'APPROVE_REQ', 1, 0) AS RequiresApproval,
+        -- RECURRING: sessions this volunteer attended
+        (SELECT COUNT(*)
+         FROM   ProjectAttendance ata
+         JOIN   ProjectSessions   pss ON ata.SessionId = pss.SessionId
+         WHERE  pss.ProjectId = p.ProjectId AND ata.UserId = p_UserId
+           AND  ata.AttendStatusLkpId = v_AttendedLkpId
+        ) AS MyAttendedSessions,
+        -- RECURRING: sessions eligible (from approval date onward)
+        (SELECT COUNT(*)
+         FROM   ProjectSessions ps2
+         WHERE  ps2.ProjectId  = p.ProjectId
+           AND  ps2.SessionDate >= DATE(pa.StatusUpdatedAt)
+           AND  ps2.IsDeleted   = 0
+        ) AS MyEligibleSessions,
+        -- FLEXIBLE: hours logged
+        COALESCE((
+            SELECT SUM(ata2.HoursLogged)
+            FROM   ProjectAttendance ata2
+            JOIN   ProjectSessions   pss2 ON ata2.SessionId = pss2.SessionId
+            WHERE  pss2.ProjectId = p.ProjectId AND ata2.UserId = p_UserId
+              AND  ata2.AttendStatusLkpId = v_AttendedLkpId
+        ), 0) AS MyHoursLogged,
+        -- FLEXIBLE: required hours (available window × session hours per day × MinAttendPct %)
+        ROUND(
+            DATEDIFF(p.FlexToDate, p.FlexFromDate) *
+            (TIMESTAMPDIFF(MINUTE, p.SessionStartTime, p.SessionEndTime) / 60.0) *
+            COALESCE(p.MinAttendPct, 70) / 100.0
+        , 2) AS MyRequiredHours,
+        p.MinAttendPct,
+        p.MaxDailyHours,
+        -- FLEXIBLE: active (open) check-in record
+        (SELECT ata3.AttendanceId
+         FROM   ProjectAttendance ata3
+         JOIN   ProjectSessions   pss3 ON ata3.SessionId = pss3.SessionId
+         WHERE  pss3.ProjectId = p.ProjectId AND ata3.UserId = p_UserId
+           AND  ata3.AttendStatusLkpId = v_CheckedInLkpId
+         ORDER BY ata3.CreatedAt DESC LIMIT 1
+        ) AS ActiveCheckInId,
+        (SELECT ata3.CheckInTime
+         FROM   ProjectAttendance ata3
+         JOIN   ProjectSessions   pss3 ON ata3.SessionId = pss3.SessionId
+         WHERE  pss3.ProjectId = p.ProjectId AND ata3.UserId = p_UserId
+           AND  ata3.AttendStatusLkpId = v_CheckedInLkpId
+         ORDER BY ata3.CreatedAt DESC LIMIT 1
+        ) AS ActiveCheckInTime,
+        -- Certificate (if issued)
+        (SELECT vc.CertCode
+         FROM   VolunteerCertificates vc
+         WHERE  vc.ProjectId = p.ProjectId AND vc.UserId = p_UserId AND vc.IsDeleted = 0
+         LIMIT  1
+        ) AS MyCertCode,
+        IF(EXISTS(
+            SELECT 1 FROM VolunteerCertificates vc
+            WHERE  vc.ProjectId = pa.ProjectId AND vc.UserId = pa.UserId AND vc.IsDeleted = 0
+        ), 1, 0) AS HasCertificate,
+        -- Any attendance record exists (for QR/checkin indicator)
+        IF(EXISTS(
+            SELECT 1 FROM ProjectAttendance ata4
+            JOIN   ProjectSessions pss4 ON ata4.SessionId = pss4.SessionId
+            WHERE  pss4.ProjectId = p.ProjectId AND ata4.UserId = p_UserId
+        ), 1, 0) AS IsCheckedIn
+    FROM   ProjectApplications pa
+    JOIN   Projects      p     ON pa.ProjectId        = p.ProjectId
+    JOIN   Organisations o     ON p.OrgId             = o.OrgId
+    LEFT JOIN LookupValues appSv  ON pa.StatusLkpId      = appSv.LookupValueId
+    LEFT JOIN LookupValues projSv ON p.StatusLkpId       = projSv.LookupValueId
+    LEFT JOIN LookupValues ptv    ON p.ProjectTypeLkpId  = ptv.LookupValueId
+    LEFT JOIN LookupValues jtv    ON p.JoinTypeLkpId     = jtv.LookupValueId
+    WHERE  pa.UserId    = p_UserId
+      AND  pa.IsDeleted = 0
+    ORDER BY pa.CreatedAt DESC
+    LIMIT  p_PageSize OFFSET v_Offset;
+
+    SELECT COUNT(*) AS TotalCount
+    FROM   ProjectApplications WHERE UserId = p_UserId AND IsDeleted = 0;
+END //
+
+DELIMITER ;
+
+INSERT IGNORE INTO SchemaVersions (Version, Description, CreatedBy)
+VALUES ('v5.1-rf-p2', 'v5.1 patch2: Added NOTIFICATION_TYPE lookups (PROJECT_CLOSING/MILESTONE_25/50/75); Updated UserBadge_Award (p_SessionId), Project_GetSkillRatings (p_SessionId + session ratings), Project_ManualAttendance (CLOSING status); New Project_ReopenFromCancelled SP; Updated Application_GetByUser (progress fields: MyAttendedSessions, MyEligibleSessions, MyHoursLogged, MyRequiredHours, ActiveCheckInId, ActiveCheckInTime, MyCertCode).', 'System');
+
+-- ============================================================
+-- END OF v5.1-rf PATCH 2
+-- ============================================================
+
+-- ============================================================
+-- ORG PROJECT PERMISSIONS (subscription/plan gate)
+-- CanCreateRecurring + CanCreateFlexible per organisation.
+-- Super Admin grants/revokes via SuperAdmin_UpdateOrgProjectPermissions.
+-- Project_Create + Project_Update enforce the flags SP-side.
+-- ============================================================
+
+DROP PROCEDURE IF EXISTS SuperAdmin_UpdateOrgProjectPermissions //
+CREATE PROCEDURE SuperAdmin_UpdateOrgProjectPermissions(
+    IN p_OrgId              INT UNSIGNED,
+    IN p_CanCreateRecurring TINYINT(1),
+    IN p_CanCreateFlexible  TINYINT(1),
+    IN p_UpdatedBy          INT UNSIGNED
+)
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM Organisations WHERE OrgId = p_OrgId AND IsDeleted = 0) THEN
+        SELECT 0 AS IsSuccess, 'Organisation not found.' AS Message;
+    ELSE
+        UPDATE Organisations
+        SET CanCreateRecurring = p_CanCreateRecurring,
+            CanCreateFlexible  = p_CanCreateFlexible,
+            UpdatedAt          = NOW(),
+            UpdatedBy          = p_UpdatedBy
+        WHERE OrgId = p_OrgId AND IsDeleted = 0;
+
+        SELECT 1 AS IsSuccess, 'Project permissions updated successfully.' AS Message;
+    END IF;
+END //
+
+INSERT IGNORE INTO SchemaVersions (Version, Description, CreatedBy)
+VALUES ('v5.1-org-perms', 'Org project permissions: CanCreateRecurring + CanCreateFlexible columns on Organisations; permission checks in Project_Create + Project_Update SPs; Org_GetProfile returns flags; SuperAdmin_UpdateOrgProjectPermissions SP added.', 'System');

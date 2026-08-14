@@ -2,12 +2,12 @@ using System.ComponentModel.DataAnnotations;
 
 namespace NGOConnect.Core.Models.Skill
 {
+    // v5.1: TotalHours removed — SP now computes from ProjectAttendance (SUM HoursLogged where ATTENDED)
     public class IssueCertificateRequest
     {
-        [Required] public int      ProjectId  { get; set; }
-        [Required] public int      UserId     { get; set; }
-        [Required] public int      OrgId      { get; set; }
-        public decimal?            TotalHours { get; set; }
+        [Required] public int ProjectId { get; set; }
+        [Required] public int UserId    { get; set; }
+        [Required] public int OrgId     { get; set; }
     }
 
 
@@ -25,6 +25,7 @@ namespace NGOConnect.Core.Models.Skill
     {
         [Required] public int    UserId    { get; set; }
         [Required] public string BadgeCode { get; set; } = string.Empty;  // BADGE_TYPE ValueCode e.g. STAR_VOL
-        public int? ProjectId { get; set; }
+        public int? ProjectId  { get; set; }
+        public int? SessionId  { get; set; } // v5.1: session context for RECURRING/FLEXIBLE (accepted by SP, not stored in UserBadges)
     }
 }

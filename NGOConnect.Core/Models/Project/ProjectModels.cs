@@ -2,7 +2,7 @@ using System.ComponentModel.DataAnnotations;
 
 namespace NGOConnect.Core.Models.Project
 {
-    // ── Create/Update Project (v4.0 — all 17 schedule/location params) ──────────
+    // ── Create/Update Project (v5.1 — adds MinAttendPct, MaxDailyHours, MinSessionHours) ──
     public class CreateProjectRequest
     {
         [Required][MaxLength(200)] public string  Title             { get; set; } = string.Empty;
@@ -30,12 +30,9 @@ namespace NGOConnect.Core.Models.Project
         public decimal? Latitude           { get; set; }
         public decimal? Longitude          { get; set; }
         [MaxLength(500)]public string? GoogleMapsUrl { get; set; }
-        // Restrictions
-        // Category stored as string in DB
+        // Restrictions / Category
         [MaxLength(100)]public string? Category         { get; set; }
-        // Location type code resolved to LkpId inside the SP (IN_PERSON | REMOTE | HYBRID)
         [MaxLength(20)] public string? LocationTypeCode { get; set; }
-        // Restrictions
         [MaxLength(20)] public string? GenderRestriction { get; set; }
         public bool?    RequiresApproval   { get; set; }
         [MaxLength(255)]public string? CoverImageUrl  { get; set; }
@@ -43,6 +40,10 @@ namespace NGOConnect.Core.Models.Project
         [MaxLength(100)]public string? State          { get; set; }
         // Status: true = save as DRAFT, false/null = UPCOMING
         public bool?    IsDraft            { get; set; }
+        // v5.1: per-project eligibility overrides (locked once project moves past UPCOMING)
+        [Range(0, 100)] public decimal? MinAttendPct    { get; set; }  // % attendance for cert
+        [Range(0, 24)]  public decimal? MaxDailyHours   { get; set; }  // FLEXIBLE daily cap
+        [Range(0, 24)]  public decimal? MinSessionHours { get; set; }  // min hours to count as attended
     }
 
     public class UpdateProjectRequest : CreateProjectRequest { }
@@ -96,6 +97,45 @@ namespace NGOConnect.Core.Models.Project
         public int     ApplicationId { get; set; }
         [Required][MaxLength(20)] public string StatusCode { get; set; } = string.Empty; // APPROVED / REJECTED
         [MaxLength(500)] public string? AdminNotes { get; set; }
+    }
+
+    // ── Finalize Closing (admin) ─────────────────────────────────────────────────
+    public class FinalizeClosingRequest
+    {
+        [MaxLength(1000)] public string? ImpactSummary    { get; set; }
+        public int?                      BeneficiaryCount { get; set; }
+    }
+
+    // ── Session cancel ───────────────────────────────────────────────────────────
+    public class CancelSessionRequest
+    {
+        [MaxLength(500)] public string? Reason { get; set; }
+    }
+
+    // ── Session opt-out (volunteer self / admin excused / admin removed) ─────────
+    public class SessionOptOutRequest
+    {
+        [Required] public int    SessionId   { get; set; }
+        [Required] public int    UserId      { get; set; }
+        [MaxLength(20)] public string? OptOutType { get; set; } // SELF | ADMIN_EXCUSED | ADMIN_REMOVED
+        [MaxLength(500)] public string? Reason    { get; set; }
+    }
+
+    // ── Session-level skill rating (admin rates per-session) ─────────────────────
+    public class SessionSkillRatingRequest
+    {
+        [Required] public int     SessionId { get; set; }
+        [Required] public int     UserId    { get; set; }
+        [Required] public int     SkillId   { get; set; }   // ProjectSkills.ProjectSkillId
+        [Required][Range(1, 5)] public decimal Rating { get; set; }
+        [MaxLength(500)] public string? Notes { get; set; }
+    }
+
+    // ── Bulk certificate issuance (admin, post-CLOSING) ──────────────────────────
+    public class IssueBulkCertificateRequest
+    {
+        [Required] public int ProjectId { get; set; }
+        [Required] public int OrgId     { get; set; }
     }
 
     // ── Typed Model ─────────────────────────────────────────────────────────────

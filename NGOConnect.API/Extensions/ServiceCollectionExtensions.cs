@@ -8,9 +8,9 @@ using NGOConnect.Core.Interfaces;
 using NGOConnect.Infrastructure.Cache;
 using NGOConnect.Infrastructure.DAL;
 using NGOConnect.Infrastructure.DbProvider;
+using NGOConnect.Infrastructure.Jobs;
 using NGOConnect.Infrastructure.Services;
 using Serilog;
-// v4.0 new namespaces registered below (models live in Core, DALs in Infrastructure)
 
 namespace NGOConnect.API.Extensions
 {
@@ -115,6 +115,13 @@ namespace NGOConnect.API.Extensions
                 options.WorkerCount = Math.Max(1, Environment.ProcessorCount);
                 options.Queues      = new[] { "default" };
             });
+
+            // v5.1: Register RECURRING + FLEXIBLE background job classes (transient — Hangfire
+            // resolves these via DI on each execution, so Scoped deps work safely inside them)
+            services.AddTransient<AutoActivateProjectsJob>();
+            services.AddTransient<TransitionToClosingJob>();
+            services.AddTransient<MarkNoShowJob>();
+            services.AddTransient<AutoCheckoutMissedJob>();
 
             return services;
         }

@@ -7,6 +7,7 @@ using NGOConnect.API.HangfireSupport;
 using NGOConnect.API.Hubs;
 using NGOConnect.API.Middleware;
 using NGOConnect.Core.Interfaces;
+using NGOConnect.Infrastructure.Jobs;
 
 // ── Serilog Bootstrap Logger ─────────────────────────────────
 // Captures startup errors before the full host is built
@@ -139,13 +140,46 @@ try
         app.UseHttpsRedirection();
     }
 
-    // 6b. Hangfire dashboard — Marketing & Communication Center, Phase 0.
-    //     Gated by HangfireDashboardAuthFilter (Development always allowed; otherwise
-    //     requires Settings.COMMUNICATION.HANGFIRE_DASHBOARD_KEY, fails closed if unset).
+    // 6b. Hangfire dashboard
     app.UseHangfireDashboard("/hangfire", new Hangfire.DashboardOptions
     {
         Authorization = new[] { new HangfireDashboardAuthFilter() }
     });
+
+    // 6c. v5.1: RECURRING + FLEXIBLE project background jobs
+    //     Cron expressions are read from the Settings table (already loaded above via settingsCache).
+    //     Defaults match the seeds in patch_v5.1.sql.
+    var autoActivateCron        = settingsCache.GetValue<string>("AUTO_ACTIVATE_CRON")        ?? "0 1 * * *";
+    var transitionClosingCron   = settingsCache.GetValue<string>("TRANSITION_CLOSING_CRON")   ?? "0 2 * * *";
+    var markNoShowCron          = settingsCache.GetValue<string>("MARK_NOSHOW_CRON")          ?? "*/30 * * * *";
+    var autoCheckoutMissedCron  = settingsCache.GetValue<string>("AUTO_CHECKOUT_MISSED_CRON") ?? "*/30 * * * *";
+
+    RecurringJob.AddOrUpdate<AutoActivateProjectsJob>(
+        "auto-activate-projects",
+        job => job.ExecuteAsync(),
+        autoActivateCron,
+        new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
+
+    RecurringJob.AddOrUpdate<TransitionToClosingJob>(
+        "transition-to-closing",
+        job => job.ExecuteAsync(),
+        transitionClosingCron,
+        new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
+
+    RecurringJob.AddOrUpdate<MarkNoShowJob>(
+        "mark-no-shows",
+        job => job.ExecuteAsync(),
+        markNoShowCron,
+        new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
+
+    RecurringJob.AddOrUpdate<AutoCheckoutMissedJob>(
+        "auto-checkout-missed",
+        job => job.ExecuteAsync(),
+        autoCheckoutMissedCron,
+        new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
+
+    Log.Information("v5.1 Hangfire jobs registered: AutoActivate({Cron1}), TransitionToClosing({Cron2}), MarkNoShow({Cron3}), AutoCheckoutMissed({Cron4})",
+        autoActivateCron, transitionClosingCron, markNoShowCron, autoCheckoutMissedCron);
 
     // 7. Static files — serve uploaded media under /uploads/*
     //    UploadRootPath must exist; LocalFileService creates subdirectories on first upload.

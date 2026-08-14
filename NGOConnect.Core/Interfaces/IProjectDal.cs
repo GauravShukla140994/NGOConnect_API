@@ -26,13 +26,54 @@ namespace NGOConnect.Core.Interfaces
         Task<ApiResponse>                          ReviewApplicationAsync(int reviewedBy, ReviewApplicationRequest request);
         Task<ApiResponse<PagedResult<DynamicRow>>> GetApplicationsAsync(int projectId, int pageNumber, int pageSize, string? statusCode = null);
 
-        // Complete
+        // Complete / Cancel
         Task<ApiResponse>                          CompleteAsync(int projectId, int userId, CompleteProjectRequest request);
-
-        // Cancel
         Task<ApiResponse>                          CancelAsync(int projectId, int userId, CancelProjectRequest request);
 
         // Manual attendance override (admin)
         Task<ApiResponse>                          ManualAttendanceAsync(int markedBy, ManualAttendanceRequest request);
+
+        // ── v5.1: RECURRING + FLEXIBLE flow ─────────────────────────────────────────
+
+        /// <summary>FLEXIBLE self check-in within the session window. SP validates type + window + APPROVED status.</summary>
+        Task<ApiResponse<DynamicRow>>              FlexCheckInAsync(int projectId, int userId);
+
+        /// <summary>FLEXIBLE self check-out. Computes hours, applies MaxDailyHours cap.</summary>
+        Task<ApiResponse<DynamicRow>>              FlexCheckOutAsync(int projectId, int userId);
+
+        /// <summary>Admin finalises a CLOSING project → COMPLETED + aggregates session skill ratings.</summary>
+        Task<ApiResponse>                          FinalizeClosingAsync(int projectId, int completedBy, FinalizeClosingRequest request);
+
+        /// <summary>Admin cancels a single session.</summary>
+        Task<ApiResponse>                          CancelSessionAsync(int sessionId, int cancelledBy, CancelSessionRequest request);
+
+        /// <summary>Volunteer (or admin) opts out of a specific session.</summary>
+        Task<ApiResponse>                          SessionOptOutAsync(int requestedBy, SessionOptOutRequest request);
+
+        /// <summary>Admin rates a volunteer's skill for a specific session.</summary>
+        Task<ApiResponse>                          AddSessionSkillRatingAsync(int ratedBy, SessionSkillRatingRequest request);
+
+        /// <summary>Returns per-session breakdown for a volunteer in a RECURRING/FLEXIBLE project.</summary>
+        Task<ApiResponse<List<DynamicRow>>>        GetMySessionListAsync(int projectId, int userId);
+
+        /// <summary>Returns attendance % + cert eligibility for a volunteer.</summary>
+        Task<ApiResponse<DynamicRow>>              GetVolunteerEligibilityAsync(int projectId, int userId);
+
+        /// <summary>Checks current attendance milestone (25/50/75) — C# caller fires push if enabled.</summary>
+        Task<ApiResponse<DynamicRow>>              CheckMilestoneAsync(int projectId, int userId);
+
+        // ── v5.1: Hangfire background job entry points ─────────────────────────────
+
+        /// <summary>Called by AutoActivateProjectsJob — UPCOMING → ACTIVE + generates sessions.</summary>
+        Task<ApiResponse<DynamicRow>>              AutoActivateAsync();
+
+        /// <summary>Called by TransitionToClosingJob — ACTIVE → CLOSING for ended RECURRING/FLEXIBLE projects.</summary>
+        Task<ApiResponse<DynamicRow>>              TransitionToClosingAsync();
+
+        /// <summary>Called by MarkNoShowJob — inserts NO_SHOW rows for absent RECURRING session volunteers.</summary>
+        Task<ApiResponse<DynamicRow>>              MarkNoShowsAsync();
+
+        /// <summary>Called by AutoCheckoutMissedJob — marks FLEXIBLE CHECKED_IN records as CHECKOUT_MISSED after buffer.</summary>
+        Task<ApiResponse<DynamicRow>>              AutoCheckoutMissedAsync();
     }
 }

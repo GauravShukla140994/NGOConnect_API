@@ -272,6 +272,106 @@ When there is a conflict between files, this priority order applies:
 
 ## Current Pending Document Updates
 
+**Org project permissions — RECURRING/FLEXIBLE plan gate (2026-08-14)**
+- `NGOConnect_Complete_Setup_v5.0.sql` → `CREATE TABLE Organisations`: added `CanCreateRecurring TINYINT(1) NOT NULL DEFAULT 0` and `CanCreateFlexible TINYINT(1) NOT NULL DEFAULT 0` columns.
+- `NGOConnect_Complete_Setup_v5.0.sql` → `Project_Create` SP: two new `IF v_Error IS NULL AND p_ScheduleType = 'RECURRING'/'FLEXIBLE'` blocks query `Organisations.CanCreate*` and block creation with a user-facing message if the org lacks the right. Added before the existing `IF v_Error IS NOT NULL` gate.
+- `NGOConnect_Complete_Setup_v5.0.sql` → `Project_Update` SP: same two permission check blocks added before the `IF v_Error IS NOT NULL` gate.
+- `NGOConnect_Complete_Setup_v5.0.sql` → `Org_GetProfile` SP: added `o.CanCreateRecurring, o.CanCreateFlexible` to SELECT.
+- `NGOConnect_Complete_Setup_v5.0.sql` → new SP `SuperAdmin_UpdateOrgProjectPermissions(p_OrgId, p_CanCreateRecurring, p_CanCreateFlexible, p_UpdatedBy)`: verifies org exists, UPDATEs both flags. Returns IsSuccess + Message.
+- `NGOConnect_Complete_Setup_v5.0.sql` → SchemaVersions entry `'v5.1-org-perms'` added.
+- Patch file created: `Documents/patch_org_project_permissions.sql` (ALTER TABLE + 4 SP DROP+CREATEs).
+- `NGOConnect.Core/Models/SuperAdmin/SuperAdminModels.cs`: added `UpdateOrgProjectPermissionsRequest { CanCreateRecurring, CanCreateFlexible }`.
+- `NGOConnect.Core/Interfaces/ISuperAdminDal.cs`: added `UpdateOrgProjectPermissionsAsync`.
+- `NGOConnect.Infrastructure/DAL/SuperAdminDal.cs`: implemented `UpdateOrgProjectPermissionsAsync` calling `SuperAdmin_UpdateOrgProjectPermissions`.
+- `NGOConnect.API/Controllers/SuperAdminController.cs`: added `PATCH /api/v1/superadmin/orgs/{orgId}/project-permissions` endpoint. **Correction to this entry's own earlier wording**: this controller's route is `[Route("api/v1/superadmin")]` — no hyphen. An earlier version of this note (and the prompt used to build the Website UI) said `/super-admin/orgs/...`; that route does not exist and would 404. Fixing the record here before it propagates into `API_Documentation` at the next "update documents" pass.
+- `App/NGOConnectApp/src/types/api.types.ts`: added `canCreateRecurring?: boolean` and `canCreateFlexible?: boolean` to `Organisation` interface.
+- `App/NGOConnectApp/src/screens/admin/CreateProjectScreen.tsx`: added `orgPerms` state (default true = fail-open while loading); added `useEffect` that calls `orgApi.getProfile(orgId)` on mount and updates `orgPerms`; schedule type buttons show `🔒` suffix and 0.45 opacity for locked types; tapping a locked type shows `Alert` "Plan Upgrade Required".
+- **Database Documentation**: update `Organisations` table columns list; update `Project_Create` + `Project_Update` + `Org_GetProfile` + `SuperAdmin_Org_GetDetail` SP descriptions; add `SuperAdmin_UpdateOrgProjectPermissions` SP entry.
+- **API Documentation**: add `PATCH /api/v1/superadmin/orgs/{orgId}/project-permissions` endpoint entry.
+
+**Org project permissions — Super Admin website UI + a missed SP (2026-08-14, same session continued)**
+- **Real gap found**: the prompt used to build this UI claimed `GET /superadmin/orgs/{orgId}` (org detail) already returned `canCreateRecurring`/`canCreateFlexible` because they were "added to `Org_GetProfile`". That's a different SP — `Org_GetProfile` is mobile-facing; the Super Admin website's org detail drawer calls `SuperAdmin_Org_GetDetail`, which never got the two columns added. Fixed:
+  - `NGOConnect_Complete_Setup_v5.0.sql` → `SuperAdmin_Org_GetDetail` SELECT: added `o.CanCreateRecurring, o.CanCreateFlexible`.
+  - New patch file: `Documents/NGOConnect_Patch_SuperAdminOrgDetail_ProjectPermissions.sql` (DROP+CREATE, idempotent). **Apply to Railway staging → production** alongside `patch_org_project_permissions.sql` from the entry above if that one hasn't been applied yet either.
+  - `validate_sp_params.py` re-run: all phases passed.
+- **Website** (`src/admin/`):
+  - `api/orgs.js` → added `updateOrgProjectPermissions(orgId, canCreateRecurring, canCreateFlexible)`, calling the correct `PATCH /superadmin/orgs/{orgId}/project-permissions` route (see route correction above).
+  - `pages/OrgDrawer.jsx` → new "Project Permissions" section, placed directly above "Submitted documents" (no "Verification Status" section exists in this drawer to anchor below, per the prompt's fallback placement rule). Two toggle rows (Recurring / Flexible), state seeded from `getOrgDetail`'s `canCreateRecurring`/`canCreateFlexible` (coerced from SP `TINYINT` via `!!`). Both flags sent together on every toggle per the API's contract. Optimistic update with revert-on-failure; per-row "Saving…" state while in flight. New `PermissionRow` sub-component reuses the existing hand-rolled pill-switch styling already established in `LookupManagementPage.jsx`'s Active toggle (`var(--p)`/`#D8D8E4`, 34×19px) rather than introducing a new switch component/library, since this codebase doesn't use one. Feedback uses `alert()` (success and failure) matching this drawer's existing convention (`handleViewDoc`'s error alert) — no toast system exists in this admin panel.
+  - Build verified clean (`npm run build`, 880 modules).
+- Documents to update when "update documents" is called: same Database/API Documentation items as the entry above, now also covering `SuperAdmin_Org_GetDetail`'s new columns and the corrected route.
+
+**Project_Create + Project_Update — settings-based schedule validation (2026-08-14)**
+- `NGOConnect_Complete_Setup_v5.0.sql` → `Project_Create` SP: added DECLARE block with `v_Error VARCHAR(500)` + 9 settings variables (with hardcoded fallback defaults); 9 `SELECT INTO` statements load settings at runtime from the `Settings` table; 7 sequential validation checks (each guarded by `IF v_Error IS NULL AND ...`):
+  - ONE_TIME: `SessionEndTime − SessionStartTime` (hours) must be > 0 and ≤ `OT_MAX_DURATION_HOURS` (default 12)
+  - RECURRING: `DATEDIFF(EndDate, StartDate)` must be ≥ `RECURRING_MIN_DURATION_DAYS` (7) and ≤ `RECURRING_MAX_DURATION_DAYS` (90)
+  - FLEXIBLE: `DATEDIFF(EndDate, StartDate)` must be ≥ `FLEXIBLE_MIN_DURATION_DAYS` (3) and ≤ `FLEXIBLE_MAX_DURATION_DAYS` (60)
+  - FLEXIBLE: `p_MaxDailyHours` (if provided) must be ≥ `FLEXIBLE_MAX_DAILY_HOURS` floor (8) — project can override upward only
+  - FLEXIBLE: `p_MinSessionHours` (if provided) must be ≥ `FLEXIBLE_MIN_SESSION_HOURS` floor (1)
+  - FLEXIBLE: `p_MinAttendPct` (if provided) must be ≥ `FLEXIBLE_MIN_ATTEND_PCT` floor (70)
+  - RECURRING: `p_MinAttendPct` (if provided) must be ≥ `RECURRING_MIN_ATTEND_PCT` floor (70)
+  - All errors returned as `SELECT 0 AS IsSuccess, v_Error AS Message, NULL AS ProjectId` before duplicate checks fire.
+- `NGOConnect_Complete_Setup_v5.0.sql` → `Project_Update` SP: same validation block added (same DECLAREs, same settings reads, same 7 checks); entire existing update logic wrapped in `IF v_Error IS NOT NULL THEN error ELSE [update] END IF`.
+- Patch file created: `Documents/patch_project_settings_validation.sql` — DROP + CREATE for both SPs, safe to re-run.
+- **Database Documentation**: update `Project_Create` and `Project_Update` SP descriptions to note settings-driven schedule validation; list the 9 settings keys each SP reads.
+- **API Documentation**: no endpoint signature change — validation errors surface as `IsSuccess: 0` + descriptive message (same shape as duplicate-check errors already documented).
+
+**v5.1-rf PATCH 2 — RECURRING/FLEXIBLE mobile screens + SP fixes (2026-08-14)**
+
+DB changes (`NGOConnect_Complete_Setup_v5.0.sql` — v5.1-rf PATCH 2 block appended):
+- Missing `NOTIFICATION_TYPE` LookupValues added: `PROJECT_CLOSING`, `MILESTONE_25`, `MILESTONE_50`, `MILESTONE_75`
+- `UserBadge_Award` SP — added `IN p_SessionId INT UNSIGNED` param (accepted, not stored — `UserBadges` table has no SessionId column per spec §1.1)
+- `Project_GetSkillRatings` SP — added `IN p_SessionId INT UNSIGNED`; when NOT NULL reads from `UserSessionSkillRatings`, when NULL reads from `UserSkillRatings` (unchanged behaviour for ONE_TIME)
+- `Project_ReopenFromCancelled` — new SP; FLEXIBLE projects only; checks `PROJECT_REOPEN_ALLOWED` setting; resets StatusLkpId → ACTIVE, clears CancelledAt/CancelledBy/CancelReason
+- `Application_GetByUser` SP — extended SELECT to add: `MyAttendedSessions`, `MyEligibleSessions`, `MyHoursLogged`, `MyRequiredHours`, `MinAttendPct`, `MaxDailyHours`, `ActiveCheckInId`, `ActiveCheckInTime`, `MyCertCode`, `HasCertificate`; uses pre-resolved `v_AttendedLkpId` + `v_CheckedInLkpId` variables
+- `Project_ManualAttendance` SP — inline fix: added `'CLOSING'` to valid project status check so attendance can be marked during review period
+- SchemaVersions entry `'v5.1-rf-p2'` added
+
+Mobile TypeScript types (`App/.../src/types/api.types.ts`):
+- `UserApplication` interface extended with v5.1 progress fields: `userId?`, `myAttendedSessions?`, `myEligibleSessions?`, `myHoursLogged?`, `myRequiredHours?`, `minAttendPct?`, `maxDailyHours?`, `activeCheckInId?`, `activeCheckInTime?`, `myCertCode?`
+
+Mobile screen changes (`App/.../src/screens/`):
+- `volunteer/MyProjectsScreen.tsx`:
+  - Added CLOSING tab (5th tab, amber `#D97706` border); isClosing filter: `statusCode === 'APPROVED' && projectStatusCode === 'CLOSING'`; CLOSING card shows ⏳ badge + "🔒 Project in review — certificates being issued" footer; info banner: "⏳ These projects are in review. Admin is issuing certificates."
+  - Added `SessionHistorySection` component (collapsible, lazy-loaded on first expand); calls `projectApi.getMySessionList(projectId, userId)`; shows per-session rows: date chip, status chip (Attended/No show/Opted out), check-in time, hours logged; rendered in Upcoming tab cards for RECURRING/FLEXIBLE only
+- `admin/ParticipantsScreen.tsx` — `handleSubmitRatings` branches on `sessionId` from `route.params`: when present calls `addSessionSkillRating()` (RECURRING/FLEXIBLE session-level); when absent calls `rateSkill()` (ONE_TIME project-level)
+- `profile/ImpactScreen.tsx` — `UpcomingCard`: added RECURRING sessions progress bar (`myAttendedSessions / myEligibleSessions`, blue) and FLEXIBLE hours progress bar (`myHoursLogged / myRequiredHours`, green); both guard-gated on > 0 eligible count/required hours
+
+API docs impact:
+- `GET /projects/{id}/applications?userId=` (Application_GetByUser) — response now includes 10 new progress fields (see above). **Database Documentation** and **API Documentation** need update for these added fields.
+- `GET /projects/{id}/skill-ratings` — now accepts optional `?sessionId=` query param. **API Documentation** needs update.
+- `POST /projects/{id}/skill-ratings/session` — new endpoint (session-level). **API Documentation** needs new entry.
+- `POST /projects/{id}/reopen` — new endpoint (FLEXIBLE reopen from cancelled). **API Documentation** needs new entry.
+
+**Document version bump**: Pending. All above changes go into v5.1 once full implementation verified on staging.
+
+---
+
+**Session history + session-level skill rating (2026-08-14)**
+- `App/NGOConnectApp/src/screens/volunteer/MyProjectsScreen.tsx` → Added `SessionHistorySection` component (collapsible, lazy-loaded). Rendered inside Upcoming tab cards for RECURRING and FLEXIBLE projects only. Calls `projectApi.getMySessionList(projectId, userId)` on first expand; shows per-session rows: date, status chip (Attended/No show/Opted out), check-in time, hours logged.
+- `App/NGOConnectApp/src/screens/admin/ParticipantsScreen.tsx` → `handleSubmitRatings` now branches on `sessionId` from `route.params`: if present, calls `projectApi.addSessionSkillRating(projectId, { sessionId, userId, skillId, rating, notes: '' })` for session-level ratings (RECURRING/FLEXIBLE); otherwise falls back to `projectApi.rateSkill(...)` (ONE_TIME). Navigation to this screen must pass `sessionId` for RECURRING/FLEXIBLE projects.
+- No DB or API doc changes required — both API endpoints (`GET /projects/{id}/my-sessions` and `POST /projects/{id}/sessions/skill-rating`) were already implemented in the v5.1 backend and documented.
+
+**Program.cs Hangfire cron fix + CategoryName SP patch (2026-08-14)**
+- `NGOConnect.API/Program.cs` → Removed duplicate `var settingsCache = ...` declaration (line 152); changed `.Get("KEY")` → `.GetValue<string>("KEY")` for all 4 Hangfire cron settings reads. Fixes CS0128 + CS1929 build errors.
+- `Documents/patch_fix_category_in_sps.sql` → Created: rebuilds `User_GetImpactSummary` (all 4 result sets) and `Application_GetByUser` to add `p.Category AS CategoryName`. These SPs are already correct in `NGOConnect_Complete_Setup_v5.0.sql` — patch is for running Railway DBs only.
+- `App/NGOConnectApp/src/screens/volunteer/MyProjectsScreen.tsx` → Applied (task #104):
+  - Applied tab: replaced standalone category pill with a flex-row containing both category + schedule type pills (purple).
+  - Completed tab: added category + schedule type pills row before schedule one-liner (was missing entirely).
+  - No change needed for Upcoming (already had both pills) or Cancelled (already had category pill).
+- `App/NGOConnectApp/src/screens/profile/ImpactScreen.tsx` → No change needed — UpcomingCard already had schedule type label + category pill (task #103 already done).
+- No API/DB documentation update needed — CategoryName was already in `UserApplication` TypeScript type and the SP fix is data-additive only.
+- **Patch to run on Railway**: `Documents/patch_fix_category_in_sps.sql`
+
+**Feed ViewCount fix — FeedInteractions index + Feed_BulkMarkViewed + Post_GetById (2026-08-13)**
+- Root cause 1: original `Feed_BulkMarkViewed` SP (from `patch_feed_seen_tracking.sql`) never had `UPDATE Posts SET ViewCount = ViewCount + 1`. Also used `INSERT IGNORE` without a UNIQUE constraint on `FeedInteractions(UserId, PostId, InteractionType)`, so it was inserting duplicate VIEW rows on every flush.
+- Root cause 2: `Post_GetById` SP was missing `p.ViewCount` from its SELECT — written before `ViewCount` column was added to `Posts`. So `GET /post/{id}` always returned `viewCount: null`, breaking the live-count fetch in `FeedShortsModal`.
+- `Documents/NGOConnect_Complete_Setup_v5.0.sql` → `Post_GetById`: added `p.ViewCount` to SELECT.
+- `Documents/NGOConnect_Complete_Setup_v5.0.sql` → `Feed_BulkMarkViewed`: already correct. No change.
+- `FeedInteractions` table → added `INDEX idx_feedint_user_post_type (UserId, PostId, InteractionType)` for NOT EXISTS query performance.
+- `App/NGOConnectApp/src/components/home/FeedShortsModal.tsx` → `PostShortsSlide`: added `liveViewCount` state; description sheet tap now calls `feedApi.getPost()` and updates count from server response; sheet receives `liveViewCount ?? viewCountOverride`.
+- Patch file: `Documents/patch_fix_viewcount.sql` (combines all 3 steps: index + Feed_BulkMarkViewed + Post_GetById)
+- **Database Documentation**: note new index `idx_feedint_user_post_type` on `FeedInteractions`; note `ViewCount` added to `Post_GetById` SELECT.
+
 **Certificate verify page — moved to server-rendered HTML + real PDF download (2026-08-13)**
 - API side (already implemented locally, confirmed in `CertificateController.cs`): new `GET /certificates/verify/{token}/html` (`[AllowAnonymous]`) returns `ApiResponse<string>` — the fully server-rendered certificate HTML (`ICertificateHtmlService`/`CertificateHtmlService`, substitutes `{{PLACEHOLDER}}` tokens into `NGOConnect.API/Templates/CertificateTemplate.html`). Mirrors the existing auth-required `GET /certificates/{certCode}/html` used by the mobile WebView. Old `GET /certificates/verify/{token}` (JSON) endpoint unchanged, still used elsewhere. **This new endpoint was not yet deployed to Railway staging as of this session — confirm before relying on it in prod.**
 - `Website/src/pages/VerifyCertificatePage.jsx` — rewritten to call the new `/html` endpoint instead of fetching JSON + building the certificate client-side from a local template. Removed `mapToTemplateData`/`parseSkillRatings`/date-formatting helpers and the local template import entirely. `errorCode === 'CERT_REVOKED'` and `NOT_FOUND` handled as distinct states. Renders via `<iframe srcDoc={certHtml}>`.
@@ -1884,3 +1984,131 @@ Documents to update when "update documents" is called:
   - `App/NGOConnectApp/src/screens/home/NotificationsScreen.tsx` — added `MEMBERSHIP_CANCELLED` to `notifMeta` (↩️ grey) and `resolveScreen` (→ MyOrgs).
   - `App/NGOConnectApp/src/navigation/RootNavigator.tsx` — added `MEMBERSHIP_CANCELLED` case (→ MyOrgs).
 - No API contract changes. No doc version bump needed.
+
+---
+
+### [2026-08-14] RECURRING + FLEXIBLE Project Flow — v5.1 Implementation (IN PROGRESS)
+
+**Scope: Major feature — DB, backend, mobile**
+
+#### DB changes (setup SQL updated + patch_v5.1.sql created)
+- `NGOConnect_Complete_Setup_v5.0.sql`:
+  - **Projects table**: 3 new nullable columns — `MinAttendPct DECIMAL(5,2)`, `MaxDailyHours DECIMAL(4,2)`, `MinSessionHours DECIMAL(4,2)`
+  - **New table** `UserSessionSkillRatings` — per-session skill ratings for RECURRING/FLEXIBLE
+  - **New table** `VolunteerSessionOptOuts` — session-level opt-outs (SELF/ADMIN_EXCUSED/ADMIN_REMOVED)
+  - **New LookupType**: `SESSION_OPT_OUT_TYPE` (SELF, ADMIN_EXCUSED, ADMIN_REMOVED)
+  - **New LookupValues**: CLOSING (PROJECT_STATUS), CHECKED_IN + CHECKOUT_MISSED (ATTENDANCE_STATUS), PROJECT_COMPLETE (BADGE_TYPE)
+  - **New Settings** (15): RECURRING_MAX_DURATION_DAYS, FLEXIBLE_MAX_DURATION_DAYS, FLEX_CHECKIN_OPEN_MINUTES, FLEX_CHECKOUT_BUFFER_MINUTES, RECURRING_NOSHOW_GRACE_MINUTES, AUTO_ACTIVATE_LEAD_DAYS, CLOSING_TRIGGER_OFFSET_DAYS, SKILL_RATING_WINDOW_DAYS, MILESTONE_25/50/75_ENABLED, AUTO_ACTIVATE_CRON, MARK_NOSHOW_CRON, AUTO_CHECKOUT_MISSED_CRON, TRANSITION_CLOSING_CRON
+  - **Updated SPs**: `Project_GetById` (new cols + TotalSessions), `Certificate_Issue` (removed p_TotalHours — now computes from DB), `Project_Create` (+3 params), `Project_Update` (+3 params)
+  - **New SPs** (15): Project_GenerateSessions, Project_FlexCheckIn, Project_FlexCheckOut, Project_TransitionToClosing, Project_FinalizeClosing, Project_AutoActivate, Project_MarkNoShows, Project_AutoCheckoutMissed, Project_GetVolunteerEligibility, Project_GetMySessionList, Session_Cancel, Session_OptOut, Certificate_IssueBulk, UserSessionSkillRating_AddUpdate, Project_CheckMilestoneNotification
+  - **patch_v5.1.sql** created — run on local → staging → production
+
+#### Backend changes (complete)
+- `NGOConnect.Core/Models/Project/ProjectModels.cs` — 3 new fields + 5 new request models
+- `NGOConnect.Core/Models/Skill/SkillModels.cs` — removed TotalHours from IssueCertificateRequest
+- `NGOConnect.Core/Interfaces/IProjectDal.cs` — 13 new method signatures
+- `NGOConnect.Core/Interfaces/ICertificateDal.cs` — added IssueBulkAsync
+- `NGOConnect.Infrastructure/DAL/ProjectDal.cs` — 13 new method implementations + CreateAsync/UpdateAsync +3 params
+- `NGOConnect.Infrastructure/DAL/CertificateDal.cs` — IssueAsync (no p_TotalHours) + IssueBulkAsync
+- `NGOConnect.API/Controllers/ProjectController.cs` — 11 new endpoints
+- `NGOConnect.Infrastructure/Jobs/AutoActivateProjectsJob.cs` — NEW
+- `NGOConnect.Infrastructure/Jobs/TransitionToClosingJob.cs` — NEW
+- `NGOConnect.Infrastructure/Jobs/MarkNoShowJob.cs` — NEW
+- `NGOConnect.Infrastructure/Jobs/AutoCheckoutMissedJob.cs` — NEW
+- `NGOConnect.API/Extensions/ServiceCollectionExtensions.cs` — 4 Transient job registrations
+- `NGOConnect.API/Program.cs` — 4 RecurringJob.AddOrUpdate calls (cron from SettingsCache)
+- `scripts/validate_sp_params.py` — fixed SP regex (Pascal-case only); added FP6 for Org_GetDashboard comment false positive. **Validator: ALL PHASES PASSED.**
+
+#### Mobile changes (complete as of 2026-08-14)
+- `App/.../src/api/project.api.ts` — new types (FinalizeClosingPayload, SessionOptOutPayload, SessionSkillRatingPayload, IssueBulkCertificatePayload, FlexCheckInResult, FlexCheckOutResult, VolunteerEligibilityResult, SessionListItem, MilestoneResult) + 10 new API calls + named exports
+- `App/.../src/screens/projects/ProjectDetailScreen.tsx` — FLEXIBLE check-in/out footer (green Check In / red Check Out when APPROVED + FLEXIBLE + ACTIVE); added "My Progress" card for RECURRING/FLEXIBLE approved volunteers: eligibility badge (✅/❌), sessions progress bar with attendancePct, hours stat, total sessions count; imports `getVolunteerEligibility`, `useAuthStore`; `VolunteerEligibilityResult` state
+- `App/.../src/screens/admin/CreateProjectScreen.tsx` — 3 new form fields (minAttendPct, maxDailyHours, minSessionHours) + Attendance Rules UI in Step 4 + buildPayload updated (already complete — no further changes)
+- `App/.../src/screens/admin/AdminProjectsScreen.tsx` — added CLOSING as 4th tab (after UPCOMING); BADGE_CONFIG entry amber; projects/loading/filteredAll state extended; loadTab branch for `statusCode: 'CLOSING'`; empty icon ⏳; loadedTabs invalidation on refresh
+- `App/.../src/screens/admin/AdminProjectDetailScreen.tsx` — already had CLOSING support (isClosing, finalizeClosing, issueBulkCertificates) from prior sprint; no changes needed
+- `App/.../src/screens/admin/ParticipantsScreen.tsx` — added `isClosing` flag; `isReadOnly` extended to cover CLOSING; CLOSING review banner ("⏳ Project in Review"); `AttendedCard` cert button condition extended to `isCompleted || isClosing`; banner styles added
+- `App/.../src/screens/admin/MemberImpactScreen.tsx` — **full rebuild** (was a stub "Coming in next sprint"): nav params `{projectId, userId, volunteerName, projectName, scheduleTypeCode}`; parallel fetch of `getVolunteerEligibility` + `getMySessionList` on mount; eligibility badge; RECURRING sessions progress bar with attendancePct; FLEXIBLE hours stat; session history list with status chips (ATTENDED=green, NO_SHOW=red, OPTED_OUT=amber, CHECKED_IN=blue)
+- `App/.../src/screens/profile/ImpactScreen.tsx` — `UpcomingCard` extended: RECURRING sessions progress bar (guard: `myEligibleSessions > 0`); FLEXIBLE hours progress bar (guard: `myRequiredHours > 0`); progress styles added
+
+#### Backend validator fixes (2026-08-14)
+- `NGOConnect.Infrastructure/DAL/BadgeDal.cs` — `AwardAsync`: added missing `p_SessionId` param (`(object?)request.SessionId`) to `UserBadge_Award` SP call
+- `NGOConnect.Core/Models/Skill/SkillModels.cs` — `AwardBadgeRequest`: added `public int? SessionId { get; set; }` (v5.1 session context; accepted by SP, not stored in UserBadges — no SessionId column on that table)
+- Note: an earlier session also added `p_SessionId` to `OrgDal.cs → AwardBadgeAsync` and `ProjectDal.cs → GetSkillRatingsAsync` (null default). `OrgModels.cs → AwardBadgeRequest` also got `SessionId`. Both files had a second `AwardBadgeRequest` — the one in `SkillModels.cs` (used by `BadgeDal.cs`) was the missing fix resolved this session.
+- **Validator: ALL PHASES PASSED** after these fixes.
+
+**Document version bump**: Pending — will be v5.1 once full implementation verified on staging. Apply patch_v5.1.sql to all DBs before next session.
+---
+
+### [2026-08-14] Attendance Rules UX — system defaults + moved to Schedule step
+
+**Scope: Minor settings addition + mobile UX rework**
+
+#### DB / Settings changes
+- `Documents/NGOConnect_Complete_Setup_v5.0.sql` — 2 new PUBLIC Settings rows added to PROJECT group:
+  - `DEFAULT_MIN_ATTEND_PCT` (value: 70, IsPublic=1) — system floor for min attendance % on RECURRING/FLEXIBLE projects
+  - `DEFAULT_MAX_DAILY_HOURS` (value: 8, IsPublic=1) — system floor for max daily hours on FLEXIBLE projects
+- `Documents/patch_attendance_defaults.sql` — **run on local → Railway staging → Railway production**
+
+#### Mobile changes
+- `App/.../src/screens/admin/CreateProjectScreen.tsx`:
+  - Added `import { settingsApi } from '../../api/settings.api'`
+  - Added `sysDefaults` state `{ minAttendPct: 70, maxDailyHours: 8 }` — loaded from `/settings/public` at mount
+  - New mount-time `useEffect`: fetches `DEFAULT_MIN_ATTEND_PCT` + `DEFAULT_MAX_DAILY_HOURS`, updates `sysDefaults`, pre-fills form fields with system defaults for NEW projects
+  - Edit-load effect: populates `minAttendPct` and `maxDailyHours` from saved project values (fallback to system defaults if null)
+  - Moved attendance rules UI from Step 4 into **Step 2 (Schedule)**, rendered only when `scheduleType !== 'ONE_TIME'`
+  - `minAttendPct`: pre-filled with system default, `onBlur` clamps to `[sysDefault, 100]` — user can only raise
+  - `maxDailyHours`: same clamp `[sysDefault, 24]`, FLEXIBLE only
+  - `minSessionHours`: **read-only computed** — new `calcMinSessionHours(form)` helper; RECURRING = (pct/100) × session duration hours; FLEXIBLE = (pct/100) × maxDailyHours; displayed as a non-editable field
+  - Review step (Step 5): added "ATTENDANCE RULES" summary section showing the three values as blue pills
+  - `buildPayload`: `minSessionHours` now sent as `calcMinSessionHours(form)` (computed), not a form field; attendance fields only sent for appropriate schedule types
+  - Removed `minSessionHours` from `ProjectForm` interface and `DEFAULT_FORM` (it is computed, not stored in form state)
+  - Step 4 "Attendance Rules" section removed entirely
+- No API contract change. No version bump needed.
+
+
+---
+
+### [2026-08-14] Fix: Certificate issuance "an error occurred" — IdSequences year rollover
+
+**Root cause:** IdSequences seeded with `YEAR(CURDATE())` at Railway deploy time. If deployed in 2025, rows had `CurrentYear=2025`. In 2026, `Certificate_Issue` SP did `WHERE CurrentYear = YEAR(NOW())` = `WHERE CurrentYear = 2026` → no row → `UPDATE` hit 0 rows → `v_CertCode` stayed NULL → `INSERT INTO VolunteerCertificates` failed with NOT NULL constraint → exception → DAL catch block returned "An error occurred."
+
+**Fix applied:**
+- `Documents/NGOConnect_Complete_Setup_v5.0.sql`:
+  - `Certificate_Issue` SP: added `INSERT IGNORE INTO IdSequences (SequenceName, CurrentYear, LastValue) VALUES ('CERT', YEAR(NOW()), 0)` before the `UPDATE` — self-healing for year rollover
+  - `Certificate_IssueBulk` SP: same `INSERT IGNORE` added before its inner `UPDATE`
+- `Documents/patch_fix_cert_idsequences_2026.sql` — **run on local → Railway staging → Railway production**:
+  - `INSERT IGNORE INTO IdSequences` for CERT/DON/WDR/REC, year 2026, LastValue 0
+  - Redeploys corrected `Certificate_Issue` SP
+
+**No API, DAL, or mobile changes needed.** SP and DAL were already aligned (4 params, no `p_TotalHours`).
+
+---
+
+### [2026-08-14] Seed missing §5.4 LookupValues + all §5.5 Settings (29 doc-spec keys)
+
+**Scope: DB seeds only — no API, DAL, or mobile changes**
+
+#### LookupValues added (§5.4 gaps)
+- `ATTENDANCE_STATUS / WITHDRAWN` — volunteer opted out of a specific session; no penalty
+- `NOTIFICATION_TYPE / CHECKOUT_REMINDER` — sent 15 min before session end to checked-in FLEXIBLE volunteers
+- `NOTIFICATION_TYPE / SESSION_CANCELLED` — sent to all approved participants when admin cancels a session
+
+#### Settings added / corrected (§5.5)
+**Wrong values fixed:**
+- `FLEXIBLE_MAX_DURATION_DAYS` corrected from 90 → **60** (UPDATE)
+- `SKILL_RATING_WINDOW_DAYS` corrected from 30 → **7** (UPDATE)
+
+**New doc-spec settings seeded (INSERT IGNORE — 28 new rows):**
+- PROJECT_VALIDATION: `OT_MAX_DURATION_HOURS`=12, `RECURRING_MIN_DURATION_DAYS`=7, `FLEXIBLE_MIN_DURATION_DAYS`=3
+- ATTENDANCE: `FLEXIBLE_MAX_DAILY_HOURS`=8 (IsPublic=1), `FLEXIBLE_MIN_SESSION_HOURS`=1, `FLEXIBLE_MIN_ATTEND_PCT`=70 (IsPublic=1), `RECURRING_MIN_ATTEND_PCT`=70 (IsPublic=1), `CHECKIN_BUFFER_MINUTES`=15, `AUTO_CHECKOUT_GRACE_MINUTES`=30
+- CERTIFICATE: `CERT_ISSUE_WINDOW_DAYS`=14, `CERT_AUTO_CLOSE_DAYS`=21
+- MILESTONE_NOTIFICATION: `MILESTONE_1_PCT`=25, `MILESTONE_2_PCT`=50, `MILESTONE_3_PCT`=75
+- SKILL_RATING: `SESSION_SKILL_RATING_EDIT_DAYS`=7, `FINAL_SKILL_RATING_EDIT_DAYS`=14
+- LIFECYCLE: `RECURRING_SESSION_GEN_DAYS`=7, `PROJECT_REOPEN_ALLOWED`=1, `CLOSING_SAME_DAY`=1
+- HANGFIRE_CRON (9): `CRON_GENERATE_SESSIONS`, `CRON_AUTO_ACTIVATE`, `CRON_AUTO_COMPLETE_SESSIONS`, `CRON_AUTO_CHECKOUT`, `CRON_CHECKOUT_REMINDER`, `CRON_AUTO_CLOSING`, `CRON_MARK_NOSHOW`, `CRON_MILESTONE_CHECK`, `CRON_AUTO_FINALIZE_CLOSING`
+
+**Legacy keys retained** (existing SPs/C# still read them; will be removed when SPs are updated to use doc-spec keys):
+FLEX_CHECKIN_OPEN_MINUTES, FLEX_CHECKOUT_BUFFER_MINUTES, RECURRING_NOSHOW_GRACE_MINUTES,
+AUTO_ACTIVATE_LEAD_DAYS, CLOSING_TRIGGER_OFFSET_DAYS, SKILL_RATING_WINDOW_DAYS,
+MILESTONE_25/50/75_ENABLED, AUTO_ACTIVATE_CRON, MARK_NOSHOW_CRON, AUTO_CHECKOUT_MISSED_CRON, TRANSITION_CLOSING_CRON
+
+**Patch file:** `Documents/patch_seed_missing_settings.sql` — **run on local → Railway staging → Railway production**

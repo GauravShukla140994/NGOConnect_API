@@ -151,6 +151,7 @@ namespace NGOConnect.Core.Models.Org
         [Required] public int    UserId    { get; set; }
         [Required] public string BadgeCode { get; set; } = string.Empty;  // LookupType: BADGE_TYPE ValueCode e.g. STAR_VOL
         public int? ProjectId             { get; set; }   // project it was earned on (optional)
+        public int? SessionId             { get; set; }   // v5.1: session context for RECURRING/FLEXIBLE (accepted by SP, not stored in UserBadges)
     }
 
     // ── Update member role (s-admin-vols screen) ─────────────────────────────────

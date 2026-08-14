@@ -110,6 +110,49 @@ namespace NGOConnect.API.Controllers
         public async Task<ApiResponse> ManualAttendance(int projectId, [FromBody] ManualAttendanceRequest request)
             => await _project.ManualAttendanceAsync(GetUserId(), request);
 
+        // ── v5.1: FLEXIBLE check-in / check-out ─────────────────────────────────────
+        [HttpPost("{projectId:int}/flex-checkin")] [Authorize]
+        public async Task<ApiResponse<DynamicRow>> FlexCheckIn(int projectId)
+            => await _project.FlexCheckInAsync(projectId, GetUserId());
+
+        [HttpPost("{projectId:int}/flex-checkout")] [Authorize]
+        public async Task<ApiResponse<DynamicRow>> FlexCheckOut(int projectId)
+            => await _project.FlexCheckOutAsync(projectId, GetUserId());
+
+        // ── v5.1: Finalize Closing → COMPLETED (admin) ──────────────────────────────
+        [HttpPost("{projectId:int}/finalize")] [Authorize]
+        public async Task<ApiResponse> FinalizeClosing(int projectId, [FromBody] FinalizeClosingRequest request)
+            => await _project.FinalizeClosingAsync(projectId, GetUserId(), request);
+
+        // ── v5.1: Session management ─────────────────────────────────────────────────
+        [HttpPost("{projectId:int}/sessions/{sessionId:int}/cancel")] [Authorize]
+        public async Task<ApiResponse> CancelSession(int projectId, int sessionId, [FromBody] CancelSessionRequest request)
+            => await _project.CancelSessionAsync(sessionId, GetUserId(), request);
+
+        [HttpPost("{projectId:int}/sessions/optout")] [Authorize]
+        public async Task<ApiResponse> SessionOptOut(int projectId, [FromBody] SessionOptOutRequest request)
+            => await _project.SessionOptOutAsync(GetUserId(), request);
+
+        // ── v5.1: Session-level skill rating (admin) ─────────────────────────────────
+        [HttpPost("{projectId:int}/sessions/skill-rating")] [Authorize]
+        public async Task<ApiResponse> AddSessionSkillRating(int projectId, [FromBody] SessionSkillRatingRequest request)
+            => await _project.AddSessionSkillRatingAsync(GetUserId(), request);
+
+        // ── v5.1: Per-session breakdown for a volunteer ───────────────────────────────
+        [HttpGet("{projectId:int}/my-sessions/{userId:int}")] [Authorize]
+        public async Task<ApiResponse<List<DynamicRow>>> GetMySessionList(int projectId, int userId)
+            => await _project.GetMySessionListAsync(projectId, userId);
+
+        // ── v5.1: Volunteer eligibility (attendance % + cert eligibility) ─────────────
+        [HttpGet("{projectId:int}/eligibility/{userId:int}")] [Authorize]
+        public async Task<ApiResponse<DynamicRow>> GetVolunteerEligibility(int projectId, int userId)
+            => await _project.GetVolunteerEligibilityAsync(projectId, userId);
+
+        // ── v5.1: Milestone check ─────────────────────────────────────────────────────
+        [HttpGet("{projectId:int}/milestone/{userId:int}")] [Authorize]
+        public async Task<ApiResponse<DynamicRow>> CheckMilestone(int projectId, int userId)
+            => await _project.CheckMilestoneAsync(projectId, userId);
+
         private int GetUserId()
         {
             var claim = User.FindFirst("uid") ?? User.FindFirst(ClaimTypes.NameIdentifier);

@@ -85,6 +85,10 @@ _KNOWN_FP: set[tuple[str, str, str, str]] = {
     # FP5 — Same derived-table alias issue as FP4 for Org_GetMemberImpact.
     ('OrgDal.cs', 'Org_GetMemberImpact', 'sp_has', 'attended'),
     ('OrgDal.cs', 'Org_GetMemberImpact', 'sp_has', 'total'),
+
+    # FP6 — Org_GetDashboard: SQL comment "treated as not expired" contains "as not",
+    #        which the AS-alias regex picks up as a phantom alias. Not a real column.
+    ('OrgDal.cs', 'Org_GetDashboard', 'sp_has', 'not'),
 }
 
 # SQL keywords that appear in SELECT clauses but are not column names
@@ -273,7 +277,7 @@ def parse_sp_bodies(sql_path):
 def parse_dal_calls(dal_dir):
     """{ "File.cs": { "Sp_Name": ["p_param1", ...] } }"""
     results  = {}
-    sp_re    = re.compile(r'"([A-Z][A-Za-z]+(?:_[A-Za-z0-9]+)+)"')
+    sp_re    = re.compile(r'"([A-Z][a-z][A-Za-z]*(?:_[A-Za-z0-9]+)+)"')  # Pascal-case only; excludes ALL_CAPS setting keys
     param_re = re.compile(
         r'AddParameter\s*\(\s*\w+\s*,\s*"(p_\w+)"|'
         r'\.(?:AddWithValue|Add)\s*\(\s*"(p_\w+)"',

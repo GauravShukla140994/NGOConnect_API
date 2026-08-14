@@ -46,5 +46,8 @@ namespace NGOConnect.Core.Interfaces
         Task<ApiResponse<DynamicRow>>       AddLookupValueAsync(AddLookupValueRequest request, int superAdminUserId);
         Task<ApiResponse>                   UpdateLookupValueAsync(UpdateLookupValueRequest request, int superAdminUserId);
         Task<ApiResponse>                   SetLookupValueActiveAsync(SetLookupValueActiveRequest request, int superAdminUserId);
+
+        // ── Org project permissions ───────────────────────────────────────────
+        Task<ApiResponse> UpdateOrgProjectPermissionsAsync(int orgId, UpdateOrgProjectPermissionsRequest request, int superAdminUserId);
     }
 }

@@ -483,6 +483,7 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_AwardedBy", awardedBy);
                     _db.AddParameter(cmd, "p_OrgId",     orgId);
                     _db.AddParameter(cmd, "p_ProjectId", request.ProjectId);
+                    _db.AddParameter(cmd, "p_SessionId", request.SessionId);
                 });
 
                 if (result.Succeeded)

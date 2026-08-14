@@ -95,4 +95,11 @@ namespace NGOConnect.Core.Models.SuperAdmin
         [Required] public int  LookupValueId { get; set; }
         [Required] public bool IsActive      { get; set; }
     }
+
+    // ── Org project permissions ────────────────────────────────────────────────
+    public class UpdateOrgProjectPermissionsRequest
+    {
+        [Required] public bool CanCreateRecurring { get; set; }
+        [Required] public bool CanCreateFlexible  { get; set; }
+    }
 }

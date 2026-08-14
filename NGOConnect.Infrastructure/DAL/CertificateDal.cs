@@ -1,5 +1,6 @@
 using NGOConnect.Core.Interfaces;
 using NGOConnect.Core.Models.Common;
+using NGOConnect.Core.Models.Project;
 using NGOConnect.Core.Models.Skill;
 using Serilog;
 
@@ -88,23 +89,22 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
+        // v5.1: p_TotalHours removed — SP now computes from ProjectAttendance SUM(HoursLogged)
         public async Task<ApiResponse<DynamicRow>> IssueAsync(int issuedBy, IssueCertificateRequest request)
         {
             try
             {
                 var result = await ExecuteWriteAsync("Certificate_Issue", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_ProjectId",  request.ProjectId);
-                    _db.AddParameter(cmd, "p_UserId",     request.UserId);
-                    _db.AddParameter(cmd, "p_OrgId",      request.OrgId);
-                    _db.AddParameter(cmd, "p_IssuedBy",   issuedBy);
-                    _db.AddParameter(cmd, "p_TotalHours", (object?)request.TotalHours);
+                    _db.AddParameter(cmd, "p_ProjectId", request.ProjectId);
+                    _db.AddParameter(cmd, "p_UserId",    request.UserId);
+                    _db.AddParameter(cmd, "p_OrgId",     request.OrgId);
+                    _db.AddParameter(cmd, "p_IssuedBy",  issuedBy);
                 });
 
                 if (!result.Succeeded)
                     return ApiResponse<DynamicRow>.Failure(result.Message, "ISSUE_FAILED");
 
-                // Return the issued cert data so frontend gets CertCode + verifyUrl immediately
                 var certCode = Col<string>(result.Row!, "CertCode")!;
                 var certRow  = await ExecuteDynamicGetAsync("Certificate_GetData",
                     cmd => _db.AddParameter(cmd, "p_CertCode", certCode));
@@ -115,6 +115,26 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 Log.Error(ex, "IssueAsync failed ProjectId={ProjectId} UserId={UserId}", request.ProjectId, request.UserId);
                 return ApiResponse<DynamicRow>.Failure("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        // v5.1: Bulk-issue certs to all eligible volunteers (checks MinAttendPct per volunteer)
+        public async Task<ApiResponse> IssueBulkAsync(int issuedBy, IssueBulkCertificateRequest request)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("Certificate_IssueBulk", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_ProjectId", request.ProjectId);
+                    _db.AddParameter(cmd, "p_IssuedBy",  issuedBy);
+                    _db.AddParameter(cmd, "p_OrgId",     request.OrgId);
+                });
+                return result.ToApiResponse();  // message = "Issued X certificate(s). Skipped Y."
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "IssueBulkAsync failed ProjectId={ProjectId}", request.ProjectId);
+                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
             }
         }
     }

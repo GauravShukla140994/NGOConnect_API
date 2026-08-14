@@ -192,6 +192,13 @@ namespace NGOConnect.API.Controllers
         public async Task<ApiResponse> SetLookupValueActive([FromBody] SetLookupValueActiveRequest request)
             => await _superAdmin.SetLookupValueActiveAsync(request, GetSuperAdminUserId());
 
+        // ── Org project permissions ───────────────────────────────────────────
+
+        [HttpPatch("orgs/{orgId:int}/project-permissions")]
+        public async Task<ApiResponse> UpdateOrgProjectPermissions(
+            int orgId, [FromBody] UpdateOrgProjectPermissionsRequest request)
+            => await _superAdmin.UpdateOrgProjectPermissionsAsync(orgId, request, GetSuperAdminUserId());
+
         // ── Helpers ───────────────────────────────────────────────────────────
 
         private int GetSuperAdminUserId()

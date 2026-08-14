@@ -760,5 +760,28 @@ namespace NGOConnect.Infrastructure.DAL
             }
             catch (Exception ex) { Log.Error(ex, "SuperAdminDal.FireOrgAdminNotifAsync failed OrgId={OrgId}", orgId); }
         }
+
+        // ── Org project permissions ───────────────────────────────────────────
+
+        public async Task<ApiResponse> UpdateOrgProjectPermissionsAsync(
+            int orgId, UpdateOrgProjectPermissionsRequest request, int superAdminUserId)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("SuperAdmin_UpdateOrgProjectPermissions", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_OrgId",              orgId);
+                    _db.AddParameter(cmd, "p_CanCreateRecurring",  request.CanCreateRecurring ? 1 : 0);
+                    _db.AddParameter(cmd, "p_CanCreateFlexible",   request.CanCreateFlexible  ? 1 : 0);
+                    _db.AddParameter(cmd, "p_UpdatedBy",           superAdminUserId);
+                });
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "UpdateOrgProjectPermissionsAsync failed OrgId={OrgId}", orgId);
+                return ApiResponse.Fail("An error occurred while updating project permissions.", "INTERNAL_ERROR");
+            }
+        }
     }
 }

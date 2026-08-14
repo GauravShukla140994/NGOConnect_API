@@ -24,6 +24,7 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_AwardedBy", awardedBy);
                     _db.AddParameter(cmd, "p_OrgId",     (object?)null);
                     _db.AddParameter(cmd, "p_ProjectId", request.ProjectId);
+                    _db.AddParameter(cmd, "p_SessionId", (object?)request.SessionId);
                 });
 
                 if (result.Succeeded)
