@@ -272,6 +272,31 @@ When there is a conflict between files, this priority order applies:
 
 ## Current Pending Document Updates
 
+**Create/Edit project page — settings enforcement + OrgMaxVolunteers cap (2026-08-15)**
+- `NGOConnect_Complete_Setup_v5.0.sql` → `CREATE TABLE Organisations`: added `OrgMaxVolunteers INT UNSIGNED NOT NULL DEFAULT 100` column (after CanCreateFlexible).
+- `NGOConnect_Complete_Setup_v5.0.sql` → `Org_GetProfile` SP: added `o.OrgMaxVolunteers` to SELECT.
+- `NGOConnect_Complete_Setup_v5.0.sql` → `Project_Create` SP: new validation block — `p_MaxVolunteers` cannot exceed `Organisations.OrgMaxVolunteers` for the org; error returned before duplicate checks.
+- `NGOConnect_Complete_Setup_v5.0.sql` → `Project_Update` SP: same OrgMaxVolunteers cap validation added.
+- `NGOConnect_Complete_Setup_v5.0.sql` → `SuperAdmin_UpdateOrgProjectPermissions` SP: new param `IN p_OrgMaxVolunteers INT UNSIGNED`; UPDATEs `OrgMaxVolunteers` via COALESCE (NULL = leave unchanged). Returns updated message.
+- `NGOConnect_Complete_Setup_v5.0.sql` → Settings seeds: `OT_MAX_DURATION_HOURS`, `RECURRING_MIN/MAX_DURATION_DAYS`, `FLEXIBLE_MIN/MAX_DURATION_DAYS`, `FLEXIBLE_MIN_SESSION_HOURS` → `IsPublic = 1`.
+- `NGOConnect_Complete_Setup_v5.0.sql` → SchemaVersions: `v5.1-create-proj-fixes` entry added.
+- Patch file: `Documents/patch_create_edit_project_fixes.sql` — run on local → Railway staging → production. Full SPs for Org_GetProfile / Project_Create / Project_Update must be extracted from setup SQL (abbreviated in patch; SuperAdmin_UpdateOrgProjectPermissions is complete inline).
+- `NGOConnect.Core/Models/SuperAdmin/SuperAdminModels.cs`: `UpdateOrgProjectPermissionsRequest` — added `OrgMaxVolunteers?: int?` field with `[Range(1, int.MaxValue)]`.
+- `NGOConnect.Infrastructure/DAL/SuperAdminDal.cs`: `UpdateOrgProjectPermissionsAsync` — added `_db.AddParameter("p_OrgMaxVolunteers", ...)`.
+- `App/NGOConnectApp/src/types/api.types.ts`: added `orgMaxVolunteers?: number` to `Organisation` interface.
+- `App/NGOConnectApp/src/screens/admin/CreateProjectScreen.tsx` — multiple fixes:
+  - **BUG FIX**: edit mode now uses `p.scheduleTypeCode` (not `p.scheduleType` display name) — schedule tab shows correctly on edit.
+  - `maxVolunteers` TextInput: `onChangeText` filters non-digit chars; label shows org cap; `validate()` blocks save if value > `orgPerms.orgMaxVolunteers`.
+  - `sysDefaults` state expanded to include `otMaxDurationHours`, `recurMinDays`, `recurMaxDays`, `flexMinDays`, `flexMaxDays`, `flexMinSessionHours`.
+  - Settings `useEffect` now fetches all 8 keys; `minSessionHours` pre-filled from `flexMinSessionHours` for new projects.
+  - `orgPerms` state now includes `orgMaxVolunteers`; org profile fetch reads `org.orgMaxVolunteers`.
+  - `minSessionHours: string` added to `ProjectForm` interface and `DEFAULT_FORM`.
+  - `validate()` step 2: added ONE_TIME session duration cap (≤ `otMaxDurationHours`); RECURRING date range min/max check; FLEXIBLE date range min/max check; FLEXIBLE `minSessionHours` floor check; `minAttendPct` floor check for RECURRING/FLEXIBLE.
+  - FLEXIBLE section: date picker labels show `(min Xd)` / `(max Xd)` hints. Min Session Hours is now an **editable** TextInput (floor: `flexMinSessionHours`, max: `maxDailyHours`) instead of read-only auto-calculated. RECURRING still shows auto-calculated read-only display.
+  - `buildPayload`: FLEXIBLE uses `form.minSessionHours` directly; RECURRING still uses `calcMinSessionHours(form)` formula.
+- **Database Documentation**: update `Organisations` table; update `Org_GetProfile`, `Project_Create`, `Project_Update`, `SuperAdmin_UpdateOrgProjectPermissions` SP descriptions; update Settings table (IsPublic column for 6 keys).
+- **API Documentation**: update `PATCH /api/v1/superadmin/orgs/{orgId}/project-permissions` to include `orgMaxVolunteers` field.
+
 **Admin remove volunteer from project — all schedule types (2026-08-15)**
 - `NGOConnect_Complete_Setup_v5.0.sql` → new SP `Project_AdminRemoveVolunteer(p_ProjectId, p_UserId, p_RemovedBy)`: validates project is not in a terminal state; validates volunteer has an APPROVED application; sets `ProjectApplications.StatusLkpId` → WITHDRAWN; decrements `Projects.CurrentVolunteers` (floor 0). Returns IsSuccess + Message.
 - `NGOConnect_Complete_Setup_v5.0.sql` → LookupValues seed: added `APP_REMOVED` (`NOTIFICATION_TYPE`, "Removed from Project").
@@ -313,6 +338,14 @@ When there is a conflict between files, this priority order applies:
   - `pages/OrgDrawer.jsx` → new "Project Permissions" section, placed directly above "Submitted documents" (no "Verification Status" section exists in this drawer to anchor below, per the prompt's fallback placement rule). Two toggle rows (Recurring / Flexible), state seeded from `getOrgDetail`'s `canCreateRecurring`/`canCreateFlexible` (coerced from SP `TINYINT` via `!!`). Both flags sent together on every toggle per the API's contract. Optimistic update with revert-on-failure; per-row "Saving…" state while in flight. New `PermissionRow` sub-component reuses the existing hand-rolled pill-switch styling already established in `LookupManagementPage.jsx`'s Active toggle (`var(--p)`/`#D8D8E4`, 34×19px) rather than introducing a new switch component/library, since this codebase doesn't use one. Feedback uses `alert()` (success and failure) matching this drawer's existing convention (`handleViewDoc`'s error alert) — no toast system exists in this admin panel.
   - Build verified clean (`npm run build`, 880 modules).
 - Documents to update when "update documents" is called: same Database/API Documentation items as the entry above, now also covering `SuperAdmin_Org_GetDetail`'s new columns and the corrected route.
+
+**Org project permissions — OrgMaxVolunteers added (2026-08-14, same session continued)**
+- Backend changes reported by user as already done: `UpdateOrgProjectPermissionsRequest.OrgMaxVolunteers` (nullable int, `[Range(1, int.MaxValue)]`, null = leave unchanged) and `SuperAdminDal.UpdateOrgProjectPermissionsAsync`'s `p_OrgMaxVolunteers` param. Verified both present. Also verified (not told, found by checking): `Organisations.OrgMaxVolunteers` column, `SuperAdmin_UpdateOrgProjectPermissions` SP's `COALESCE(p_OrgMaxVolunteers, OrgMaxVolunteers)`, and `Project_Create`/`Project_Update` enforcement — all already in `NGOConnect_Complete_Setup_v5.0.sql` from earlier work, not new this pass.
+- **Same gap as CanCreateRecurring/CanCreateFlexible, repeated**: `SuperAdmin_Org_GetDetail` didn't select `OrgMaxVolunteers` either (only `Org_GetProfile`, mobile-facing, did). Fixed in the same edit/patch file as the earlier fix — `NGOConnect_Complete_Setup_v5.0.sql` and `Documents/NGOConnect_Patch_SuperAdminOrgDetail_ProjectPermissions.sql` now both select `o.OrgMaxVolunteers` alongside the two flags. **This patch still hasn't been applied to any DB as of this entry** — apply after `patch_org_project_permissions.sql`.
+- `validate_sp_params.py` re-run: all phases passed.
+- **Website**: `api/orgs.js` → `updateOrgProjectPermissions` gained a 4th optional `orgMaxVolunteers` param (default `null` = unchanged), sent as `orgMaxVolunteers` in the PATCH body. `pages/OrgDrawer.jsx` → added a "Max Volunteers" integer input + explicit Save button inside the Project Permissions section (free-text field, so unlike the toggles it doesn't fire on every change — Save is disabled until the value actually differs from what's loaded, and while empty/invalid). Client-side validates whole number ≥ 1 before sending (mirrors the SP's own `[Range(1, int.MaxValue)]`/zero-check) with an inline error message. Saving sends the current toggle values alongside the new limit, same "all fields together" contract. Success/failure feedback via `alert()`, matching the rest of this drawer.
+- Build verified clean (`npm run build`, 880 modules).
+- Documents to update when "update documents" is called: add `OrgMaxVolunteers` to the `Organisations` table column list and to `SuperAdmin_Org_GetDetail`'s (and `Org_GetProfile`'s, `Project_Create`'s, `Project_Update`'s) documented result/behavior; update `PATCH /api/v1/superadmin/orgs/{orgId}/project-permissions` request body docs to include `orgMaxVolunteers`.
 
 **Project_Create + Project_Update — settings-based schedule validation (2026-08-14)**
 - `NGOConnect_Complete_Setup_v5.0.sql` → `Project_Create` SP: added DECLARE block with `v_Error VARCHAR(500)` + 9 settings variables (with hardcoded fallback defaults); 9 `SELECT INTO` statements load settings at runtime from the `Settings` table; 7 sequential validation checks (each guarded by `IF v_Error IS NULL AND ...`):

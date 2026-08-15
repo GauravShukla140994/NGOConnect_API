@@ -1,12 +1,17 @@
 -- ============================================================
 -- Patch: SuperAdmin_Org_GetDetail — return CanCreateRecurring/CanCreateFlexible
+--        + OrgMaxVolunteers
 -- ============================================================
 -- The v5.1-org-perms migration (Organisations.CanCreateRecurring/CanCreateFlexible
 -- + SuperAdmin_UpdateOrgProjectPermissions) added these flags to Org_GetProfile
 -- (mobile-facing) but never to SuperAdmin_Org_GetDetail — the SP actually behind
 -- GET /api/v1/superadmin/orgs/{orgId}, which the Super Admin website's org detail
--- drawer calls. Without this, the new Project Permissions toggle section has no
--- way to know the org's current flag state on load.
+-- drawer calls. Without this, the Project Permissions section has no way to know
+-- the org's current flag/limit state on load. OrgMaxVolunteers repeated the exact
+-- same gap when it was added later — fixed here in the same pass.
+--
+-- Requires Organisations.OrgMaxVolunteers and Documents/patch_org_project_permissions.sql
+-- (Organisations.CanCreateRecurring/CanCreateFlexible) to already be applied.
 --
 -- Apply to: local dev DB, Railway staging, Railway production.
 -- ============================================================
@@ -22,7 +27,7 @@ BEGIN
         o.ContactEmail, o.ContactPhone, o.Website,
         o.AddressLine1, o.AddressLine2, o.City, o.State, o.Pincode, o.Country,
         o.Is80GEligible, o.Is12AEligible,
-        o.CanCreateRecurring, o.CanCreateFlexible,
+        o.CanCreateRecurring, o.CanCreateFlexible, o.OrgMaxVolunteers,
         tv.ValueName AS OrgType,
         sv.ValueCode AS StatusCode, sv.ValueName AS StatusName,
         o.CreatedAt AS SubmittedAt, o.StatusUpdatedAt,

@@ -295,6 +295,7 @@ CREATE TABLE Organisations (
     VerificationStatusLkpId INT UNSIGNED    NULL     COMMENT 'Super Admin document/legal verification state — FK to ORG_VERIFICATION_STATUS LookupType',
     CanCreateRecurring      TINYINT(1)      NOT NULL DEFAULT 0    COMMENT 'Super Admin grants right to create RECURRING projects (subscription/plan gate)',
     CanCreateFlexible       TINYINT(1)      NOT NULL DEFAULT 0    COMMENT 'Super Admin grants right to create FLEXIBLE projects (subscription/plan gate)',
+    OrgMaxVolunteers        INT UNSIGNED    NOT NULL DEFAULT 100   COMMENT 'Super Admin sets per-org max volunteers per project. Enforced in Project_Create + Project_Update.',
     PRIMARY KEY (OrgId),
     UNIQUE KEY uq_org_regnumber (RegNumber, IsDeleted),
     INDEX idx_org_status       (StatusLkpId, IsDeleted),
@@ -6128,6 +6129,13 @@ BEGIN
         END IF;
     END IF;
 
+    -- ORG CAP: MaxVolunteers cannot exceed org-level limit set by Super Admin
+    IF v_Error IS NULL AND p_MaxVolunteers IS NOT NULL THEN
+        IF p_MaxVolunteers > (SELECT OrgMaxVolunteers FROM Organisations WHERE OrgId = p_OrgId AND IsDeleted = 0 LIMIT 1) THEN
+            SET v_Error = CONCAT('Max volunteers cannot exceed your organisation''s limit. Please contact support to increase the limit.');
+        END IF;
+    END IF;
+
     -- Return validation error if any check failed
     IF v_Error IS NOT NULL THEN
         SELECT 0 AS IsSuccess, v_Error AS Message, NULL AS ProjectId;
@@ -6411,6 +6419,13 @@ BEGIN
     IF v_Error IS NULL AND p_ScheduleType = 'FLEXIBLE' THEN
         IF NOT EXISTS (SELECT 1 FROM Organisations WHERE OrgId = p_OrgId AND CanCreateFlexible = 1 AND IsDeleted = 0) THEN
             SET v_Error = 'Your organisation does not have permission to create FLEXIBLE projects. Please contact support to upgrade your plan.';
+        END IF;
+    END IF;
+
+    -- ORG CAP: MaxVolunteers cannot exceed org-level limit set by Super Admin
+    IF v_Error IS NULL AND p_MaxVolunteers IS NOT NULL THEN
+        IF p_MaxVolunteers > (SELECT OrgMaxVolunteers FROM Organisations WHERE OrgId = p_OrgId AND IsDeleted = 0 LIMIT 1) THEN
+            SET v_Error = CONCAT('Max volunteers cannot exceed your organisation''s limit. Please contact support to increase the limit.');
         END IF;
     END IF;
 
@@ -8279,7 +8294,7 @@ BEGIN
         COALESCE(vv.ValueCode, 'PENDING') AS VerificationStatusCode,
         o.AvgRating, o.RatingCount, o.Latitude, o.Longitude, o.CreatedAt,
         o.FollowerCount,
-        o.CanCreateRecurring, o.CanCreateFlexible,
+        o.CanCreateRecurring, o.CanCreateFlexible, o.OrgMaxVolunteers,
         IFNULL((SELECT of2.IsFollowing
                 FROM OrgFollowers of2
                 WHERE of2.OrgId = o.OrgId AND of2.UserId = p_UserId
@@ -9428,9 +9443,11 @@ BEGIN
         o.AddressLine1, o.AddressLine2, o.City, o.State, o.Pincode, o.Country,
         o.Is80GEligible, o.Is12AEligible,
         -- v5.1-org-perms: needed by the Super Admin website's Project Permissions
-        -- toggle section — was only ever added to Org_GetProfile (mobile-facing),
-        -- not here, so the Super Admin org detail response never carried these.
-        o.CanCreateRecurring, o.CanCreateFlexible,
+        -- section — was only ever added to Org_GetProfile (mobile-facing), not
+        -- here, so the Super Admin org detail response never carried these.
+        -- Same gap repeated with OrgMaxVolunteers when that field was added —
+        -- fixing both here together.
+        o.CanCreateRecurring, o.CanCreateFlexible, o.OrgMaxVolunteers,
         tv.ValueName AS OrgType,
         sv.ValueCode AS StatusCode, sv.ValueName AS StatusName,
         o.CreatedAt AS SubmittedAt, o.StatusUpdatedAt,
@@ -12870,14 +12887,14 @@ FROM LookupTypes lt WHERE lt.TypeCode = 'NOTIFICATION_TYPE';
 
 INSERT IGNORE INTO Settings (SettingGroup, SettingKey, SettingValue, DataType, Description, IsPublic) VALUES
 -- ── PROJECT_VALIDATION ─────────────────────────────────────────
-('PROJECT',  'OT_MAX_DURATION_HOURS',         '12',          'NUMBER',  'Max hours a ONE_TIME project session can span',                               0),
-('PROJECT',  'RECURRING_MAX_DURATION_DAYS',   '90',          'NUMBER',  'Max calendar days a RECURRING project can span',                              0),
-('PROJECT',  'RECURRING_MIN_DURATION_DAYS',   '7',           'NUMBER',  'Min calendar days a RECURRING project must span',                             0),
-('PROJECT',  'FLEXIBLE_MAX_DURATION_DAYS',    '60',          'NUMBER',  'Max calendar days a FLEXIBLE project can span',                               0),
-('PROJECT',  'FLEXIBLE_MIN_DURATION_DAYS',    '3',           'NUMBER',  'Min calendar days a FLEXIBLE project must span',                              0),
+('PROJECT',  'OT_MAX_DURATION_HOURS',         '12',          'NUMBER',  'Max hours a ONE_TIME project session can span',                               1),
+('PROJECT',  'RECURRING_MAX_DURATION_DAYS',   '90',          'NUMBER',  'Max calendar days a RECURRING project can span',                              1),
+('PROJECT',  'RECURRING_MIN_DURATION_DAYS',   '7',           'NUMBER',  'Min calendar days a RECURRING project must span',                             1),
+('PROJECT',  'FLEXIBLE_MAX_DURATION_DAYS',    '60',          'NUMBER',  'Max calendar days a FLEXIBLE project can span',                               1),
+('PROJECT',  'FLEXIBLE_MIN_DURATION_DAYS',    '3',           'NUMBER',  'Min calendar days a FLEXIBLE project must span',                              1),
 -- ── ATTENDANCE ────────────────────────────────────────────────
 ('PROJECT',  'FLEXIBLE_MAX_DAILY_HOURS',      '8',           'NUMBER',  'Default max hours a volunteer can log per day on FLEXIBLE projects. Project can override upward.',                                           1),
-('PROJECT',  'FLEXIBLE_MIN_SESSION_HOURS',    '1',           'NUMBER',  'Default minimum check-in duration (hours) for a FLEXIBLE session to count toward attendance. Project can override.',                        0),
+('PROJECT',  'FLEXIBLE_MIN_SESSION_HOURS',    '1',           'NUMBER',  'Default minimum check-in duration (hours) for a FLEXIBLE session to count toward attendance. Project can override.',                        1),
 ('PROJECT',  'FLEXIBLE_MIN_ATTEND_PCT',       '70',          'NUMBER',  'Default min attendance % (hours-based) for certificate eligibility on FLEXIBLE projects. Project can override upward.',                     1),
 ('PROJECT',  'RECURRING_MIN_ATTEND_PCT',      '70',          'NUMBER',  'Default min attendance % (session-based) for certificate eligibility on RECURRING projects. Project can override upward.',                  1),
 ('PROJECT',  'CHECKIN_BUFFER_MINUTES',        '15',          'NUMBER',  'Minutes before SessionStartTime that check-in window opens. Applies to both RECURRING and FLEXIBLE.',                                       0),
@@ -13944,20 +13961,30 @@ CREATE PROCEDURE SuperAdmin_UpdateOrgProjectPermissions(
     IN p_OrgId              INT UNSIGNED,
     IN p_CanCreateRecurring TINYINT(1),
     IN p_CanCreateFlexible  TINYINT(1),
+    IN p_OrgMaxVolunteers   INT UNSIGNED,
     IN p_UpdatedBy          INT UNSIGNED
 )
 BEGIN
+    DECLARE v_Error VARCHAR(500) DEFAULT NULL;
     IF NOT EXISTS (SELECT 1 FROM Organisations WHERE OrgId = p_OrgId AND IsDeleted = 0) THEN
-        SELECT 0 AS IsSuccess, 'Organisation not found.' AS Message;
+        SET v_Error = 'Organisation not found.';
+    END IF;
+    IF v_Error IS NULL AND p_OrgMaxVolunteers IS NOT NULL AND p_OrgMaxVolunteers = 0 THEN
+        SET v_Error = 'Max volunteers per project must be at least 1.';
+    END IF;
+
+    IF v_Error IS NOT NULL THEN
+        SELECT 0 AS IsSuccess, v_Error AS Message;
     ELSE
         UPDATE Organisations
-        SET CanCreateRecurring = p_CanCreateRecurring,
-            CanCreateFlexible  = p_CanCreateFlexible,
+        SET CanCreateRecurring = COALESCE(p_CanCreateRecurring, CanCreateRecurring),
+            CanCreateFlexible  = COALESCE(p_CanCreateFlexible,  CanCreateFlexible),
+            OrgMaxVolunteers   = COALESCE(p_OrgMaxVolunteers,   OrgMaxVolunteers),
             UpdatedAt          = NOW(),
             UpdatedBy          = p_UpdatedBy
         WHERE OrgId = p_OrgId AND IsDeleted = 0;
 
-        SELECT 1 AS IsSuccess, 'Project permissions updated successfully.' AS Message;
+        SELECT 1 AS IsSuccess, 'Organisation limits updated successfully.' AS Message;
     END IF;
 END //
 

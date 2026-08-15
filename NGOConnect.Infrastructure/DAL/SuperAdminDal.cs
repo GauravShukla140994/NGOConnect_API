@@ -773,6 +773,7 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_OrgId",              orgId);
                     _db.AddParameter(cmd, "p_CanCreateRecurring",  request.CanCreateRecurring ? 1 : 0);
                     _db.AddParameter(cmd, "p_CanCreateFlexible",   request.CanCreateFlexible  ? 1 : 0);
+                    _db.AddParameter(cmd, "p_OrgMaxVolunteers",    (object?)request.OrgMaxVolunteers ?? DBNull.Value);
                     _db.AddParameter(cmd, "p_UpdatedBy",           superAdminUserId);
                 });
                 return result.ToApiResponse();

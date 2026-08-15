@@ -96,10 +96,12 @@ namespace NGOConnect.Core.Models.SuperAdmin
         [Required] public bool IsActive      { get; set; }
     }
 
-    // ── Org project permissions ────────────────────────────────────────────────
+    // ── Org project permissions + limits ──────────────────────────────────────
     public class UpdateOrgProjectPermissionsRequest
     {
         [Required] public bool CanCreateRecurring { get; set; }
         [Required] public bool CanCreateFlexible  { get; set; }
+        /// <summary>Max volunteers per project for this org. Null = leave unchanged.</summary>
+        [Range(1, int.MaxValue)] public int? OrgMaxVolunteers { get; set; }
     }
 }
