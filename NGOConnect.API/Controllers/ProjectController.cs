@@ -95,6 +95,11 @@ namespace NGOConnect.API.Controllers
             [FromQuery] int pageSize   = 20)
             => await _project.GetApplicationsAsync(projectId, pageNumber, pageSize, statusCode);
 
+        // Admin remove volunteer (sets application WITHDRAWN, frees slot)
+        [HttpDelete("{projectId:int}/participants/{userId:int}")] [Authorize]
+        public async Task<ApiResponse> AdminRemoveVolunteer(int projectId, int userId)
+            => await _project.AdminRemoveVolunteerAsync(projectId, userId, GetUserId());
+
         // Complete
         [HttpPost("{projectId:int}/complete")] [Authorize]
         public async Task<ApiResponse> Complete(int projectId, [FromBody] CompleteProjectRequest request)

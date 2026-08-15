@@ -446,6 +446,41 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
+        public async Task<ApiResponse> AdminRemoveVolunteerAsync(int projectId, int userId, int removedBy)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("Project_AdminRemoveVolunteer", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_ProjectId",  projectId);
+                    _db.AddParameter(cmd, "p_UserId",     userId);
+                    _db.AddParameter(cmd, "p_RemovedBy",  removedBy);
+                });
+                if (result.Succeeded)
+                {
+                    // Notify only the removed volunteer — targeted single-user push
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var tokens = await _notif.GetTokensByUserIdAsync(userId);
+                            await _fcm.SendMulticastAsync(tokens,
+                                "Removed from Project",
+                                "An admin has removed you from a project you were approved for. The slot has been freed.",
+                                "APP_REMOVED", projectId, "PROJECT");
+                        }
+                        catch (Exception ex) { Log.Error(ex, "AdminRemoveVolunteerAsync notification failed UserId={UserId}", userId); }
+                    });
+                }
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "AdminRemoveVolunteerAsync failed ProjectId={ProjectId} UserId={UserId}", projectId, userId);
+                return ApiResponse.Fail("An error occurred while removing the volunteer.", "INTERNAL_ERROR");
+            }
+        }
+
         public async Task<ApiResponse> CompleteAsync(int projectId, int userId, CompleteProjectRequest request)
         {
             try

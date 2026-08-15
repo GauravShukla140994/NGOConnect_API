@@ -26,6 +26,9 @@ namespace NGOConnect.Core.Interfaces
         Task<ApiResponse>                          ReviewApplicationAsync(int reviewedBy, ReviewApplicationRequest request);
         Task<ApiResponse<PagedResult<DynamicRow>>> GetApplicationsAsync(int projectId, int pageNumber, int pageSize, string? statusCode = null);
 
+        /// <summary>Admin removes an APPROVED volunteer — sets application to WITHDRAWN and frees the slot.</summary>
+        Task<ApiResponse>                          AdminRemoveVolunteerAsync(int projectId, int userId, int removedBy);
+
         // Complete / Cancel
         Task<ApiResponse>                          CompleteAsync(int projectId, int userId, CompleteProjectRequest request);
         Task<ApiResponse>                          CancelAsync(int projectId, int userId, CancelProjectRequest request);

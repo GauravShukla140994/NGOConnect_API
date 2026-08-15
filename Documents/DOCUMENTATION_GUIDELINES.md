@@ -272,6 +272,20 @@ When there is a conflict between files, this priority order applies:
 
 ## Current Pending Document Updates
 
+**Admin remove volunteer from project — all schedule types (2026-08-15)**
+- `NGOConnect_Complete_Setup_v5.0.sql` → new SP `Project_AdminRemoveVolunteer(p_ProjectId, p_UserId, p_RemovedBy)`: validates project is not in a terminal state; validates volunteer has an APPROVED application; sets `ProjectApplications.StatusLkpId` → WITHDRAWN; decrements `Projects.CurrentVolunteers` (floor 0). Returns IsSuccess + Message.
+- `NGOConnect_Complete_Setup_v5.0.sql` → LookupValues seed: added `APP_REMOVED` (`NOTIFICATION_TYPE`, "Removed from Project").
+- `NGOConnect_Complete_Setup_v5.0.sql` → SchemaVersions entry `'v5.1-admin-remove-vol'` added.
+- Patch file: `Documents/patch_admin_remove_volunteer.sql` (Step 1: `INSERT IGNORE` APP_REMOVED seed; Step 2: DROP+CREATE SP) — **run on local → Railway staging → production**.
+- `NGOConnect.Core/Interfaces/IProjectDal.cs`: added `AdminRemoveVolunteerAsync(int projectId, int userId, int removedBy)`.
+- `NGOConnect.Infrastructure/DAL/ProjectDal.cs`: implemented `AdminRemoveVolunteerAsync` — calls SP; on success fires targeted FCM push to the removed volunteer only via `_notif.GetTokensByUserIdAsync(userId)` + `_fcm.SendMulticastAsync(...)` with `notifType = "APP_REMOVED"`, title "Removed from Project", body explaining the slot is freed. Runs fire-and-forget in `Task.Run`.
+- `NGOConnect.API/Controllers/ProjectController.cs`: added `DELETE /api/v1/project/{projectId}/participants/{userId}` endpoint.
+- `App/.../src/api/project.api.ts`: added `adminRemoveVolunteer(projectId, userId)` calling `DELETE /project/{projectId}/participants/{userId}`.
+- `App/.../src/screens/admin/ParticipantsScreen.tsx`: `ApprovedCard` component — added `onRemove` + `removing` props; added red "✕ Remove from Project" button (outline style, below Mark Attended row); Mark Attended disabled while removing. Added `removingVolunteer` state. Added `handleRemoveVolunteer(userId, applicationId, name)` handler — shows destructive Alert, calls API, removes volunteer from local `apps` list on success.
+- `App/.../src/navigation/RootNavigator.tsx`: added `APP_REMOVED` case → navigates to `MyProjects`.
+- **Database Documentation**: add `Project_AdminRemoveVolunteer` SP entry; add `APP_REMOVED` LookupValue.
+- **API Documentation**: add `DELETE /api/v1/project/{projectId}/participants/{userId}` endpoint.
+
 **Org project permissions — RECURRING/FLEXIBLE plan gate (2026-08-14)**
 - `NGOConnect_Complete_Setup_v5.0.sql` → `CREATE TABLE Organisations`: added `CanCreateRecurring TINYINT(1) NOT NULL DEFAULT 0` and `CanCreateFlexible TINYINT(1) NOT NULL DEFAULT 0` columns.
 - `NGOConnect_Complete_Setup_v5.0.sql` → `Project_Create` SP: two new `IF v_Error IS NULL AND p_ScheduleType = 'RECURRING'/'FLEXIBLE'` blocks query `Organisations.CanCreate*` and block creation with a user-facing message if the org lacks the right. Added before the existing `IF v_Error IS NOT NULL` gate.
