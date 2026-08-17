@@ -7,13 +7,14 @@ namespace NGOConnect.API.Controllers
     /// <summary>
     /// No-auth public endpoints used by the website and mobile deep-link resolver.
     ///
-    /// All routes accept an encrypted token produced by ShareController / IUrlTokenService.
+    /// Most routes accept an encrypted token produced by ShareController / IUrlTokenService.
     /// Raw numeric IDs are never accepted here — the token is the only entry point.
     ///
     /// Endpoints:
     ///   GET /api/v1/public/resolve/{token}        → entity type + ID (mobile deep-link helper)
     ///   GET /api/v1/public/org/{token}            → full NGO public profile (website)
     ///   GET /api/v1/public/opportunity/{token}    → full project / opportunity details (website)
+    ///   GET /api/v1/public/global-stats           → aggregate platform counts (website Global exploration section)
     /// </summary>
     [ApiController]
     [Route("api/v1/public")]
@@ -23,12 +24,14 @@ namespace NGOConnect.API.Controllers
         private readonly IUrlTokenService _tokens;
         private readonly IOrgDal          _org;
         private readonly IProjectDal      _project;
+        private readonly IPublicStatsDal  _stats;
 
-        public PublicController(IUrlTokenService tokens, IOrgDal org, IProjectDal project)
+        public PublicController(IUrlTokenService tokens, IOrgDal org, IProjectDal project, IPublicStatsDal stats)
         {
             _tokens  = tokens;
             _org     = org;
             _project = project;
+            _stats   = stats;
         }
 
         // ── GET /api/v1/public/resolve/{token} ──────────────────────────────────
@@ -140,5 +143,15 @@ namespace NGOConnect.API.Controllers
 
             return Ok(projectResult);
         }
+
+        // ── GET /api/v1/public/global-stats ──────────────────────────────────────
+        /// <summary>
+        /// Aggregate, non-identifying platform counts for the website's "Global
+        /// exploration" section. No auth, no parameters, cached server-side —
+        /// see PublicStatsDal for the caching/security rationale.
+        /// </summary>
+        [HttpGet("global-stats")]
+        public async Task<ApiResponse<DynamicRow>> GetGlobalStats()
+            => await _stats.GetGlobalStatsAsync();
     }
 }

@@ -62,6 +62,10 @@ try
     // SignalR — real-time SOS location + events
     builder.Services.AddSignalR();
 
+    // In-memory cache — used by PublicStatsDal to avoid a DB hit on every
+    // request to the no-auth /public/global-stats endpoint.
+    builder.Services.AddMemoryCache();
+
     // Rate limiting (ASP.NET Core built-in, no extra package needed)
     builder.Services.AddRateLimiter(options =>
     {

@@ -13996,6 +13996,51 @@ INSERT IGNORE INTO SchemaVersions (Version, Description, CreatedBy)
 VALUES ('v5.1-org-perms', 'Org project permissions: CanCreateRecurring + CanCreateFlexible columns on Organisations; permission checks in Project_Create + Project_Update SPs; Org_GetProfile returns flags; SuperAdmin_UpdateOrgProjectPermissions SP added.', 'System');
 
 -- ============================================================
+-- PUBLIC GLOBAL STATS (Website "Global exploration" section)
+-- No-auth, read-only, zero input parameters (nothing to inject/tamper).
+-- Raw counts only — never returns row-level org/user data, so there is
+-- no PII or enumerable-ID surface here at all.
+-- Real counts are blended with a display floor (Settings, PLATFORM group)
+-- so the section always looks credible even on a freshly-seeded DB, and
+-- automatically starts showing real numbers once actual data overtakes
+-- the floor — no code change needed when that day comes (Core Mandate:
+-- Change-Adoptable). "Raised" is intentionally NOT DB-driven yet (per
+-- product decision 2026-08-17) — it is a static Settings value until
+-- donation totals are wired up for public display.
+-- ============================================================
+
+DROP PROCEDURE IF EXISTS Public_GetGlobalStats //
+CREATE PROCEDURE Public_GetGlobalStats()
+BEGIN
+    SELECT
+        (SELECT COUNT(DISTINCT o.Country) FROM Organisations o
+            JOIN LookupValues sv ON o.StatusLkpId = sv.LookupValueId
+            WHERE o.IsDeleted = 0 AND sv.ValueCode = 'APPROVED') AS TotalCountries,
+        (SELECT COUNT(*) FROM Organisations o
+            JOIN LookupValues sv ON o.StatusLkpId = sv.LookupValueId
+            WHERE o.IsDeleted = 0 AND sv.ValueCode = 'APPROVED') AS TotalOrgs,
+        (SELECT COUNT(DISTINCT u.UserId) FROM Users u
+            JOIN OrgMembers om ON om.UserId = u.UserId AND om.IsDeleted = 0
+            JOIN LookupValues sv ON om.StatusLkpId = sv.LookupValueId
+            WHERE u.IsDeleted = 0 AND u.IsActive = 1 AND sv.ValueCode = 'APPROVED') AS TotalVolunteers;
+END //
+
+-- Display floors — GREATEST(actual DB count, floor) is applied in PublicStatsDal,
+-- not in the SP itself, so Super Admin can retune these via the Settings table
+-- with zero redeploy (Core Mandate: Change-Adoptable). IsPublic = 0 — these are
+-- blended server-side; the raw floor values are never exposed directly, only the
+-- final blended numbers via /api/v1/public/global-stats.
+INSERT IGNORE INTO Settings (SettingGroup, SettingKey, SettingValue, DataType, Description, IsPublic) VALUES
+('PLATFORM', 'GLOBAL_STATS_MIN_COUNTRIES',  '1',        'NUMBER', 'Website Global exploration section — floor shown for Countries until real count exceeds it.',    0),
+('PLATFORM', 'GLOBAL_STATS_MIN_ORGS',       '50',       'NUMBER', 'Website Global exploration section — floor shown for Organisations until real count exceeds it.', 0),
+('PLATFORM', 'GLOBAL_STATS_MIN_VOLUNTEERS', '4000',     'NUMBER', 'Website Global exploration section — floor shown for Volunteers until real count exceeds it.',    0),
+('PLATFORM', 'GLOBAL_STATS_RAISED_DISPLAY', '1000000',  'NUMBER', 'Website Global exploration section — static "Raised" display value. Not DB-driven (2026-08-17 product decision).', 0),
+('PLATFORM', 'GLOBAL_STATS_CACHE_MINUTES',  '10',       'NUMBER', 'How long /api/v1/public/global-stats caches its DB query result in memory before re-querying.', 0);
+
+INSERT IGNORE INTO SchemaVersions (Version, Description, CreatedBy)
+VALUES ('v5.2-public-global-stats', 'Public_GetGlobalStats SP + GLOBAL_STATS_* Settings for the website Global exploration section.', 'System');
+
+-- ============================================================
 -- ADMIN REMOVE VOLUNTEER
 -- Admin can remove an APPROVED volunteer from any project type.
 -- Effect: Application → WITHDRAWN, CurrentVolunteers decremented (slot freed).

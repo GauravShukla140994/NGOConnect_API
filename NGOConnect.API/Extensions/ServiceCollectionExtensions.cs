@@ -76,6 +76,9 @@ namespace NGOConnect.API.Extensions
             services.AddScoped<ICampaignDispatchService,    CampaignDispatchService>();
             // v5.1 — NGO Reviews
             services.AddScoped<IOrgReviewDal,              OrgReviewDal>();
+            // v5.2 — Public Global Stats (Website "Global exploration" section, no-auth,
+            // cached — see PublicStatsDal for the caching/security rationale)
+            services.AddScoped<IPublicStatsDal,            PublicStatsDal>();
             // v5.2 — Certificate HTML service (server-side template renderer; Singleton — reads template once at startup)
             services.AddSingleton<ICertificateHtmlService>(sp =>
             {

@@ -1,20 +1,47 @@
 -- ============================================================
 -- Patch: SuperAdmin_Org_GetDetail — return CanCreateRecurring/CanCreateFlexible
---        + OrgMaxVolunteers
+--        + OrgMaxVolunteers, and fix SuperAdmin_UpdateOrgProjectPermissions
+--        to actually accept/persist OrgMaxVolunteers
 -- ============================================================
 -- The v5.1-org-perms migration (Organisations.CanCreateRecurring/CanCreateFlexible
 -- + SuperAdmin_UpdateOrgProjectPermissions) added these flags to Org_GetProfile
 -- (mobile-facing) but never to SuperAdmin_Org_GetDetail — the SP actually behind
 -- GET /api/v1/superadmin/orgs/{orgId}, which the Super Admin website's org detail
 -- drawer calls. Without this, the Project Permissions section has no way to know
--- the org's current flag/limit state on load. OrgMaxVolunteers repeated the exact
--- same gap when it was added later — fixed here in the same pass.
+-- the org's current flag/limit state on load.
 --
--- Requires Organisations.OrgMaxVolunteers and Documents/patch_org_project_permissions.sql
--- (Organisations.CanCreateRecurring/CanCreateFlexible) to already be applied.
+-- OrgMaxVolunteers repeated the exact same read-side gap when it was added later
+-- (fixed below), and ALSO exposed a second, more serious gap discovered
+-- 2026-08-17: the column itself and the write-side SP were never patched onto
+-- an already-existing database either.
+--   - Organisations.OrgMaxVolunteers only existed in the setup SQL's CREATE
+--     TABLE (fresh installs), never in a patch — so it doesn't exist on any
+--     DB that was created before this column was added to the setup SQL.
+--   - SuperAdmin_UpdateOrgProjectPermissions on any already-patched DB is
+--     still the OLD 4-parameter version from patch_org_project_permissions.sql
+--     (OrgId, CanCreateRecurring, CanCreateFlexible, UpdatedBy) — it has no
+--     p_OrgMaxVolunteers parameter at all, even though the DAL has been
+--     calling it with 5 parameters. This is why "Max Volunteers" updates from
+--     the Super Admin website silently failed to persist: either an unknown-
+--     column error (if the column was missing) or a parameter-count mismatch
+--     against the stale SP.
+-- This patch fixes both, so it is now self-contained — it does NOT require
+-- OrgMaxVolunteers to already exist. It still requires
+-- Documents/patch_org_project_permissions.sql (Organisations.CanCreateRecurring/
+-- CanCreateFlexible + the original 4-param SuperAdmin_UpdateOrgProjectPermissions)
+-- to already be applied.
 --
 -- Apply to: local dev DB, Railway staging, Railway production.
+-- Safe to re-run: ADD COLUMN IF NOT EXISTS / DROP+CREATE are idempotent.
 -- ============================================================
+
+-- ============================================================
+-- STEP 0: Add OrgMaxVolunteers column (never patched before this)
+-- ============================================================
+
+ALTER TABLE Organisations
+    ADD COLUMN IF NOT EXISTS OrgMaxVolunteers INT UNSIGNED NOT NULL DEFAULT 100
+        COMMENT 'Super Admin sets per-org max volunteers per project. Enforced in Project_Create + Project_Update.';
 
 DELIMITER //
 
@@ -54,4 +81,49 @@ BEGIN
     WHERE o.OrgId = p_OrgId AND o.IsDeleted = 0;
 END //
 
+-- ============================================================
+-- STEP 2: SuperAdmin_UpdateOrgProjectPermissions — replace the old
+-- 4-param version with the 5-param version that also writes
+-- OrgMaxVolunteers. Matches NGOConnect_Complete_Setup_v5.0.sql exactly.
+-- ============================================================
+
+DROP PROCEDURE IF EXISTS SuperAdmin_UpdateOrgProjectPermissions //
+CREATE PROCEDURE SuperAdmin_UpdateOrgProjectPermissions(
+    IN p_OrgId              INT UNSIGNED,
+    IN p_CanCreateRecurring TINYINT(1),
+    IN p_CanCreateFlexible  TINYINT(1),
+    IN p_OrgMaxVolunteers   INT UNSIGNED,
+    IN p_UpdatedBy          INT UNSIGNED
+)
+BEGIN
+    DECLARE v_Error VARCHAR(500) DEFAULT NULL;
+    IF NOT EXISTS (SELECT 1 FROM Organisations WHERE OrgId = p_OrgId AND IsDeleted = 0) THEN
+        SET v_Error = 'Organisation not found.';
+    END IF;
+    IF v_Error IS NULL AND p_OrgMaxVolunteers IS NOT NULL AND p_OrgMaxVolunteers = 0 THEN
+        SET v_Error = 'Max volunteers per project must be at least 1.';
+    END IF;
+
+    IF v_Error IS NOT NULL THEN
+        SELECT 0 AS IsSuccess, v_Error AS Message;
+    ELSE
+        UPDATE Organisations
+        SET CanCreateRecurring = COALESCE(p_CanCreateRecurring, CanCreateRecurring),
+            CanCreateFlexible  = COALESCE(p_CanCreateFlexible,  CanCreateFlexible),
+            OrgMaxVolunteers   = COALESCE(p_OrgMaxVolunteers,   OrgMaxVolunteers),
+            UpdatedAt          = NOW(),
+            UpdatedBy          = p_UpdatedBy
+        WHERE OrgId = p_OrgId AND IsDeleted = 0;
+
+        SELECT 1 AS IsSuccess, 'Organisation limits updated successfully.' AS Message;
+    END IF;
+END //
+
 DELIMITER ;
+
+-- ============================================================
+-- VERIFICATION QUERY (run after applying)
+-- ============================================================
+-- SELECT OrgId, OrgName, CanCreateRecurring, CanCreateFlexible, OrgMaxVolunteers
+-- FROM Organisations WHERE IsDeleted = 0 ORDER BY OrgId;
+-- Expected: OrgMaxVolunteers = 100 for every existing row (column default).

@@ -272,6 +272,37 @@ When there is a conflict between files, this priority order applies:
 
 ## Current Pending Document Updates
 
+**Global exploration stats — real DB counts with display floors (2026-08-17)**
+- New no-auth endpoint: `GET /api/v1/public/global-stats`. Zero input parameters, returns only aggregate counts (no PII, no row-level data, nothing to inject through).
+- `NGOConnect_Complete_Setup_v5.0.sql`: new SP `Public_GetGlobalStats()` — `COUNT(DISTINCT o.Country)`, `COUNT(*)` approved orgs, `COUNT(DISTINCT UserId)` approved volunteers. New Settings rows (`SettingGroup='PLATFORM'`): `GLOBAL_STATS_MIN_COUNTRIES=1`, `GLOBAL_STATS_MIN_ORGS=50`, `GLOBAL_STATS_MIN_VOLUNTEERS=4000`, `GLOBAL_STATS_RAISED_DISPLAY=1000000`, `GLOBAL_STATS_CACHE_MINUTES=10` (all `IsPublic=0` — blended server-side, never exposed raw).
+- `NGOConnect.Core/Interfaces/IPublicStatsDal.cs` (new) + `NGOConnect.Infrastructure/DAL/PublicStatsDal.cs` (new): calls the SP, blends `GREATEST(actual, floor)` per stat using `ISettingsCache` (zero-DB), caches the raw DB result in `IMemoryCache` for `GLOBAL_STATS_CACHE_MINUTES` so repeated public hits don't reach the DB. "Raised" is static (`GLOBAL_STATS_RAISED_DISPLAY`), not DB-driven — explicit product decision.
+- `NGOConnect.API/Extensions/ServiceCollectionExtensions.cs`: registered `IPublicStatsDal → PublicStatsDal`. `NGOConnect.API/Program.cs`: added `builder.Services.AddMemoryCache()`.
+- `NGOConnect.API/Controllers/PublicController.cs`: added `GET /api/v1/public/global-stats` (no `[Authorize]`, consistent with the rest of this controller).
+- Security posture: no parameters to validate/sanitize, no auth bypass risk (nothing gated), covered by the existing global rate limiter (100/min/IP), and the in-memory cache means a burst of requests never translates into a burst of DB queries — the practical DoS/scrape surface is minimal by design.
+- `Documents/patch_public_global_stats.sql` (new) — run on local → Railway staging → Railway production. **Restart the API after applying** (SettingsCache loads once at startup; MySqlConnector caches SP metadata per pool — same class of gotcha logged above).
+- `validate_sp_params.py` — all phases passed.
+- `Website/src/components/GlobeExplore.jsx`: added `useGlobalStats()` hook — `fetch`'s `/public/global-stats` on mount, defaults to the same floor values (`{countries:1, organisations:50, volunteers:4000, raised:1_000_000}`) while loading or on any fetch failure (no error UI — it's a decorative stat strip). Replaced the 4 hardcoded `Counter` values with `stats.*`; "Raised" is converted to millions for display (`raised / 1_000_000`, same `M+` suffix format as before). Website build verified (880 modules).
+- **Database Documentation**: add `Public_GetGlobalStats` SP + the 5 new `PLATFORM` Settings keys + the new endpoint at the next "update documents" pass.
+
+**⚠️ WORKFLOW REMINDER: restart API after changing any SP's parameter list**
+MySqlConnector caches stored-procedure parameter metadata at the connection-pool
+level. If an SP's `IN` parameter list changes (add/remove/reorder a param) via
+`DROP`+`CREATE` while the API is already running, pooled connections keep using
+the OLD cached signature until the pool is torn down — causing
+`Incorrect number of arguments for PROCEDURE ...; expected X, got Y` even though
+the DB and the DAL code are both correct. Restarting the API process (Railway
+redeploy/restart, or local `dotnet run` restart) clears this. Hit this exact
+error on `SuperAdmin_UpdateOrgProjectPermissions` (2026-08-17) right after
+applying the OrgMaxVolunteers patch — DB and DAL were both already correct,
+restart alone fixed it.
+
+**Max Volunteers not saving — patch was never applied to live DB (2026-08-17)**
+- Root cause: `Documents/NGOConnect_Patch_SuperAdminOrgDetail_ProjectPermissions.sql` only ever fixed the READ side (`SuperAdmin_Org_GetDetail`). Nothing had ever patched an existing DB with (a) the `Organisations.OrgMaxVolunteers` column itself — it only existed in the setup SQL's `CREATE TABLE`, never in a patch — or (b) the write-side `SuperAdmin_UpdateOrgProjectPermissions` SP, which was still the OLD 4-param version from `patch_org_project_permissions.sql` (no `p_OrgMaxVolunteers` param at all) even though the DAL has been calling it with 5 params. Setup SQL itself was already correct on both counts — this was purely a missing patch.
+- `Documents/NGOConnect_Patch_SuperAdminOrgDetail_ProjectPermissions.sql` — extended: added STEP 0 (`ALTER TABLE Organisations ADD COLUMN IF NOT EXISTS OrgMaxVolunteers ...`) and STEP 2 (DROP+CREATE `SuperAdmin_UpdateOrgProjectPermissions`, 5-param version matching setup SQL exactly). Patch is now self-contained — no longer assumes the column pre-exists.
+- `validate_sp_params.py` run — all phases passed.
+- **Action needed**: run this patch file on local → Railway staging → Railway production, in that order, per the standard patch workflow. Base `patch_org_project_permissions.sql` (Can CreateRecurring/CanCreateFlexible columns) must already be applied first.
+- No further code changes needed — `SuperAdminController`, `SuperAdminDal`, `UpdateOrgProjectPermissionsRequest`, and the Website's `OrgDrawer.jsx` were already correct; this was a DB-only gap.
+
 **SuperAdmin login — dedicated rate limit (2026-08-17)**
 - Security audit finding: `SuperAdmin_Login` had no throttle beyond the generic 100 req/min/IP global limiter — too generous for a password endpoint guarding platform-wide access.
 - `NGOConnect.API/Program.cs` → `AddRateLimiter`: added named policy `"superadmin-login"` — sliding-window limiter, 8 attempts / 15 min per IP, 3 segments/window, `QueueLimit = 0`.
