@@ -272,6 +272,21 @@ When there is a conflict between files, this priority order applies:
 
 ## Current Pending Document Updates
 
+**Search boxes — MyProjectsScreen + ParticipantsScreen (2026-08-17)**
+- `App/NGOConnectApp/src/screens/volunteer/MyProjectsScreen.tsx`:
+  - Added `searchQuery` state (`useState('')`).
+  - `setTab` calls on each tab button now also call `setSearchQuery('')` to clear search on tab switch.
+  - Filter logic: `baseItems` derived from tab filter; `tabItems = q ? baseItems.filter(name.includes(q)) : baseItems`.
+  - Added search `TextInput` below tab bar (above info banners): magnifier icon, clear `✕` button when text present.
+  - Added `searchRow`, `searchIcon`, `searchInput` styles.
+- `App/NGOConnectApp/src/screens/admin/ParticipantsScreen.tsx`:
+  - Added `TextInput` to React Native imports.
+  - Added `searchQuery` state (`useState('')`).
+  - All four section arrays (`pendingApps`, `approvedApps`, `attendedApps`, `noShowApps`) filter by `applicantName ?? fullName` matching the query.
+  - Added search `TextInput` between KPI strip and ScrollView: same magnifier + clear pattern.
+  - Added `searchRow`, `searchIcon`, `searchInput` styles.
+- No DB, SP, or API changes — mobile-only, no document update needed.
+
 **Create/Edit project page — settings enforcement + OrgMaxVolunteers cap (2026-08-15)**
 - `NGOConnect_Complete_Setup_v5.0.sql` → `CREATE TABLE Organisations`: added `OrgMaxVolunteers INT UNSIGNED NOT NULL DEFAULT 100` column (after CanCreateFlexible).
 - `NGOConnect_Complete_Setup_v5.0.sql` → `Org_GetProfile` SP: added `o.OrgMaxVolunteers` to SELECT.

@@ -96,7 +96,9 @@ namespace NGOConnect.API.Controllers
             => await _project.GetApplicationsAsync(projectId, pageNumber, pageSize, statusCode);
 
         // Admin remove volunteer (sets application WITHDRAWN, frees slot)
-        [HttpDelete("{projectId:int}/participants/{userId:int}")] [Authorize]
+        // Using POST instead of DELETE: Railway's Nginx proxy drops DELETE response bodies,
+        // causing the mobile client to receive a connection reset even when the SP succeeds.
+        [HttpPost("{projectId:int}/participants/{userId:int}/remove")] [Authorize]
         public async Task<ApiResponse> AdminRemoveVolunteer(int projectId, int userId)
             => await _project.AdminRemoveVolunteerAsync(projectId, userId, GetUserId());
 
