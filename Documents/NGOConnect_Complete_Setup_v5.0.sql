@@ -7304,7 +7304,9 @@ BEGIN
         p.Category AS CategoryName,
         projSv.ValueCode AS ProjectStatusCode, projSv.ValueName AS ProjectStatus,
         IF(jtv.ValueCode = 'APPROVE_REQ', 1, 0) AS RequiresApproval,
-        IF(EXISTS(SELECT 1 FROM ProjectAttendance ata JOIN ProjectSessions pss ON ata.SessionId = pss.SessionId WHERE pss.ProjectId = p.ProjectId AND ata.UserId = p_UserId), 1, 0) AS IsCheckedIn
+        IF(EXISTS(SELECT 1 FROM ProjectAttendance ata JOIN ProjectSessions pss ON ata.SessionId = pss.SessionId WHERE pss.ProjectId = p.ProjectId AND ata.UserId = p_UserId), 1, 0) AS IsCheckedIn,
+        -- Distinguish admin-remove from self-withdraw: StatusUpdatedBy is set to admin when removed
+        IF(pa.StatusUpdatedBy IS NOT NULL AND pa.StatusUpdatedBy != p_UserId, 1, 0) AS WasRemovedByAdmin
     FROM ProjectApplications pa
     JOIN Projects p ON pa.ProjectId = p.ProjectId
     JOIN Organisations o ON p.OrgId = o.OrgId
@@ -13923,7 +13925,9 @@ BEGIN
             SELECT 1 FROM ProjectAttendance ata4
             JOIN   ProjectSessions pss4 ON ata4.SessionId = pss4.SessionId
             WHERE  pss4.ProjectId = p.ProjectId AND ata4.UserId = p_UserId
-        ), 1, 0) AS IsCheckedIn
+        ), 1, 0) AS IsCheckedIn,
+        -- Distinguish admin-remove from self-withdraw
+        IF(pa.StatusUpdatedBy IS NOT NULL AND pa.StatusUpdatedBy != pa.UserId, 1, 0) AS WasRemovedByAdmin
     FROM   ProjectApplications pa
     JOIN   Projects      p     ON pa.ProjectId        = p.ProjectId
     JOIN   Organisations o     ON p.OrgId             = o.OrgId

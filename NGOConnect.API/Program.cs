@@ -82,6 +82,22 @@ try
             await context.HttpContext.Response.WriteAsync(
                 "{\"isSuccess\":0,\"message\":\"Too many requests. Please try again later.\",\"errorCode\":\"RATE_LIMIT_EXCEEDED\"}");
         };
+
+        // Endpoint-scoped, stricter limiter for SuperAdmin login — the generic
+        // 100/min global limiter is far too generous for a password endpoint
+        // guarding a role with platform-wide access. 8 attempts / 15 min per IP,
+        // sliding window so a burst right at the window boundary can't double up.
+        // Applied via [EnableRateLimiting("superadmin-login")] on the Login action.
+        options.AddPolicy("superadmin-login", context =>
+            System.Threading.RateLimiting.RateLimitPartition.GetSlidingWindowLimiter(
+                partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                factory: _ => new System.Threading.RateLimiting.SlidingWindowRateLimiterOptions
+                {
+                    PermitLimit         = 8,
+                    Window              = TimeSpan.FromMinutes(15),
+                    SegmentsPerWindow   = 3,
+                    QueueLimit          = 0
+                }));
     });
 
     // ── Sentry Error Monitoring ──────────────────────────────

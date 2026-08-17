@@ -272,6 +272,23 @@ When there is a conflict between files, this priority order applies:
 
 ## Current Pending Document Updates
 
+**SuperAdmin login — dedicated rate limit (2026-08-17)**
+- Security audit finding: `SuperAdmin_Login` had no throttle beyond the generic 100 req/min/IP global limiter — too generous for a password endpoint guarding platform-wide access.
+- `NGOConnect.API/Program.cs` → `AddRateLimiter`: added named policy `"superadmin-login"` — sliding-window limiter, 8 attempts / 15 min per IP, 3 segments/window, `QueueLimit = 0`.
+- `NGOConnect.API/Controllers/SuperAdminController.cs` → `Login` action: added `[EnableRateLimiting("superadmin-login")]` (kept `[AllowAnonymous]`).
+- Partitioned by IP only (not IP+username) — reading the request body inside the partition-key delegate isn't practical with the built-in limiter; flagged as a possible future refinement if IP-based throttling proves insufficient (e.g. distributed attempts from many IPs against one username).
+- No DB/SP/API contract change — request/response shape unchanged, only adds a 429 response under abuse. **API Documentation**: note the new rate limit on the `POST /api/v1/superadmin/login` endpoint description.
+- Not build-verified in this session (no local .NET SDK available in the sandbox) — verify build before deploying.
+
+**Fix admin-remove vs self-withdraw label + apply button for WITHDRAWN (2026-08-17)**
+- `NGOConnect_Complete_Setup_v5.0.sql` → `User_GetImpactSummary` RS3 (Cancelled result set): added `IF(pa.StatusUpdatedBy IS NOT NULL AND pa.StatusUpdatedBy != p_UserId, 1, 0) AS WasRemovedByAdmin` to SELECT.
+- `NGOConnect_Complete_Setup_v5.0.sql` → `Application_GetByUser`: added `IF(pa.StatusUpdatedBy IS NOT NULL AND pa.StatusUpdatedBy != pa.UserId, 1, 0) AS WasRemovedByAdmin` to SELECT.
+- Patch file: `Documents/patch_fix_withdrawn_label.sql` — run on local → Railway staging → production.
+- `App/NGOConnectApp/src/types/api.types.ts`: added `wasRemovedByAdmin?: number` to `UserApplication`.
+- `App/NGOConnectApp/src/screens/profile/ImpactScreen.tsx` → `CancelledCard`: added check before `WITHDRAWN` case — if `app.wasRemovedByAdmin` is truthy, shows "✕ Removed by Admin" (red) instead of "Withdrawn by You" (grey).
+- `App/NGOConnectApp/src/screens/volunteer/ProjectDetailScreen.tsx`: added `isWithdrawn = project.applicationStatusCode === 'WITHDRAWN'` constant; inserted new condition in footer button chain showing disabled "Removed from Project" grey button for WITHDRAWN state (prevents volunteer re-clicking Apply and seeing error).
+- **Database Documentation**: update `User_GetImpactSummary` + `Application_GetByUser` SP descriptions (new WasRemovedByAdmin column).
+
 **Search boxes — MyProjectsScreen + ParticipantsScreen (2026-08-17)**
 - `App/NGOConnectApp/src/screens/volunteer/MyProjectsScreen.tsx`:
   - Added `searchQuery` state (`useState('')`).

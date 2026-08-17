@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using NGOConnect.Core.Interfaces;
 using NGOConnect.Core.Models.Common;
 using NGOConnect.Core.Models.SuperAdmin;
@@ -35,6 +36,10 @@ namespace NGOConnect.API.Controllers
 
         [HttpPost("login")]
         [AllowAnonymous]
+        // Stricter than the 100/min global limiter — this is a password endpoint
+        // guarding platform-wide access, deserves its own tighter ceiling.
+        // Policy defined in Program.cs → AddRateLimiter → AddPolicy("superadmin-login").
+        [EnableRateLimiting("superadmin-login")]
         [ProducesResponseType(typeof(ApiResponse<SuperAdminLoginResponse>), 200)]
         public async Task<ApiResponse<SuperAdminLoginResponse>> Login([FromBody] SuperAdminLoginRequest request)
         {
