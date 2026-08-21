@@ -532,6 +532,62 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
+        public async Task<ApiResponse> ExcuseNoShowAsync(int attendanceId, int excusedBy)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("Attendance_ExcuseNoShow", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_AttendanceId", attendanceId);
+                    _db.AddParameter(cmd, "p_ExcusedBy",    excusedBy);
+                });
+                if (result.Succeeded)
+                {
+                    var volunteerId = result.Row != null ? ColNullable<int>(result.Row, "UserId")    : null;
+                    var projectId   = result.Row != null ? ColNullable<int>(result.Row, "ProjectId") : null;
+                    if (volunteerId.HasValue && volunteerId.Value > 0)
+                        _ = FireUserNotifAsync(volunteerId.Value,
+                            "Absence Excused",
+                            "Your no-show has been marked as excused by the admin. It will not affect your reliability score.",
+                            "MANUAL_ATTENDANCE", projectId, "PROJECT");
+                }
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "ExcuseNoShowAsync failed AttendanceId={AttendanceId}", attendanceId);
+                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        public async Task<ApiResponse> ConfirmNoShowAsync(int attendanceId, int confirmedBy)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("Attendance_ConfirmNoShow", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_AttendanceId", attendanceId);
+                    _db.AddParameter(cmd, "p_ConfirmedBy",  confirmedBy);
+                });
+                if (result.Succeeded)
+                {
+                    var volunteerId = result.Row != null ? ColNullable<int>(result.Row, "UserId")    : null;
+                    var projectId   = result.Row != null ? ColNullable<int>(result.Row, "ProjectId") : null;
+                    if (volunteerId.HasValue && volunteerId.Value > 0)
+                        _ = FireUserNotifAsync(volunteerId.Value,
+                            "No-Show Confirmed",
+                            "Your absence from a project session has been reviewed and confirmed. This will affect your reliability score.",
+                            "MANUAL_ATTENDANCE", projectId, "PROJECT");
+                }
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "ConfirmNoShowAsync failed AttendanceId={AttendanceId}", attendanceId);
+                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
         public async Task<ApiResponse> ManualAttendanceAsync(int markedBy, ManualAttendanceRequest request)
         {
             try

@@ -312,6 +312,42 @@ restart alone fixed it.
 - No DB/SP/API contract change — request/response shape unchanged, only adds a 429 response under abuse. **API Documentation**: note the new rate limit on the `POST /api/v1/superadmin/login` endpoint description.
 - Not build-verified in this session (no local .NET SDK available in the sandbox) — verify build before deploying.
 
+**Bug fix — APPROVED volunteers show as "No Show" for CLOSING/COMPLETED projects (2026-08-19)**
+- Root cause: `Application_GetByProject` SP returns `StatusCode = 'APPROVED'` for volunteers with no `ProjectAttendance` record. For CLOSING/COMPLETED projects the session is over — these volunteers are effectively no-shows, but the screen displayed them as "APPROVED — NOT MARKED".
+- Mobile-only fix, no SP/backend change.
+- `App/NGOConnectApp/src/screens/admin/ParticipantsScreen.tsx`:
+  - Added `showApprovedAsNoShow = isClosing || isCompleted` flag.
+  - `displayApprovedApps` = empty when `showApprovedAsNoShow`; `displayNoShowApps` = `[...noShowApps, ...approvedApps]` when `showApprovedAsNoShow`.
+  - KPI strip: "Not marked" tile hidden when `showApprovedAsNoShow`; "No shows" count includes merged approved apps.
+  - Section renders updated to use `displayApprovedApps` / `displayNoShowApps`.
+  - CANCELLED and expired-UPCOMING keep "NOT MARKED" label (volunteer had no opportunity to attend).
+- No DB/API/document update needed.
+
+**Bug fix — logged hours not showing in Completed tab (2026-08-19)**
+- Root cause: `Application_GetByUser` SP returns column `MyHoursLogged` → DynamicRow camelCase → `myHoursLogged`. Three mobile screens were reading `item.hoursLogged` / `app.hoursLogged` (stale field, never populated by this SP) → always `—`.
+- No SP or patch change — mobile-only fix.
+- `App/NGOConnectApp/src/screens/volunteer/MyProjectsScreen.tsx` line 312: `item.hoursLogged` → `item.myHoursLogged`
+- `App/NGOConnectApp/src/screens/profile/ImpactScreen.tsx` line 374: `app.hoursLogged` → `app.myHoursLogged`
+- `App/NGOConnectApp/src/screens/projects/MyProjectsScreen.tsx` lines 110–113: `item.hoursLogged != null` guard + display → `(item.myHoursLogged ?? 0) > 0` + `item.myHoursLogged`
+- No DB/API/document update needed.
+
+**Bug fix — Certificate PDF download failing "Could not generate the PDF" (2026-08-20)**
+- Root cause: `CertificateTemplate.html` used `<img src="https://api.qrserver.com/...">` for the QR code. `RNHTMLtoPDF` renders in a sandboxed WebView that cannot reach external hosts — the image load fails and the entire PDF conversion throws, triggering the error alert.
+- Fix: QR code is now generated server-side as a self-contained PNG data URI (`data:image/png;base64,...`) and injected into the HTML. The rendered HTML returned by the API is fully self-contained — no external HTTP required for PDF generation.
+- `NGOConnect.Infrastructure/NGOConnect.Infrastructure.csproj`: added `PackageReference QRCoder 1.6.0`. **Run `dotnet restore` after pulling.**
+- `NGOConnect.Infrastructure/Services/CertificateHtmlService.cs`: added `using QRCoder;`. Added `BuildQrDataUri(string url)` method — uses `PngByteQRCode` renderer (platform-independent, no GDI+, safe on Linux/Railway). Injects result as `{{QR_DATA_URI}}` replacement.
+- `NGOConnect.API/Templates/CertificateTemplate.html` (and bin/Debug copy): replaced `<img src="https://api.qrserver.com/...">` with `<img src="{{QR_DATA_URI}}" />`.
+- No mobile changes, no SP/DB changes, no API contract change — the HTML returned by `/certificates/{certCode}/html` is now self-contained.
+- **No document update needed** (this is an internal template/service change, no public API shape change).
+
+**Bug fixes — Project_Complete SP + expired project UI (2026-08-18)**
+- `NGOConnect_Complete_Setup_v5.0.sql` → `Project_Complete` SP: **Bug 4 fix** — APPROVED volunteers with NO attendance record are now auto-marked **NO_SHOW** (HoursLogged=0) on project completion, instead of being wrongly auto-marked ATTENDED. Volunteers who already have a real ATTENDED record (QR/self-check-in) are unaffected; step 8 (HoursLogged backfill) still handles them.
+- Patch file: `Documents/patch_fix_project_complete_no_show.sql` — run on local → Railway staging → production.
+- `App/NGOConnectApp/src/screens/admin/AdminProjectDetailScreen.tsx`: **Bug 1 fix** — `isExpiredUnstarted` now also checks `counts.attended === 0` and `!loading`. If any volunteer attended (via QR/self-check-in), the "project was never started" message is suppressed and the "Mark as Completed" button is shown instead.
+- `App/NGOConnectApp/src/screens/admin/AdminProjectDetailScreen.tsx`: added `isExpiredUpcoming` computed flag (UPCOMING + expired, regardless of attendance); passed as `isExpiredUpcoming` param to `Participants` screen navigation.
+- `App/NGOConnectApp/src/screens/admin/ParticipantsScreen.tsx`: **Bug 2 fix** — added `isExpiredUpcoming` route param; `isReadOnly` now also true for expired UPCOMING projects (hides PENDING section, changes KPI/section labels). Added `canMark` prop to `ApprovedCard` — false for expired projects, hiding "Mark Attended" button while keeping "Remove from Project" button available.
+- **Database Documentation**: update `Project_Complete` SP description.
+
 **Fix admin-remove vs self-withdraw label + apply button for WITHDRAWN (2026-08-17)**
 - `NGOConnect_Complete_Setup_v5.0.sql` → `User_GetImpactSummary` RS3 (Cancelled result set): added `IF(pa.StatusUpdatedBy IS NOT NULL AND pa.StatusUpdatedBy != p_UserId, 1, 0) AS WasRemovedByAdmin` to SELECT.
 - `NGOConnect_Complete_Setup_v5.0.sql` → `Application_GetByUser`: added `IF(pa.StatusUpdatedBy IS NOT NULL AND pa.StatusUpdatedBy != pa.UserId, 1, 0) AS WasRemovedByAdmin` to SELECT.
@@ -2223,3 +2259,68 @@ AUTO_ACTIVATE_LEAD_DAYS, CLOSING_TRIGGER_OFFSET_DAYS, SKILL_RATING_WINDOW_DAYS,
 MILESTONE_25/50/75_ENABLED, AUTO_ACTIVATE_CRON, MARK_NOSHOW_CRON, AUTO_CHECKOUT_MISSED_CRON, TRANSITION_CLOSING_CRON
 
 **Patch file:** `Documents/patch_seed_missing_settings.sql` — **run on local → Railway staging → Railway production**
+
+### [2026-08-21] Mark Excused — full stack implementation
+
+**Scope: DB + Backend + Mobile**
+
+#### DB changes
+- `Application_GetByProject` SP — added `att.AttendanceId` to SELECT (also added to `Application_GetByUser` as same pattern)
+- `Attendance_ExcuseNoShow` SP — removed `p_OrgId` param (no longer needed; auth enforced at API layer); added `pa.IsNoShowExcused = 1` to UPDATE SET so `IsExcused` reflects correctly in subsequent API responses
+
+#### Backend changes
+- `IProjectDal` — added `Task<ApiResponse> ExcuseNoShowAsync(int attendanceId, int excusedBy)`
+- `ProjectDal` — implemented `ExcuseNoShowAsync` calling `Attendance_ExcuseNoShow` SP; fires `MANUAL_ATTENDANCE` notification to volunteer on success
+- `ProjectController` — added `PUT /api/v1/project/attendance/{attendanceId}/excuse` endpoint
+
+#### Mobile changes
+- `project.api.ts` — added `excuseNoShow(attendanceId)` → `PUT /project/attendance/{id}/excuse`
+- `ParticipantsScreen.tsx` — `handleExcuse` now calls API with `attendanceId`; updates `isExcused` on success; guards against null `attendanceId`
+- `ParticipantsScreen.tsx` — `NoShowCard` shows green "Excused" chip + excused note when `app.isExcused = true`; hides all action buttons
+- `AdminProjectDetailScreen.tsx` — `ParticipantRow` shows green "Excused" badge + subtitle "Absence excused" for no-shows where `app.isExcused = true`
+
+**Patch file:** `Documents/patch_fix_excuse_noshow.sql` — **run on local → Railway staging → Railway production**
+
+### [2026-08-21] Attendance status on volunteer completed-project cards (Impact screen)
+
+**Scope: DB + Mobile only**
+
+#### DB changes
+- `Application_GetByUser` SP — added two subqueries:
+  - `AttendanceStatusCode` — most recent session's attendance status (ATTENDED | NO_SHOW | null)
+  - `AttendanceIsExcused` — whether the most recent no-show was excused by admin
+
+#### Mobile changes
+- `api.types.ts` — added `attendanceStatusCode?: string` and `attendanceIsExcused?: number` to `UserApplication`
+- `ImpactScreen.tsx` — new `completedAttendanceChip()` helper that shows schedule-type-aware status:
+  - **ONE_TIME**: "✓ Attended" (green) / "No Show" (red) / "Excused" (green)
+  - **RECURRING**: "✓ X/Y Sessions" (green if ≥ minAttendPct%, else amber "⚠ X/Y Sessions")
+  - **FLEXIBLE**: "✓ Xh / Yh" (green if hours met) / "⚠ Xh / Yh" (amber if partial) / "No Hours" (red)
+  - Fallback: "✓ Completed" (green) when no attendance record yet
+
+**Patch file:** `Documents/patch_fix_attendance_status_display.sql` — **run on local → Railway staging → Railway production**
+
+### [2026-08-21] Confirm No Show — full stack implementation
+
+**Scope: DB + Backend + Mobile**
+
+#### DB changes
+- `Application_GetByProject` SP — added `IF(att.NoShowReason = 'ADMIN_CONFIRMED', 1, 0) AS IsNoShowConfirmed`
+- `Attendance_ConfirmNoShow` — new SP: sets `NoShowReason = 'ADMIN_CONFIRMED'`, returns UserId/ProjectId for notification
+
+#### Backend changes
+- `IProjectDal.cs` — added `ConfirmNoShowAsync(int attendanceId, int confirmedBy)`
+- `ProjectDal.cs` — added `ConfirmNoShowAsync`: calls SP, sends push notification to volunteer
+- `ProjectController.cs` — added `PUT /project/attendance/{attendanceId}/confirm-noshow`
+- `OrgDal.cs` — removed stale `p_OrgId` param from `Attendance_ExcuseNoShow` call (validator fix)
+
+#### Mobile changes
+- `project.api.ts` — added `confirmNoShow(attendanceId)`
+- `api.types.ts` — added `isNoShowConfirmed?: number` to `UserApplication`
+- `ParticipantsScreen.tsx`:
+  - `handleConfirmNoShow` now accepts `attendanceId`, calls `projectApi.confirmNoShow`, updates local state on success
+  - `NoShowCard` — new `isNoShowConfirmed` read-only state (red chip "Confirmed", no action buttons), parallel to `isExcused`
+- `AdminProjectDetailScreen.tsx` — `isConfirmed` flag drives "Confirmed" chip label + "Absence confirmed" subtitle
+
+**Patch file:** `Documents/patch_confirm_noshow.sql` — **run on local → Railway staging → Railway production**
+**Validator:** all phases passed.

@@ -1,5 +1,6 @@
 using NGOConnect.Core.Interfaces;
 using NGOConnect.Core.Models.Common;
+using QRCoder;
 using System.Net;
 using System.Text;
 
@@ -25,7 +26,8 @@ namespace NGOConnect.Infrastructure.Services
     ///   {{SKILL_CHIPS_STYLE}}   — "" (visible) or "display:none" (no skills)
     ///   {{VERIFY_URL}}          — raw encrypted verify URL (used in href + text)
     ///   {{VERIFY_URL_DISPLAY}}  — verify URL without the https:// scheme prefix
-    ///   {{VERIFY_URL_ENCODED}}  — URI-encoded verify URL for the QR image API src
+    ///   {{VERIFY_URL_ENCODED}}  — URI-encoded verify URL (kept for legacy refs, no longer in src)
+    ///   {{QR_DATA_URI}}         — self-contained PNG data URI for QR code (no external request needed)
     /// </summary>
     public class CertificateHtmlService : ICertificateHtmlService
     {
@@ -62,6 +64,10 @@ namespace NGOConnect.Infrastructure.Services
                                  ? verifyUrl[8..] : verifyUrl;
             var verifyEncoded  = Uri.EscapeDataString(verifyUrl);
 
+            // Generate QR code as self-contained PNG data URI — no external HTTP request needed.
+            // PngByteQRCode is platform-independent (no GDI+), safe on Linux/Railway.
+            var qrDataUri = BuildQrDataUri(verifyUrl);
+
             var skillChipsHtml  = BuildSkillChips(skillRatings);
             var skillChipsStyle = string.IsNullOrEmpty(skillChipsHtml) ? "display:none" : "";
 
@@ -78,7 +84,23 @@ namespace NGOConnect.Infrastructure.Services
                 .Replace("{{SKILL_CHIPS_STYLE}}",  skillChipsStyle)
                 .Replace("{{VERIFY_URL}}",         Enc(verifyUrl))
                 .Replace("{{VERIFY_URL_DISPLAY}}", Enc(verifyDisplay))
-                .Replace("{{VERIFY_URL_ENCODED}}", verifyEncoded);   // goes in <img src> query string
+                .Replace("{{VERIFY_URL_ENCODED}}", verifyEncoded)
+                .Replace("{{QR_DATA_URI}}",        qrDataUri);       // inline PNG, no external requests
+        }
+
+        // Generates a self-contained PNG data URI for the given URL.
+        // PngByteQRCode uses no GDI+ / System.Drawing — safe on Linux and Railway.
+        private static string BuildQrDataUri(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url)) return "";
+            using var generator = new QRCodeGenerator();
+            var data    = generator.CreateQrCode(url, QRCodeGenerator.ECCLevel.Q);
+            var qrCode  = new PngByteQRCode(data);
+            // 4 px per module, dark = navy #223b9b, light = white #FFFFFF
+            var pngBytes = qrCode.GetGraphic(4,
+                darkColorRgba:  [0x22, 0x3B, 0x9B, 0xFF],
+                lightColorRgba: [0xFF, 0xFF, 0xFF, 0xFF]);
+            return $"data:image/png;base64,{Convert.ToBase64String(pngBytes)}";
         }
 
         // Builds <div class="skill"> chips from pipe-separated "SkillName:Rating" string.

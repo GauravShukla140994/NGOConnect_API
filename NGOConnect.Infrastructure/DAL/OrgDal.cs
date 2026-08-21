@@ -515,7 +515,6 @@ namespace NGOConnect.Infrastructure.DAL
                 var result = await ExecuteWriteAsync("Attendance_ExcuseNoShow", cmd =>
                 {
                     _db.AddParameter(cmd, "p_AttendanceId", request.AttendanceId);
-                    _db.AddParameter(cmd, "p_OrgId",        orgId);
                     _db.AddParameter(cmd, "p_ExcusedBy",    adminUserId);
                 });
                 if (result.Succeeded)

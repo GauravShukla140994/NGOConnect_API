@@ -36,6 +36,10 @@ namespace NGOConnect.Core.Interfaces
         // Manual attendance override (admin)
         Task<ApiResponse>                          ManualAttendanceAsync(int markedBy, ManualAttendanceRequest request);
 
+        // Excuse a no-show (admin — marks IsNoShowExcused = 1, excludes from reliability penalty)
+        Task<ApiResponse>                          ExcuseNoShowAsync(int attendanceId, int excusedBy);
+        Task<ApiResponse>                          ConfirmNoShowAsync(int attendanceId, int confirmedBy);
+
         // ── v5.1: RECURRING + FLEXIBLE flow ─────────────────────────────────────────
 
         /// <summary>FLEXIBLE self check-in within the session window. SP validates type + window + APPROVED status.</summary>

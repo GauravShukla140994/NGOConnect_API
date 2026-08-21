@@ -117,6 +117,15 @@ namespace NGOConnect.API.Controllers
         public async Task<ApiResponse> ManualAttendance(int projectId, [FromBody] ManualAttendanceRequest request)
             => await _project.ManualAttendanceAsync(GetUserId(), request);
 
+        // Excuse a no-show (admin — marks IsNoShowExcused = 1, no reliability penalty)
+        [HttpPut("attendance/{attendanceId:int}/excuse")] [Authorize]
+        public async Task<ApiResponse> ExcuseNoShow(int attendanceId)
+            => await _project.ExcuseNoShowAsync(attendanceId, GetUserId());
+
+        [HttpPut("attendance/{attendanceId:int}/confirm-noshow")] [Authorize]
+        public async Task<ApiResponse> ConfirmNoShow(int attendanceId)
+            => await _project.ConfirmNoShowAsync(attendanceId, GetUserId());
+
         // ── v5.1: FLEXIBLE check-in / check-out ─────────────────────────────────────
         [HttpPost("{projectId:int}/flex-checkin")] [Authorize]
         public async Task<ApiResponse<DynamicRow>> FlexCheckIn(int projectId)

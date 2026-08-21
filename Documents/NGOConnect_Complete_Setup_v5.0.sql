@@ -3343,6 +3343,7 @@ BEGIN
     DECLARE v_CompletedStatusId  INT UNSIGNED;
     DECLARE v_ApprovedLkpId      INT UNSIGNED;
     DECLARE v_AttendedLkpId      INT UNSIGNED;
+    DECLARE v_NoShowLkpId        INT UNSIGNED;
     DECLARE v_SessionId          INT UNSIGNED DEFAULT NULL;
     DECLARE v_SessionDate        DATE;
     DECLARE v_StartTime          TIME;
@@ -3369,6 +3370,10 @@ BEGIN
     SELECT LookupValueId INTO v_AttendedLkpId
     FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
     WHERE lt.TypeCode = 'ATTENDANCE_STATUS' AND lv.ValueCode = 'ATTENDED' LIMIT 1;
+
+    SELECT LookupValueId INTO v_NoShowLkpId
+    FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE lt.TypeCode = 'ATTENDANCE_STATUS' AND lv.ValueCode = 'NO_SHOW' LIMIT 1;
 
     -- 2. Mark project COMPLETED
     UPDATE Projects
@@ -3430,34 +3435,37 @@ BEGIN
         SET v_HoursLogged = v_SessionHours;
     END IF;
 
-    -- 7. Insert ATTENDED records for all APPROVED volunteers not already marked ATTENDED
+    -- 7. Auto-mark NO_SHOW for APPROVED volunteers who never checked in at all.
+    --    Volunteers who already have ANY attendance record (ATTENDED via QR/self-check-in,
+    --    or NO_SHOW from a prior manual marking) are skipped — do not overwrite their real status.
+    --    Volunteers who DID check in (ATTENDED) are handled by step 8 (HoursLogged backfill).
     INSERT INTO ProjectAttendance
         (SessionId, UserId, CheckInTime, HoursLogged, AttendStatusLkpId, AdminNote, CreatedBy)
     SELECT
         v_SessionId,
         pa.UserId,
         NOW(),
-        v_HoursLogged,
-        v_AttendedLkpId,
-        'Auto-marked attended on project completion.',
+        0.00,
+        v_NoShowLkpId,
+        'Auto-marked no-show on project completion — volunteer did not check in.',
         p_CompletedBy
     FROM ProjectApplications pa
-    WHERE pa.ProjectId  = p_ProjectId
+    WHERE pa.ProjectId   = p_ProjectId
       AND pa.StatusLkpId = v_ApprovedLkpId
       AND pa.IsDeleted   = 0
       AND NOT EXISTS (
+          -- Skip if the volunteer has ANY attendance record for this project
           SELECT 1
           FROM   ProjectAttendance att2
           JOIN   ProjectSessions   ps2 ON att2.SessionId = ps2.SessionId
-          WHERE  att2.UserId    = pa.UserId
-            AND  ps2.ProjectId  = p_ProjectId
-            AND  att2.AttendStatusLkpId = v_AttendedLkpId
-            AND  ps2.IsDeleted  = 0
+          WHERE  att2.UserId   = pa.UserId
+            AND  ps2.ProjectId = p_ProjectId
+            AND  ps2.IsDeleted = 0
       )
     ON DUPLICATE KEY UPDATE
-        AttendStatusLkpId = v_AttendedLkpId,
-        HoursLogged       = v_HoursLogged,
-        AdminNote         = 'Auto-marked attended on project completion.',
+        AttendStatusLkpId = v_NoShowLkpId,
+        HoursLogged       = 0.00,
+        AdminNote         = 'Auto-marked no-show on project completion — volunteer did not check in.',
         UpdatedAt         = NOW(),
         UpdatedBy         = p_CompletedBy;
 
@@ -3600,8 +3608,10 @@ BEGIN
         pa.CreatedAt,
         -- Check-in time converted to IST (Railway MySQL server = UTC)
         DATE_FORMAT(CONVERT_TZ(att.CheckInTime, '+00:00', '+05:30'), '%Y-%m-%dT%H:%i:%s') AS CheckedInAt,
+        att.AttendanceId,
         att.HoursLogged,
         att.IsNoShowExcused                         AS IsExcused,
+        IF(att.NoShowReason = 'ADMIN_CONFIRMED', 1, 0) AS IsNoShowConfirmed,
         att.QrScannedAt,
         att.AdminNote,
         ps.SessionDate,
@@ -5422,7 +5432,6 @@ END //
 -- ── Attendance_ExcuseNoShow ───────────────────────────────────
 CREATE PROCEDURE Attendance_ExcuseNoShow(
     IN p_AttendanceId INT,
-    IN p_OrgId        INT,
     IN p_ExcusedBy    INT
 )
 BEGIN
@@ -5437,23 +5446,56 @@ BEGIN
     LIMIT  1;
 
     UPDATE ProjectAttendance pa
-    JOIN ProjectSessions ps ON pa.SessionId = ps.SessionId
-    JOIN Projects p         ON ps.ProjectId = p.ProjectId
     SET pa.AttendanceStatus = 'EXCUSED',
+        pa.IsNoShowExcused  = 1,
         pa.UpdatedAt        = NOW()
-    WHERE pa.AttendanceId = p_AttendanceId
-      AND pa.AttendanceStatus = 'NO_SHOW'
-      AND p.OrgId = p_OrgId;
+    WHERE pa.AttendanceId      = p_AttendanceId
+      AND pa.AttendanceStatus  = 'NO_SHOW';
 
     IF ROW_COUNT() = 0 THEN
-        SELECT 0 AS IsSuccess, 'Record not found or not a no-show in this org.' AS Message,
+        SELECT 0 AS IsSuccess, 'Record not found or already not a no-show.' AS Message,
                NULL AS UserId, NULL AS ProjectId;
     ELSE
-        SELECT 1 AS IsSuccess, 'No-show excused. Reliability score will adjust.' AS Message,
+        SELECT 1 AS IsSuccess, 'No-show excused. Reliability score will not be affected.' AS Message,
                v_UserId AS UserId, v_ProjectId AS ProjectId;
     END IF;
 END //
 
+DELIMITER ;
+
+-- ── Attendance_ConfirmNoShow ─────────────────────────────────────
+DELIMITER //
+DROP PROCEDURE IF EXISTS Attendance_ConfirmNoShow //
+CREATE PROCEDURE Attendance_ConfirmNoShow(
+    IN p_AttendanceId INT,
+    IN p_ConfirmedBy  INT
+)
+BEGIN
+    DECLARE v_UserId    INT UNSIGNED DEFAULT NULL;
+    DECLARE v_ProjectId INT UNSIGNED DEFAULT NULL;
+
+    SELECT pa.UserId, ps.ProjectId
+    INTO   v_UserId, v_ProjectId
+    FROM   ProjectAttendance pa
+    JOIN   ProjectSessions   ps ON pa.SessionId = ps.SessionId
+    WHERE  pa.AttendanceId     = p_AttendanceId
+    LIMIT  1;
+
+    UPDATE ProjectAttendance pa
+    SET pa.NoShowReason = 'ADMIN_CONFIRMED',
+        pa.UpdatedAt   = NOW()
+    WHERE pa.AttendanceId     = p_AttendanceId
+      AND pa.AttendanceStatus = 'NO_SHOW'
+      AND pa.IsNoShowExcused  = 0;
+
+    IF ROW_COUNT() = 0 THEN
+        SELECT 0 AS IsSuccess, 'Record not found or already excused/confirmed.' AS Message,
+               NULL AS UserId, NULL AS ProjectId;
+    ELSE
+        SELECT 1 AS IsSuccess, 'No-show confirmed. Reliability score will be affected.' AS Message,
+               v_UserId AS UserId, v_ProjectId AS ProjectId;
+    END IF;
+END //
 DELIMITER ;
 
 -- ── SCHEMA VERSION SEED ─────────────────────────────────────────
@@ -8718,6 +8760,7 @@ BEGIN
         pa.StatusUpdatedAt,
         pa.CreatedAt,
         DATE_FORMAT(CONVERT_TZ(att.CheckInTime, '+00:00', '+05:30'), '%Y-%m-%dT%H:%i:%s') AS CheckedInAt,
+        att.AttendanceId,
         att.HoursLogged,
         att.IsNoShowExcused                         AS IsExcused,
         att.QrScannedAt,
@@ -13926,6 +13969,23 @@ BEGIN
             JOIN   ProjectSessions pss4 ON ata4.SessionId = pss4.SessionId
             WHERE  pss4.ProjectId = p.ProjectId AND ata4.UserId = p_UserId
         ), 1, 0) AS IsCheckedIn,
+        -- Most recent attendance status for this user on this project (ATTENDED | NO_SHOW | null)
+        (SELECT lv_att.ValueCode
+         FROM   ProjectAttendance ata5
+         JOIN   ProjectSessions   pss5 ON ata5.SessionId = pss5.SessionId
+         JOIN   LookupValues      lv_att ON ata5.AttendStatusLkpId = lv_att.LookupValueId
+         WHERE  pss5.ProjectId = p.ProjectId AND ata5.UserId = p_UserId
+         ORDER BY pss5.SessionDate DESC, ata5.CreatedAt DESC
+         LIMIT  1
+        )                                               AS AttendanceStatusCode,
+        -- Whether the most recent no-show was excused
+        (SELECT ata5.IsNoShowExcused
+         FROM   ProjectAttendance ata5
+         JOIN   ProjectSessions   pss5 ON ata5.SessionId = pss5.SessionId
+         WHERE  pss5.ProjectId = p.ProjectId AND ata5.UserId = p_UserId
+         ORDER BY pss5.SessionDate DESC, ata5.CreatedAt DESC
+         LIMIT  1
+        )                                               AS AttendanceIsExcused,
         -- Distinguish admin-remove from self-withdraw
         IF(pa.StatusUpdatedBy IS NOT NULL AND pa.StatusUpdatedBy != pa.UserId, 1, 0) AS WasRemovedByAdmin
     FROM   ProjectApplications pa
