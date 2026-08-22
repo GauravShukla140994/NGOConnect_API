@@ -76,12 +76,12 @@ namespace NGOConnect.Infrastructure.DAL
                 }
                 else
                 {
-                    // SMS — Fast2SMS (India)
-                    var sent = await _sms.SendOtpAsync(
-                        request.Recipient, request.CountryCode ?? "+91", otp, expiryMinutes);
-                    if (!sent)
-                        Log.Warning("SMS OTP delivery failed for {Recipient} — OTP stored but not delivered",
-                            MaskRecipient(request.Recipient));
+                    //// SMS — Fast2SMS (India)
+                    //var sent = await _sms.SendOtpAsync(
+                    //    request.Recipient, request.CountryCode ?? "+91", otp, expiryMinutes);
+                    //if (!sent)
+                    //    Log.Warning("SMS OTP delivery failed for {Recipient} — OTP stored but not delivered",
+                    //        MaskRecipient(request.Recipient));
                 }
 
                 Log.Information("OTP requested for {Recipient} | IsEmail={IsEmail} | Purpose={Purpose}",
