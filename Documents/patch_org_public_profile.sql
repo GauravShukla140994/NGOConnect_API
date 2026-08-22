@@ -1,7 +1,7 @@
 -- ============================================================
 -- patch_org_public_profile.sql
 -- Org_GetPublicProfile — rich public organisation profile for the
--- website's /ngo/{token} page. Backs GET /api/v1/public/org/{token}/full
+-- website's /organisation/{token} page. Backs GET /api/v1/public/org/{token}/full
 -- (paired with GET /api/v1/public/org/{token}/reviews, which reuses the
 -- EXISTING OrgReview_GetList/OrgReview_GetAggregate SPs unchanged, and
 -- Project_List, also unchanged — no other SP touched by this patch).
@@ -74,7 +74,7 @@ END //
 DELIMITER ;
 
 INSERT IGNORE INTO SchemaVersions (Version, Description, AppliedBy)
-VALUES ('v5.4-org-public-profile', 'Org_GetPublicProfile — rich public organisation profile (about/mission/stats/verification) for the /ngo/{token} page. Reviews and projects reuse existing OrgReview_GetList/OrgReview_GetAggregate/Project_List unchanged.', 'System');
+VALUES ('v5.4-org-public-profile', 'Org_GetPublicProfile — rich public organisation profile (about/mission/stats/verification) for the /organisation/{token} page. Reviews and projects reuse existing OrgReview_GetList/OrgReview_GetAggregate/Project_List unchanged.', 'System');
 
 -- ============================================================
 -- VERIFICATION (run after applying)

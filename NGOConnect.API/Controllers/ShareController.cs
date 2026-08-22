@@ -13,7 +13,7 @@ namespace NGOConnect.API.Controllers
     /// The resulting URL is safe to share publicly — no raw numeric IDs exposed.
     ///
     /// Entity types:
-    ///   ORG  — Organisation profile   → https://ripplehub.app/ngo/{token}
+    ///   ORG  — Organisation profile   → https://ripplehub.app/organisation/{token}
     ///   OPP  — Volunteer opportunity   → https://ripplehub.app/opportunity/{token}
     /// </summary>
     [ApiController]
@@ -27,7 +27,7 @@ namespace NGOConnect.API.Controllers
 
         private static readonly Dictionary<string, string> TypeToPath = new(StringComparer.OrdinalIgnoreCase)
         {
-            ["ORG"] = "ngo",
+            ["ORG"] = "organisation",
             ["OPP"] = "opportunity",
         };
 

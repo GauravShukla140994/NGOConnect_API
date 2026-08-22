@@ -2450,3 +2450,23 @@ Added 6 SPs that were called in C# DAL but never defined in the setup SQL:
 
 **Patch file:** `Documents/patch_fix_public_visibility.sql` — **run on Railway staging → Railway production**
 **Validator:** all phases passed.
+
+---
+
+### [2026-08-22] Organisation share-link URL renamed /ngo/ → /organisation/ + full public profile web page built
+
+**User feedback on tested Super Admin "Create member" flow:** (1) share link showed `/ngo/{token}`, should say `/organisation/{token}`; (2) the link should open a real, full, standalone web profile page (not an auto-app-redirect bounce card).
+
+#### Backend changes (no SP/DB changes — comment/string only)
+- `ShareController.cs` — `TypeToPath["ORG"]` changed from `"ngo"` to `"organisation"`; XML doc comments updated.
+- `SuperAdminDal.cs` (`CreateMemberWithOrgAsync`) — `orgShareUrl` now built as `{BaseUrl}/organisation/{token}` instead of `/ngo/{token}`.
+- `PublicController.cs` — doc comments referencing `/ngo/{token}` updated to `/organisation/{token}` (no route/behavior change — `GET /public/org/{token}` and `/full` and `/reviews` are unchanged, still keyed by token not path).
+- `NGOConnect_Complete_Setup_v5.0.sql` and `patch_org_public_profile.sql` — comment references to `/ngo/{token}` updated to `/organisation/{token}` (no SQL logic change).
+
+#### Website changes
+- New `src/pages/OrganisationProfilePage.jsx` — full, standalone, non-auto-redirecting organisation profile page. Consumes `GET /public/org/{token}/full` and `GET /public/org/{token}/reviews` (paginated, sortable RECENT/HELPFUL/HIGHEST/LOWEST). Renders hero (logo/name/verified badge/category/location/avg rating), stats row (members/active/completed/followers), about/mission/vision, contact & 80G/12A/donation-enabled badges, projects grid, and a reviews section with rating histogram + "Load more" pagination. Manual "Open in App" button (not automatic) using existing `ripplehub://ngo/{token}` app scheme — app-side deep link path intentionally left unchanged, only the website URL segment was renamed per the user's request.
+- `src/main.jsx` — new route `/organisation/:token` → `OrganisationProfilePage`. Old route `/ngo/:token` now renders a `<Navigate>` redirect to `/organisation/:token` (backward compatibility for any already-shared old links) instead of the old `NgoLandingPage.jsx` card. `NgoLandingPage.jsx` left in the repo, unused/unrouted, not deleted.
+
+**No patch file needed** — no table/SP changes, this was a URL-path rename + new page only.
+**Validator:** not applicable (no SP/DAL params touched).
+**Build verified:** Website `npm run build` — 881 modules, no errors. API build not verified in this session (no `dotnet` SDK available in the sandbox) — verify with a local `dotnet build` before deploying.

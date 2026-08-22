@@ -14712,7 +14712,7 @@ VALUES ('v5.3-superadmin-member-onboarding', 'SuperAdmin_CreateMemberWithOrg —
 
 -- ============================================================
 -- RICH PUBLIC ORGANISATION PROFILE (Super Admin onboarding Phase 3)
--- Replaces the thin Org_GetPublicPreview for the /ngo/{token} public
+-- Replaces the thin Org_GetPublicPreview for the /organisation/{token} public
 -- page. Reviews/ratings and projects reuse EXISTING SPs unchanged
 -- (OrgReview_GetList, OrgReview_GetAggregate, Project_List with
 -- p_UserId=0) — this SP only covers the org info block itself.
@@ -14793,7 +14793,7 @@ BEGIN
 END //
 
 INSERT IGNORE INTO SchemaVersions (Version, Description, AppliedBy)
-VALUES ('v5.4-org-public-profile', 'Org_GetPublicProfile — rich public organisation profile (about/mission/stats/verification) for the /ngo/{token} page. Reviews and projects reuse existing OrgReview_GetList/OrgReview_GetAggregate/Project_List unchanged.', 'System');
+VALUES ('v5.4-org-public-profile', 'Org_GetPublicProfile — rich public organisation profile (about/mission/stats/verification) for the /organisation/{token} page. Reviews and projects reuse existing OrgReview_GetList/OrgReview_GetAggregate/Project_List unchanged.', 'System');
 
 -- ============================================================
 -- ADMIN REMOVE VOLUNTEER

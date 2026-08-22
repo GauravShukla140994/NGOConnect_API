@@ -856,7 +856,7 @@ namespace NGOConnect.Infrastructure.DAL
                     ["userId"]        = userId,
                     ["orgId"]         = orgId,
                     ["orgShareToken"] = token,
-                    ["orgShareUrl"]   = $"{BaseUrl}/ngo/{token}",
+                    ["orgShareUrl"]   = $"{BaseUrl}/organisation/{token}",
                 };
 
                 return ApiResponse<DynamicRow>.Success(data, result.Message);

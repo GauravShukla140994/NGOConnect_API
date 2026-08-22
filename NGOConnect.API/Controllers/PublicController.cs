@@ -15,7 +15,7 @@ namespace NGOConnect.API.Controllers
     ///   GET /api/v1/public/org/{token}            → thin NGO preview card (website)
     ///   GET /api/v1/public/org/{token}/full       → rich NGO public profile: about/mission/
     ///                                                stats/verification + review aggregate +
-    ///                                                first page of projects (website /ngo page)
+    ///                                                first page of projects (website /organisation page)
     ///   GET /api/v1/public/org/{token}/reviews    → paginated reviews for the same org token
     ///   GET /api/v1/public/opportunity/{token}    → full project / opportunity details (website)
     ///   GET /api/v1/public/global-stats           → aggregate platform counts (website Global exploration section)
@@ -74,7 +74,7 @@ namespace NGOConnect.API.Controllers
         /// <summary>
         /// Decrypts the token, validates it is an ORG token, then returns the NGO's
         /// public profile via the same SP used by the authenticated app.
-        /// Intended for the RippleHub website's /ngo/{token} page.
+        /// Intended for the RippleHub website's /organisation/{token} page.
         /// </summary>
         [HttpGet("org/{token}")]
         public async Task<ActionResult<ApiResponse<object>>> GetOrgPreview(string token)
@@ -113,7 +113,7 @@ namespace NGOConnect.API.Controllers
 
         // ── GET /api/v1/public/org/{token}/full ──────────────────────────────────
         /// <summary>
-        /// Rich public organisation profile for the RippleHub website's /ngo/{token}
+        /// Rich public organisation profile for the RippleHub website's /organisation/{token}
         /// page: about/mission/vision/stats/verification (Org_GetPublicProfile),
         /// review rating aggregate, and the first page of active/completed projects.
         /// Use GET /public/org/{token}/reviews separately for paginated review scrolling.
