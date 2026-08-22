@@ -100,6 +100,37 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
+        public async Task<ApiResponse<DynamicRow>> GetPublicProfileAsync(int orgId)
+        {
+            try
+            {
+                var row = await ExecuteDynamicGetAsync("Org_GetPublicProfile", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_OrgId", orgId);
+                });
+
+                if (row is null)
+                    return ApiResponse<DynamicRow>.Failure("Organisation not found.", "NOT_FOUND");
+
+                // ProfileState comes back on every row (ACTIVE/UNAVAILABLE/NOT_FOUND) —
+                // surface NOT_FOUND/UNAVAILABLE as distinct error codes so the website
+                // can show the right message, same pattern as CertificateController's
+                // CERT_REVOKED/NOT_FOUND for /verify/{token}.
+                var state = row.Get<string>("profileState");
+                if (state == "NOT_FOUND")
+                    return ApiResponse<DynamicRow>.Failure("Organisation not found.", "NOT_FOUND");
+                if (state == "UNAVAILABLE")
+                    return ApiResponse<DynamicRow>.Failure("This organisation's profile is not currently available.", "ORG_UNAVAILABLE");
+
+                return ApiResponse<DynamicRow>.Success(row);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetPublicProfileAsync failed OrgId={OrgId}", orgId);
+                return ApiResponse<DynamicRow>.Failure("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
         public async Task<ApiResponse> UpdateAsync(int orgId, int userId, UpdateOrgRequest request)
         {
             try

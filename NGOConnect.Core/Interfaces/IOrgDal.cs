@@ -9,6 +9,8 @@ namespace NGOConnect.Core.Interfaces
         Task<ApiResponse<DynamicRow>>                      RegisterAsync(int userId, RegisterOrgRequest request);
         Task<ApiResponse<DynamicRow>>                      GetProfileAsync(int orgId, int userId);
         Task<ApiResponse<DynamicRow>>                      GetPublicPreviewAsync(int orgId);
+        /// <summary>Rich public profile (about/mission/stats/verification) for the /ngo/{token} page — see Org_GetPublicProfile.</summary>
+        Task<ApiResponse<DynamicRow>>                      GetPublicProfileAsync(int orgId);
         Task<ApiResponse>                                  UpdateAsync(int orgId, int userId, UpdateOrgRequest request);
         // v4.5 — founder-side resubmit after Super Admin rejection. New SP (Org_Resubmit), does not touch Org_Update.
         Task<ApiResponse>                                  ResubmitAsync(int orgId, int userId, ResubmitOrgRequest request);

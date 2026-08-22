@@ -12,7 +12,11 @@ namespace NGOConnect.API.Controllers
     ///
     /// Endpoints:
     ///   GET /api/v1/public/resolve/{token}        → entity type + ID (mobile deep-link helper)
-    ///   GET /api/v1/public/org/{token}            → full NGO public profile (website)
+    ///   GET /api/v1/public/org/{token}            → thin NGO preview card (website)
+    ///   GET /api/v1/public/org/{token}/full       → rich NGO public profile: about/mission/
+    ///                                                stats/verification + review aggregate +
+    ///                                                first page of projects (website /ngo page)
+    ///   GET /api/v1/public/org/{token}/reviews    → paginated reviews for the same org token
     ///   GET /api/v1/public/opportunity/{token}    → full project / opportunity details (website)
     ///   GET /api/v1/public/global-stats           → aggregate platform counts (website Global exploration section)
     /// </summary>
@@ -25,13 +29,17 @@ namespace NGOConnect.API.Controllers
         private readonly IOrgDal          _org;
         private readonly IProjectDal      _project;
         private readonly IPublicStatsDal  _stats;
+        private readonly IOrgReviewDal    _reviews;
 
-        public PublicController(IUrlTokenService tokens, IOrgDal org, IProjectDal project, IPublicStatsDal stats)
+        public PublicController(
+            IUrlTokenService tokens, IOrgDal org, IProjectDal project,
+            IPublicStatsDal stats, IOrgReviewDal reviews)
         {
             _tokens  = tokens;
             _org     = org;
             _project = project;
             _stats   = stats;
+            _reviews = reviews;
         }
 
         // ── GET /api/v1/public/resolve/{token} ──────────────────────────────────
@@ -101,6 +109,113 @@ namespace NGOConnect.API.Controllers
                 });
 
             return Ok(orgResult);
+        }
+
+        // ── GET /api/v1/public/org/{token}/full ──────────────────────────────────
+        /// <summary>
+        /// Rich public organisation profile for the RippleHub website's /ngo/{token}
+        /// page: about/mission/vision/stats/verification (Org_GetPublicProfile),
+        /// review rating aggregate, and the first page of active/completed projects.
+        /// Use GET /public/org/{token}/reviews separately for paginated review scrolling.
+        /// </summary>
+        [HttpGet("org/{token}/full")]
+        public async Task<ActionResult<ApiResponse<object>>> GetOrgFullProfile(string token)
+        {
+            var resolved = _tokens.Decrypt(token);
+
+            if (resolved is null)
+                return BadRequest(new ApiResponse<object>
+                {
+                    IsSuccess = 0,
+                    Message   = "Invalid or expired share link.",
+                    ErrorCode = "INVALID_SHARE_TOKEN",
+                });
+
+            if (!string.Equals(resolved.Value.EntityType, "ORG", StringComparison.OrdinalIgnoreCase))
+                return BadRequest(new ApiResponse<object>
+                {
+                    IsSuccess = 0,
+                    Message   = "This link does not point to an organisation.",
+                    ErrorCode = "WRONG_ENTITY_TYPE",
+                });
+
+            var orgId = resolved.Value.Id;
+
+            var profileResult = await _org.GetPublicProfileAsync(orgId);
+            if (profileResult.IsSuccess != 1)
+                return Ok(profileResult); // NOT_FOUND / ORG_UNAVAILABLE — let the page branch on ErrorCode
+
+            // Review aggregate + a light first page of projects — best-effort, a
+            // failure here shouldn't take down the whole profile page.
+            var aggregateTask = _reviews.GetAggregateAsync(orgId);
+            // NOTE: Project_List's built-in "public browse" whitelist (ACTIVE/UPCOMING
+            // only, IsPublic=1) is SKIPPED whenever p_OrgId is supplied — that branch is
+            // meant for an org's own admin viewing everything, including DRAFT/CANCELLED/
+            // private projects. Since this endpoint is anonymous, we filter the results
+            // ourselves below rather than touching that shared SP.
+            var projectsTask = _project.ListAsync(pageNumber: 1, pageSize: 20, orgId: orgId, userId: 0);
+            await Task.WhenAll(aggregateTask, projectsTask);
+
+            List<DynamicRow>? publicProjects = null;
+            if (projectsTask.Result.IsSuccess == 1)
+            {
+                var allowedStatus = new HashSet<string> { "ACTIVE", "UPCOMING", "COMPLETED" };
+                publicProjects = projectsTask.Result.Data.Items
+                    .Where(p => allowedStatus.Contains(p.Get<string>("statusCode") ?? string.Empty)
+                             && p.Get<int?>("isPublic") != 0)
+                    .Take(6)
+                    .ToList();
+            }
+
+            return Ok(new ApiResponse<object>
+            {
+                IsSuccess = 1,
+                Message   = profileResult.Message,
+                Data      = new
+                {
+                    orgId,
+                    profile  = profileResult.Data,
+                    ratings  = aggregateTask.Result.IsSuccess == 1 ? aggregateTask.Result.Data : null,
+                    projects = publicProjects,
+                },
+            });
+        }
+
+        // ── GET /api/v1/public/org/{token}/reviews ───────────────────────────────
+        /// <summary>
+        /// Paginated, latest-approved reviews for the org behind this token —
+        /// separate from /full so the website can infinite-scroll without
+        /// re-fetching the whole profile. sort: RECENT | HELPFUL | HIGHEST | LOWEST.
+        /// </summary>
+        [HttpGet("org/{token}/reviews")]
+        public async Task<ActionResult<ApiResponse<object>>> GetOrgReviews(
+            string token, [FromQuery] string sort = "RECENT",
+            [FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 20)
+        {
+            var resolved = _tokens.Decrypt(token);
+
+            if (resolved is null)
+                return BadRequest(new ApiResponse<object>
+                {
+                    IsSuccess = 0,
+                    Message   = "Invalid or expired share link.",
+                    ErrorCode = "INVALID_SHARE_TOKEN",
+                });
+
+            if (!string.Equals(resolved.Value.EntityType, "ORG", StringComparison.OrdinalIgnoreCase))
+                return BadRequest(new ApiResponse<object>
+                {
+                    IsSuccess = 0,
+                    Message   = "This link does not point to an organisation.",
+                    ErrorCode = "WRONG_ENTITY_TYPE",
+                });
+
+            // pageSize capped — this is an unauthenticated endpoint, no reason to let
+            // a caller request an unbounded page.
+            pageSize = Math.Clamp(pageSize, 1, 50);
+
+            var result = await _reviews.GetListAsync(resolved.Value.Id, currentUserId: 0, sort, pageNumber, pageSize);
+            return Ok(result);
         }
 
         // ── GET /api/v1/public/opportunity/{token} ───────────────────────────────
