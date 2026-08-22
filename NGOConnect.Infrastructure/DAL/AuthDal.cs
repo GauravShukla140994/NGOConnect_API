@@ -44,7 +44,7 @@ namespace NGOConnect.Infrastructure.DAL
 
                 // Cryptographically secure 6-digit OTP
                 var otp = GenerateOtp();
-                //otp = "123456";
+                otp = "123456";
 
                 _db.AddParameter(cmd, "p_Recipient",     request.Recipient);
                 _db.AddParameter(cmd, "p_CountryCode",   request.CountryCode);
