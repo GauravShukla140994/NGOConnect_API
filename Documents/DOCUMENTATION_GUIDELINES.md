@@ -272,6 +272,15 @@ When there is a conflict between files, this priority order applies:
 
 ## Current Pending Document Updates
 
+**Fast2SMS OTP delivery switched to dedicated OTP API (2026-08-18)**
+- Root cause for redesign: the previously-coded DLT route (`bulkV2` with `message=<TemplateId>`) is Fast2SMS's generic bulk-SMS DLT mechanism. The user's registered "RippleHub Mobile Registration OTP" template is a `Service Implicit` OTP template, and Fast2SMS's own docs (`https://docs.fast2sms.com/reference/send-otp`) point to a purpose-built endpoint for that: `POST /dev/otp/send`, JSON body, its own `otp_id` (a short hash, NOT the DLT Manager Content Template's numeric Message ID).
+- `NGOConnect.Infrastructure/Services/Fast2SmsService.cs`: `SendOtpAsync` now branches to a new `SendOtpViaDedicatedApiAsync` (route `dlt`) hitting `/dev/otp/send` with `{mobile, otp_id, otp_expiry, otp_length, otp, variables_values}`; old `q` quick-route path unchanged, moved to `SendOtpViaQuickRouteAsync`. Added a 10-digit mobile format check with a warning log (Fast2SMS's OTP API requires `^[0-9]{10}$`). `SendAsync` (generic/campaign SMS, not OTP) untouched — still `bulkV2`/`q`.
+- New config key: `Sms:OtpTemplateId` (Fast2SMS's `otp_id`) — added to `appsettings.json` (base, empty) and `appsettings.Staging.json` (`f7c2df256e`, from the user-provided sample). `Sms:TemplateId` (223538) is now unused by OTP sending — kept, reserved for a future generic/bulk DLT sender.
+- **⚠️ UNVERIFIED**: `f7c2df256e` was taken from a sample curl the user pasted (said to be "as per my approved template") but could be a Fast2SMS docs placeholder rather than their real otp_id — flagged inline in `appsettings.Staging.json` and to the user directly. Must be confirmed against the Fast2SMS dashboard's OTP section before `Route` is switched to `dlt`.
+- `Route` remains `"q"` in staging — template was still PENDING as of the last check, and the `OtpTemplateId` value is unverified. Do not flip to `dlt` until both are resolved.
+- Not build-verified this session (no local .NET SDK in the sandbox) — verify build before deploying.
+- **API Documentation**: note the switch to `/dev/otp/send` and the new `Sms:OtpTemplateId` config key at the next "update documents" pass. No DB/SP change.
+
 **Global exploration stats — real DB counts with display floors (2026-08-17)**
 - New no-auth endpoint: `GET /api/v1/public/global-stats`. Zero input parameters, returns only aggregate counts (no PII, no row-level data, nothing to inject through).
 - `NGOConnect_Complete_Setup_v5.0.sql`: new SP `Public_GetGlobalStats()` — `COUNT(DISTINCT o.Country)`, `COUNT(*)` approved orgs, `COUNT(DISTINCT UserId)` approved volunteers. New Settings rows (`SettingGroup='PLATFORM'`): `GLOBAL_STATS_MIN_COUNTRIES=1`, `GLOBAL_STATS_MIN_ORGS=50`, `GLOBAL_STATS_MIN_VOLUNTEERS=4000`, `GLOBAL_STATS_RAISED_DISPLAY=1000000`, `GLOBAL_STATS_CACHE_MINUTES=10` (all `IsPublic=0` — blended server-side, never exposed raw).
@@ -2323,4 +2332,84 @@ MILESTONE_25/50/75_ENABLED, AUTO_ACTIVATE_CRON, MARK_NOSHOW_CRON, AUTO_CHECKOUT_
 - `AdminProjectDetailScreen.tsx` — `isConfirmed` flag drives "Confirmed" chip label + "Absence confirmed" subtitle
 
 **Patch file:** `Documents/patch_confirm_noshow.sql` — **run on local → Railway staging → Railway production**
+**Validator:** all phases passed.
+
+---
+
+### [v5.0-fix] 10 Missing SuperAdmin SPs added to setup SQL + patch file
+
+#### DB changes — `NGOConnect_Complete_Setup_v5.0.sql`
+Added 10 SuperAdmin stored procedures that existed in `SuperAdminDal.cs` but were never in the setup SQL:
+- `SuperAdmin_Dashboard_GetKpis` — aggregate KPI row (TotalOrgs, PendingOrgs, TotalUsers, TotalDonationAmount, PendingDocuments, etc.)
+- `SuperAdmin_Org_GetRecent(p_Limit)` — recent orgs list ordered by CreatedAt DESC
+- `SuperAdmin_Org_VerifyProfile(p_OrgId, p_StatusCode, p_SuperAdminId)` — updates `VerificationStatusLkpId` on Organisations; fires ORG_PROFILE_VERIFIED / ORG_PROFILE_REJECTED notification to founder
+- `SuperAdmin_UserDocument_Verify(p_UserDocumentId, p_SuperAdminUserId, p_IsVerified)` — updates UserDocuments.IsVerified/VerifiedAt/VerifiedBy; fires DOCUMENT_VERIFIED / DOCUMENT_REJECTED notification
+- `SuperAdmin_User_GetDocuments(p_UserId)` — returns UserDocuments list with DocumentType resolved from LookupValues
+- `SuperAdmin_User_GetFullProfile(p_UserId)` — 5 result sets: [0] core profile, [1] skills, [2] interests, [3] badges, [4] org memberships
+- `SuperAdmin_User_Reactivate(p_UserId, p_SuperAdminUserId)` — sets IsActive=1, fires ACCOUNT_REACTIVATED notification
+- `SuperAdmin_User_RequestUpdate(p_UserId, p_SuperAdminUserId, p_Reason)` — resets ProfileVerificationLkpId to PENDING, fires PROFILE_UPDATE_REQUESTED notification
+- `SuperAdmin_User_Suspend(p_UserId, p_SuperAdminUserId, p_Reason)` — sets IsActive=0, fires ACCOUNT_SUSPENDED notification
+- `SuperAdmin_User_VerifyProfile(p_UserId, p_SuperAdminUserId)` — sets ProfileVerificationLkpId to VERIFIED, fires PROFILE_VERIFIED notification
+
+**Patch file:** `Documents/patch_superadmin_missing_sps.sql` — **run on Railway staging → Railway production**
+**Validator:** all phases passed.
+
+---
+
+### [v5.0-fix2] 6 More Missing SPs found by DAL audit — added to setup SQL + patch file
+
+Full DAL ↔ setup SQL audit run — compared every `Execute*Async("SP_Name")` call across all DAL files against every `CREATE PROCEDURE` in the setup SQL.
+
+#### DB changes — `NGOConnect_Complete_Setup_v5.0.sql`
+Added 6 SPs that were called in C# DAL but never defined in the setup SQL:
+- `Donation_GetCampaignById(p_CampaignId)` — single campaign detail with org info, amounts, status
+- `Donation_GetReceipt(p_DonationId, p_UserId)` — receipt detail joined to transaction, campaign, receipt number
+- `Donation_SetupRecurring(p_UserId, p_OrgId, p_CampaignId, p_Amount, p_FrequencyLkpId, p_StartDate)` — inserts RecurringDonations row with ACTIVE status; returns RecurringDonId
+- `Donation_CancelRecurring(p_RecurringDonId, p_UserId)` — sets StatusLkpId=CANCELLED, CancelledAt=NOW()
+- `User_SendContactOtp(p_UserId, p_Type, p_Value, p_OtpCode, p_IpAddress)` — stores OTP with rate-limit (3/10min); maps EMAIL→CHANGE_EMAIL, MOBILE→CHANGE_MOBILE purpose
+- `User_VerifyContactOtp(p_UserId, p_Type, p_Value, p_OtpCode, p_IpAddress)` — verifies OTP, updates Users.Email or Users.Mobile on success
+
+**Patch file:** `Documents/patch_missing_sps_fix2.sql` — **run on Railway staging → Railway production**
+**Validator:** all phases passed.
+
+---
+
+### [v5.0-fix3] 18+ Age Restriction enforcement on Application_Apply
+
+#### DB changes — `NGOConnect_Complete_Setup_v5.0.sql`
+- `Application_Apply` SP updated — added age restriction check at the start:
+  - Reads `Projects.AgeRestriction` for the target project
+  - If `AgeRestriction = 1`: reads `UserProfiles.DateOfBirth` for the applicant
+  - If DOB is NULL → returns error "Please update your date of birth in your profile before applying"
+  - If age < 18 → returns error with actual age: "Your current age (N) does not meet the requirement"
+  - If `AgeRestriction = 0` OR user is 18+ → proceeds with normal apply logic unchanged
+
+#### Mobile changes
+- `src/types/api.types.ts` — added `ageRestriction?: number` to `Project` interface
+- `src/screens/volunteer/ProjectDetailScreen.tsx` — shows purple "🔞 This project is for volunteers aged 18 and above only" badge (same placement as requiresApproval badge) when `project.ageRestriction = 1`
+- Error message from SP is surfaced automatically by existing `Alert.alert('Error', res.data?.message)` pattern — no additional code needed
+
+**Patch file:** `Documents/patch_age_restriction_apply.sql` — **run on Railway staging → Railway production**
+**Validator:** all phases passed.
+
+### [v5.0-fix4] IsPublic enforcement — Project_GetById + Application_Apply
+
+**Problem confirmed by audit:** Two SPs had no IsPublic/membership check, allowing any authenticated user to fetch private project details or apply to private projects without being an org member.
+
+- `Project_GetById` SP — WHERE clause extended:
+  ```
+  AND (p.IsPublic = 1 OR p_UserId IS NULL OR p_UserId = 0
+       OR EXISTS (OrgMembers approved member check))
+  ```
+  Non-members get an empty result (project not found) for IsPublic=0 projects.
+
+- `Application_Apply` SP — new pre-checks at the top:
+  1. **IsPublic check**: reads `p.IsPublic` and `p.OrgId` in same Projects SELECT as AgeRestriction (single DB read). If `IsPublic=0` and user is not an approved org member → returns `IsSuccess=0, 'This project is only available to organisation members.'`; sets `v_MembershipOk=0`.
+  2. **Age check**: only runs if `v_MembershipOk=1`. Unchanged from fix3.
+  3. **Main apply logic**: only runs if `v_MembershipOk=1` AND age check passed.
+  - Sub-query `(SELECT OrgId FROM Projects WHERE ...)` replaced with `v_OrgId` variable (already read above).
+
+- SPs that were already correct (no change needed): `Project_List` (`AND (p_OrgId IS NOT NULL OR p.IsPublic = 1)`), `Project_GetNearbyFeed` (same guard), `Feed_GetPersonalized` (`AND p.IsPublic = 1`).
+
+**Patch file:** `Documents/patch_fix_public_visibility.sql` — **run on Railway staging → Railway production**
 **Validator:** all phases passed.

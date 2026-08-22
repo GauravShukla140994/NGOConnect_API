@@ -171,10 +171,12 @@ namespace NGOConnect.API.Extensions
         /// <summary>
         /// Register Fast2SMS gateway for mobile OTP delivery.
         /// Config: appsettings.json → "Sms" section.
-        ///   Sms:ApiKey     — Fast2SMS API key (gitignored / Railway env var Sms__ApiKey)
-        ///   Sms:Route      — "q" (quick/test) | "dlt" (production, TRAI-registered)
-        ///   Sms:SenderId   — DLT route only (registered sender ID)
-        ///   Sms:TemplateId — DLT route only (TRAI-approved template ID)
+        ///   Sms:ApiKey        — Fast2SMS API key (gitignored / Railway env var Sms__ApiKey)
+        ///   Sms:Route         — "q" (quick/test) | "dlt" (production — dedicated OTP API)
+        ///   Sms:SenderId      — DLT route only (registered sender ID / header)
+        ///   Sms:OtpTemplateId — DLT route only — Fast2SMS OTP Template ID ("otp_id")
+        ///   Sms:TemplateId    — Reserved for a future generic/bulk DLT sender (not OTP)
+        /// See Fast2SmsService.cs for the full routing/endpoint breakdown.
         /// </summary>
         public static IServiceCollection AddSmsService(
             this IServiceCollection services)

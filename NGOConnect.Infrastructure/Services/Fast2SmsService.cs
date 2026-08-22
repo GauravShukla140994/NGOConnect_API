@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using NGOConnect.Core.Interfaces;
@@ -7,17 +8,28 @@ namespace NGOConnect.Infrastructure.Services
 {
     /// <summary>
     /// Fast2SMS gateway — implements ISmsService for India SMS delivery.
-    /// Uses the Quick route (no DLT registration required for testing).
     ///
-    /// Docs: https://docs.fast2sms.com
-    /// Route: Quick ("q") — works immediately, no sender ID / template needed.
-    ///        Switch to DLT route before going to production (TRAI mandate).
+    /// Two delivery paths, selected by Sms:Route:
+    ///   "q"   → Quick route (bulkV2, plain text message) — testing only, no DLT needed.
+    ///   "dlt" → Dedicated OTP API (/dev/otp/send) — production, TRAI-compliant.
+    ///           This is Fast2SMS's purpose-built OTP endpoint (separate from the
+    ///           generic DLT bulk/"message=templateId" approach this file used
+    ///           before 2026-08-18) — it handles OTP length/expiry natively and is
+    ///           what Fast2SMS's own docs recommend for an approved OTP template.
+    ///
+    /// Docs: https://docs.fast2sms.com/reference/send-otp
     ///
     /// Config keys (appsettings.json → "Sms" section):
-    ///   Sms:ApiKey       — Fast2SMS API key (never commit; use env var / gitignored file)
-    ///   Sms:Route        — "q" (quick/test) | "dlt" (production)
-    ///   Sms:SenderId     — Required only for DLT route (registered sender ID)
-    ///   Sms:TemplateId   — Required only for DLT route (TRAI-registered template ID)
+    ///   Sms:ApiKey        — Fast2SMS API key (never commit; use env var / gitignored file)
+    ///   Sms:Route         — "q" (quick/test) | "dlt" (production)
+    ///   Sms:SenderId      — Required only for DLT route (registered sender ID / header)
+    ///   Sms:OtpTemplateId — Required only for DLT route — Fast2SMS's OTP Template ID
+    ///                       ("otp_id" in their API, a short hash e.g. "f7c2df256e").
+    ///                       NOT the same as the DLT Manager "Content Template" Message ID
+    ///                       — find this under Fast2SMS → OTP section for your approved
+    ///                       template, not the generic DLT Manager panel.
+    ///   Sms:TemplateId    — Reserved for a future generic/bulk DLT SMS sender (not OTP).
+    ///                       Unused by SendOtpAsync since the dedicated OTP API replaced it.
     ///
     /// Railway env var: Sms__ApiKey
     /// </summary>
@@ -28,30 +40,120 @@ namespace NGOConnect.Infrastructure.Services
         private readonly string     _route;
         private readonly string?    _senderId;
         private readonly string?    _templateId;
+        private readonly string?    _otpTemplateId;
 
-        private const string ApiUrl = "https://www.fast2sms.com/dev/bulkV2";
+        private const string BulkApiUrl = "https://www.fast2sms.com/dev/bulkV2";
+        private const string OtpApiUrl  = "https://www.fast2sms.com/dev/otp/send";
 
         public Fast2SmsService(HttpClient http, IConfiguration config)
         {
-            _http       = http;
-            _apiKey     = config["Sms:ApiKey"]
+            _http          = http;
+            _apiKey        = config["Sms:ApiKey"]
                 ?? throw new InvalidOperationException("Sms:ApiKey not configured.");
-            _route      = (config["Sms:Route"] ?? "q").Trim().ToLowerInvariant();
-            _senderId   = config["Sms:SenderId"];
-            _templateId = config["Sms:TemplateId"];
+            _route         = (config["Sms:Route"] ?? "q").Trim().ToLowerInvariant();
+            _senderId      = config["Sms:SenderId"];
+            _templateId    = config["Sms:TemplateId"];
+            _otpTemplateId = config["Sms:OtpTemplateId"];
         }
 
         public async Task<bool> SendOtpAsync(
             string mobile, string countryCode, string otpCode, int expiryMinutes)
         {
+            // Strip leading zeros, spaces, and country code prefix if included
+            var cleanMobile = CleanMobile(mobile, countryCode);
+
+            // Fast2SMS's OTP API requires exactly a 10-digit Indian number (^[0-9]{10}$).
+            // Catch a malformed number here with a clear log line instead of letting
+            // Fast2SMS reject it with a less obvious error.
+            if (cleanMobile.Length != 10 || !cleanMobile.All(char.IsDigit))
+                Log.Warning("Fast2SmsService.SendOtpAsync: mobile did not clean to a 10-digit " +
+                    "number (Mobile={Mobile} CountryCode={CountryCode}) — Fast2SMS will likely reject this.",
+                    MaskMobile(cleanMobile), countryCode);
+
+            return _route == "dlt"
+                ? await SendOtpViaDedicatedApiAsync(cleanMobile, otpCode, expiryMinutes)
+                : await SendOtpViaQuickRouteAsync(cleanMobile, otpCode, expiryMinutes);
+        }
+
+        // ── DLT route — dedicated OTP API (production) ──────────────
+
+        private async Task<bool> SendOtpViaDedicatedApiAsync(
+            string mobile, string otpCode, int expiryMinutes)
+        {
+            if (string.IsNullOrWhiteSpace(_otpTemplateId))
+                throw new InvalidOperationException(
+                    "Sms:OtpTemplateId is required for the DLT route (Fast2SMS OTP Template ID / otp_id).");
+
             try
             {
-                // Strip leading zeros, spaces, and country code prefix if included
-                var cleanMobile = CleanMobile(mobile, countryCode);
+                var payload = new
+                {
+                    mobile,
+                    otp_id           = _otpTemplateId,
+                    otp_expiry       = expiryMinutes,
+                    otp_length       = otpCode.Length,
+                    otp              = otpCode,       // we generate/verify our own OTP — Fast2SMS just delivers it
+                    variables_values = otpCode,        // single {#var#} in the approved template
+                };
 
-                var formData = BuildFormData(cleanMobile, otpCode, expiryMinutes);
+                using var request = new HttpRequestMessage(HttpMethod.Post, OtpApiUrl)
+                {
+                    Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
+                };
+                request.Headers.TryAddWithoutValidation("authorization", _apiKey);
 
-                using var request = new HttpRequestMessage(HttpMethod.Post, ApiUrl)
+                var response = await _http.SendAsync(request);
+                var body     = await response.Content.ReadAsStringAsync();
+
+                Log.Debug("Fast2SMS OTP API response: Status={Status} Body={Body}",
+                    response.StatusCode, body);
+
+                var result = JsonDocument.Parse(body).RootElement;
+
+                if (result.TryGetProperty("return", out var ret) && ret.GetBoolean())
+                {
+                    Log.Information("SMS OTP sent via Fast2SMS (DLT/OTP API): Mobile={Mobile}",
+                        MaskMobile(mobile));
+                    return true;
+                }
+
+                var errorMsg = result.TryGetProperty("message", out var msg)
+                    ? msg.ToString()
+                    : "Unknown gateway error";
+
+                Log.Warning("Fast2SMS rejected OTP delivery (DLT/OTP API): Mobile={Mobile} Error={Error}",
+                    MaskMobile(mobile), errorMsg);
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Fast2SmsService.SendOtpViaDedicatedApiAsync failed for Mobile={Mobile}",
+                    MaskMobile(mobile));
+                return false;
+            }
+        }
+
+        // ── Quick route — testing / staging (no DLT registration needed) ─────
+
+        private async Task<bool> SendOtpViaQuickRouteAsync(
+            string mobile, string otpCode, int expiryMinutes)
+        {
+            try
+            {
+                // Same wording as the DLT template so the user experience is consistent
+                var message =
+                    $"Your OTP for RippleHub is {otpCode}. Valid for {expiryMinutes} minutes. Do not share. - RPPLHB";
+
+                var formData = new Dictionary<string, string>
+                {
+                    ["route"]    = "q",
+                    ["message"]  = message,
+                    ["language"] = "english",
+                    ["flash"]    = "0",
+                    ["numbers"]  = mobile
+                };
+
+                using var request = new HttpRequestMessage(HttpMethod.Post, BulkApiUrl)
                 {
                     Content = new FormUrlEncodedContent(formData)
                 };
@@ -68,67 +170,28 @@ namespace NGOConnect.Infrastructure.Services
 
                 if (result.TryGetProperty("return", out var ret) && ret.GetBoolean())
                 {
-                    Log.Information("SMS OTP sent via Fast2SMS: Mobile={Mobile} Route={Route}",
-                        MaskMobile(cleanMobile), _route);
+                    Log.Information("SMS OTP sent via Fast2SMS (Quick route): Mobile={Mobile}",
+                        MaskMobile(mobile));
                     return true;
                 }
 
-                // Log the gateway error message for debugging
                 var errorMsg = result.TryGetProperty("message", out var msg)
                     ? msg.ToString()
                     : "Unknown gateway error";
 
-                Log.Warning("Fast2SMS rejected OTP delivery: Mobile={Mobile} Error={Error}",
-                    MaskMobile(cleanMobile), errorMsg);
+                Log.Warning("Fast2SMS rejected OTP delivery (Quick route): Mobile={Mobile} Error={Error}",
+                    MaskMobile(mobile), errorMsg);
                 return false;
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "Fast2SmsService.SendOtpAsync failed for Mobile={Mobile}",
+                Log.Error(ex, "Fast2SmsService.SendOtpViaQuickRouteAsync failed for Mobile={Mobile}",
                     MaskMobile(mobile));
                 return false;
             }
         }
 
         // ── Helpers ───────────────────────────────────────────────
-
-        private Dictionary<string, string> BuildFormData(
-            string mobile, string otpCode, int expiryMinutes)
-        {
-            if (_route == "dlt")
-            {
-                // DLT route — production, requires registered sender + template
-                if (string.IsNullOrWhiteSpace(_senderId) || string.IsNullOrWhiteSpace(_templateId))
-                    throw new InvalidOperationException(
-                        "Sms:SenderId and Sms:TemplateId are required for DLT route.");
-
-                return new Dictionary<string, string>
-                {
-                    ["route"]            = "dlt",
-                    ["sender_id"]        = _senderId!,
-                    ["message"]          = _templateId!,   // template ID for DLT
-                    ["variables_values"] = otpCode,        // replaces {#var#} in template
-                    ["flash"]            = "0",
-                    ["numbers"]          = mobile
-                };
-            }
-            else
-            {
-                // Quick route — testing / staging (no DLT registration needed)
-                // Same wording as the DLT template so the user experience is consistent
-                var message =
-                    $"Your OTP for RippleHub is {otpCode}. Valid for {expiryMinutes} minutes. Do not share. - RPPLHB";
-
-                return new Dictionary<string, string>
-                {
-                    ["route"]    = "q",
-                    ["message"]  = message,
-                    ["language"] = "english",
-                    ["flash"]    = "0",
-                    ["numbers"]  = mobile
-                };
-            }
-        }
 
         private static string CleanMobile(string mobile, string countryCode)
         {
@@ -160,7 +223,7 @@ namespace NGOConnect.Infrastructure.Services
                     ["numbers"]  = cleanMobile
                 };
 
-                using var request = new HttpRequestMessage(HttpMethod.Post, ApiUrl)
+                using var request = new HttpRequestMessage(HttpMethod.Post, BulkApiUrl)
                 {
                     Content = new FormUrlEncodedContent(formData)
                 };

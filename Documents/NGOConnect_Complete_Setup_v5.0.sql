@@ -277,6 +277,8 @@ CREATE TABLE Organisations (
     State           VARCHAR(100)    NULL,
     Pincode         VARCHAR(20)     NULL,
     Country         VARCHAR(100)    NOT NULL DEFAULT 'India',
+    Is80GEligible   TINYINT(1)      NOT NULL DEFAULT 0    COMMENT '80G tax exemption eligibility (base value; overridden by OrgDonationSettings)',
+    Is12AEligible   TINYINT(1)      NOT NULL DEFAULT 0    COMMENT '12A registration eligibility (base value; overridden by OrgDonationSettings)',
     AvgRating       DECIMAL(3,2)    NOT NULL DEFAULT 0.00 COMMENT 'Avg NGO rating (0-5)',
     RatingCount     INT UNSIGNED    NOT NULL DEFAULT 0    COMMENT 'Number of ratings',
     Latitude        DECIMAL(10,7)   NULL COMMENT 'NGO pin latitude for distance calc',
@@ -3147,7 +3149,19 @@ BEGIN
     LEFT JOIN LookupValues ltv ON p.LocationTypeLkpId = ltv.LookupValueId
     LEFT JOIN LookupValues jtv ON p.JoinTypeLkpId     = jtv.LookupValueId
     LEFT JOIN LookupValues sv  ON p.StatusLkpId       = sv.LookupValueId
-    WHERE p.ProjectId = p_ProjectId AND p.IsDeleted = 0;
+    WHERE p.ProjectId = p_ProjectId AND p.IsDeleted = 0
+      AND (
+          p.IsPublic = 1
+          OR p_UserId IS NULL OR p_UserId = 0
+          OR EXISTS (
+              SELECT 1 FROM OrgMembers om
+              JOIN LookupValues sv ON om.StatusLkpId = sv.LookupValueId
+              JOIN LookupTypes  st ON sv.LookupTypeId = st.LookupTypeId
+              WHERE om.OrgId = p.OrgId AND om.UserId = p_UserId
+                AND om.IsDeleted = 0
+                AND st.TypeCode = 'MEMBER_STATUS' AND sv.ValueCode = 'APPROVED'
+          )
+      );
 END //
 
 -- v4.0 MODIFIED: accepts all schedule/location fields
@@ -7554,11 +7568,66 @@ BEGIN
     DECLARE v_PendingLkpId   INT UNSIGNED;
     DECLARE v_ExistingId     INT UNSIGNED DEFAULT NULL;
     DECLARE v_ExistingStatus VARCHAR(50)  DEFAULT NULL;
+    DECLARE v_AgeRestriction TINYINT(1)   DEFAULT 0;
+    DECLARE v_IsPublic       TINYINT(1)   DEFAULT 1;
+    DECLARE v_OrgId          INT UNSIGNED DEFAULT NULL;
+    DECLARE v_UserDob        DATE         DEFAULT NULL;
+    DECLARE v_UserAge        INT          DEFAULT NULL;
+    DECLARE v_MembershipOk   TINYINT(1)   DEFAULT 1;
 
     -- Resolve PENDING lookup id
     SELECT lv.LookupValueId INTO v_PendingLkpId
     FROM   LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
     WHERE  lt.TypeCode = 'APPLICATION_STATUS' AND lv.ValueCode = 'PENDING' LIMIT 1;
+
+    -- Read project attributes in one query
+    SELECT p.AgeRestriction, p.IsPublic, p.OrgId
+    INTO   v_AgeRestriction, v_IsPublic, v_OrgId
+    FROM   Projects p WHERE p.ProjectId = p_ProjectId AND p.IsDeleted = 0 LIMIT 1;
+
+    -- ── IsPublic check — private projects require approved membership ─────────
+    IF v_IsPublic = 0 THEN
+        IF NOT EXISTS (
+            SELECT 1 FROM OrgMembers om
+            JOIN LookupValues sv ON om.StatusLkpId = sv.LookupValueId
+            JOIN LookupTypes  st ON sv.LookupTypeId = st.LookupTypeId
+            WHERE om.OrgId = v_OrgId AND om.UserId = p_UserId
+              AND om.IsDeleted = 0
+              AND st.TypeCode = 'MEMBER_STATUS' AND sv.ValueCode = 'APPROVED'
+        ) THEN
+            SET v_MembershipOk = 0;
+            SELECT 0 AS IsSuccess,
+                   'This project is only available to organisation members.' AS Message,
+                   NULL AS ApplicationId, NULL AS OrgId;
+        END IF;
+    END IF;
+
+    -- ── Age restriction check ────────────────────────────────────────────────
+    IF v_MembershipOk = 1 AND v_AgeRestriction = 1 THEN
+        SELECT up.DateOfBirth INTO v_UserDob
+        FROM   UserProfiles up WHERE up.UserId = p_UserId AND up.IsDeleted = 0 LIMIT 1;
+
+        IF v_UserDob IS NULL THEN
+            SELECT 0 AS IsSuccess,
+                   'This project is for volunteers aged 18 and above. Please update your date of birth in your profile before applying.' AS Message,
+                   NULL AS ApplicationId, NULL AS OrgId;
+        ELSE
+            SET v_UserAge = TIMESTAMPDIFF(YEAR, v_UserDob, CURDATE());
+            IF v_UserAge < 18 THEN
+                SELECT 0 AS IsSuccess,
+                       CONCAT('This project requires volunteers to be at least 18 years old. Your current age (', v_UserAge, ') does not meet the requirement.') AS Message,
+                       NULL AS ApplicationId, NULL AS OrgId;
+            END IF;
+        END IF;
+    END IF;
+
+    -- Only proceed if both checks passed
+    IF v_MembershipOk = 1
+       AND (
+           (v_AgeRestriction = 0)
+           OR (v_AgeRestriction = 1 AND v_UserDob IS NOT NULL AND TIMESTAMPDIFF(YEAR, v_UserDob, CURDATE()) >= 18)
+       )
+    THEN
 
     -- Check for any existing non-deleted application for this user + project
     SELECT pa.ApplicationId, lv.ValueCode
@@ -7590,7 +7659,7 @@ BEGIN
 
         SELECT 1 AS IsSuccess, 'Application re-submitted successfully.' AS Message,
                v_ExistingId AS ApplicationId,
-               (SELECT OrgId FROM Projects WHERE ProjectId = p_ProjectId) AS OrgId;
+               v_OrgId AS OrgId;
 
     ELSE
         -- No existing application — fresh INSERT
@@ -7599,8 +7668,10 @@ BEGIN
 
         SELECT 1 AS IsSuccess, 'Application submitted.' AS Message,
                LAST_INSERT_ID() AS ApplicationId,
-               (SELECT OrgId FROM Projects WHERE ProjectId = p_ProjectId) AS OrgId;
+               v_OrgId AS OrgId;
     END IF;
+
+    END IF; -- end checks gate
 END //
 
 
@@ -9315,6 +9386,7 @@ DELIMITER ;
 -- Final patch: UNION of approved (OrgMembers) + pending (OrgMembershipRequests)
 -- Returns MemberStatusCode and OrgStatusCode correctly for MyOrgsScreen filter
 -- (Source: NGOConnect_Patch_UserGetMyOrgs_Final.sql)
+DELIMITER //
 DROP PROCEDURE IF EXISTS User_GetMyOrgs //
 CREATE PROCEDURE User_GetMyOrgs(IN p_UserId INT UNSIGNED)
 BEGIN
@@ -10008,6 +10080,339 @@ BEGIN
             OR SUM(CASE WHEN sv.ValueCode = 'APPROVED' THEN 1 ELSE 0 END) > 0
     ) t;
 END //
+
+-- ============================================================
+-- Missing SuperAdmin SPs (added v5.0-fix)
+-- ============================================================
+
+DROP PROCEDURE IF EXISTS SuperAdmin_Dashboard_GetKpis //
+CREATE PROCEDURE SuperAdmin_Dashboard_GetKpis()
+BEGIN
+    SELECT
+        (SELECT COUNT(*) FROM Organisations WHERE IsDeleted = 0) AS TotalOrgs,
+        (SELECT COUNT(*) FROM Organisations o
+            JOIN LookupValues sv ON o.StatusLkpId = sv.LookupValueId
+            WHERE o.IsDeleted = 0 AND sv.ValueCode = 'PENDING') AS PendingOrgs,
+        (SELECT COUNT(*) FROM Organisations o
+            JOIN LookupValues sv ON o.StatusLkpId = sv.LookupValueId
+            WHERE o.IsDeleted = 0 AND sv.ValueCode = 'APPROVED') AS ApprovedOrgs,
+        (SELECT COUNT(*) FROM Users WHERE IsDeleted = 0) AS TotalUsers,
+        (SELECT COUNT(*) FROM Users WHERE IsDeleted = 0 AND IsActive = 1) AS ActiveUsers,
+        (SELECT COUNT(*) FROM Users WHERE IsDeleted = 0 AND IsActive = 0) AS SuspendedUsers,
+        (SELECT COUNT(*) FROM Users u
+            JOIN LookupValues pv ON u.ProfileVerificationLkpId = pv.LookupValueId
+            WHERE u.IsDeleted = 0 AND pv.ValueCode = 'PENDING') AS PendingProfileVerifications,
+        (SELECT COUNT(*) FROM DonationTransactions WHERE IsDeleted = 0) AS TotalDonations,
+        (SELECT COALESCE(SUM(Amount), 0) FROM DonationTransactions
+            WHERE IsDeleted = 0 AND StatusCode = 'COMPLETED') AS TotalDonationAmount,
+        (SELECT COUNT(*) FROM Projects WHERE IsDeleted = 0) AS TotalProjects,
+        (SELECT COUNT(*) FROM UserDocuments WHERE IsDeleted = 0 AND IsVerified = 0) AS PendingDocuments;
+END //
+
+DROP PROCEDURE IF EXISTS SuperAdmin_Org_GetRecent //
+CREATE PROCEDURE SuperAdmin_Org_GetRecent(IN p_Limit INT)
+BEGIN
+    SELECT
+        o.OrgId, o.OrgName, o.LogoUrl, o.City, o.State,
+        tv.ValueName AS OrgType,
+        sv.ValueCode AS StatusCode, sv.ValueName AS StatusName,
+        o.CreatedAt AS SubmittedAt
+    FROM Organisations o
+    LEFT JOIN LookupValues tv ON o.OrgTypeLkpId = tv.LookupValueId
+    LEFT JOIN LookupValues sv ON o.StatusLkpId   = sv.LookupValueId
+    WHERE o.IsDeleted = 0
+    ORDER BY o.CreatedAt DESC
+    LIMIT p_Limit;
+END //
+
+DROP PROCEDURE IF EXISTS SuperAdmin_Org_VerifyProfile //
+CREATE PROCEDURE SuperAdmin_Org_VerifyProfile(
+    IN p_OrgId        INT UNSIGNED,
+    IN p_StatusCode   VARCHAR(50),
+    IN p_SuperAdminId INT UNSIGNED
+)
+BEGIN
+    DECLARE v_OrgExists   TINYINT DEFAULT 0;
+    DECLARE v_StatusId    INT UNSIGNED;
+    DECLARE v_FounderUId  INT UNSIGNED;
+
+    SELECT COUNT(*) INTO v_OrgExists FROM Organisations
+    WHERE OrgId = p_OrgId AND IsDeleted = 0;
+
+    IF v_OrgExists = 0 THEN
+        SELECT 0 AS IsSuccess, 'Organisation not found.' AS Message;
+    ELSE
+        SELECT lv.LookupValueId INTO v_StatusId
+        FROM LookupValues lv
+        JOIN LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
+        WHERE lt.TypeCode = 'ORG_VERIFICATION_STATUS' AND lv.ValueCode = p_StatusCode
+        LIMIT 1;
+
+        IF v_StatusId IS NULL THEN
+            SELECT 0 AS IsSuccess, CONCAT('Unknown verification status: ', p_StatusCode) AS Message;
+        ELSE
+            UPDATE Organisations
+            SET VerificationStatusLkpId = v_StatusId, UpdatedAt = NOW(), UpdatedBy = p_SuperAdminId
+            WHERE OrgId = p_OrgId;
+
+            -- Notify founder
+            SELECT om.UserId INTO v_FounderUId
+            FROM OrgMembers om
+            JOIN LookupValues rv ON om.RoleLkpId = rv.LookupValueId
+            JOIN LookupTypes  rt ON rv.LookupTypeId = rt.LookupTypeId
+            WHERE om.OrgId = p_OrgId AND om.IsDeleted = 0
+              AND rt.TypeCode = 'MEMBER_ROLE' AND rv.ValueCode = 'FOUNDER'
+            LIMIT 1;
+
+            IF v_FounderUId IS NOT NULL THEN
+                INSERT INTO Notifications (UserId, NotifType, Title, Body, RefId, RefType)
+                VALUES (v_FounderUId,
+                    IF(p_StatusCode = 'VERIFIED', 'ORG_PROFILE_VERIFIED', 'ORG_PROFILE_REJECTED'),
+                    IF(p_StatusCode = 'VERIFIED', 'Organisation documents verified',
+                        'Organisation documents need attention'),
+                    IF(p_StatusCode = 'VERIFIED',
+                        'Your organisation''s documents have been verified by the Super Admin.',
+                        'Please review and resubmit your organisation documents.'),
+                    p_OrgId, 'ORGANISATION');
+            END IF;
+
+            SELECT 1 AS IsSuccess, 'Organisation verification status updated.' AS Message;
+        END IF;
+    END IF;
+END //
+
+DROP PROCEDURE IF EXISTS SuperAdmin_UserDocument_Verify //
+CREATE PROCEDURE SuperAdmin_UserDocument_Verify(
+    IN p_UserDocumentId   INT UNSIGNED,
+    IN p_SuperAdminUserId INT UNSIGNED,
+    IN p_IsVerified       TINYINT(1)
+)
+BEGIN
+    DECLARE v_UserId     INT UNSIGNED;
+    DECLARE v_DocExists  TINYINT DEFAULT 0;
+
+    SELECT UserId INTO v_UserId FROM UserDocuments
+    WHERE UserDocumentId = p_UserDocumentId AND IsDeleted = 0;
+
+    IF v_UserId IS NULL THEN
+        SELECT 0 AS IsSuccess, 'Document not found.' AS Message;
+    ELSE
+        UPDATE UserDocuments
+        SET IsVerified = p_IsVerified,
+            VerifiedAt = IF(p_IsVerified = 1, NOW(), NULL),
+            VerifiedBy = IF(p_IsVerified = 1, p_SuperAdminUserId, NULL)
+        WHERE UserDocumentId = p_UserDocumentId;
+
+        INSERT INTO Notifications (UserId, NotifType, Title, Body, RefId, RefType)
+        VALUES (v_UserId,
+            IF(p_IsVerified = 1, 'DOCUMENT_VERIFIED', 'DOCUMENT_REJECTED'),
+            IF(p_IsVerified = 1, 'Document verified', 'Document rejected'),
+            IF(p_IsVerified = 1, 'Your identity document has been verified.',
+                'Your identity document was not accepted. Please resubmit.'),
+            p_UserDocumentId, 'USER_DOCUMENT');
+
+        SELECT 1 AS IsSuccess,
+               IF(p_IsVerified = 1, 'Document verified.', 'Document rejected.') AS Message;
+    END IF;
+END //
+
+DROP PROCEDURE IF EXISTS SuperAdmin_User_GetDocuments //
+CREATE PROCEDURE SuperAdmin_User_GetDocuments(IN p_UserId INT UNSIGNED)
+BEGIN
+    SELECT
+        ud.UserDocumentId, ud.UserId,
+        ud.DocumentTypeLkpId, dt.ValueName AS DocumentType,
+        ud.FileUrl, ud.FileName, ud.FileSizeKb,
+        ud.IsVerified, ud.VerifiedAt, ud.VerifiedBy,
+        ud.IsDeleted, ud.CreatedAt
+    FROM UserDocuments ud
+    LEFT JOIN LookupValues dt ON ud.DocumentTypeLkpId = dt.LookupValueId
+    WHERE ud.UserId = p_UserId AND ud.IsDeleted = 0
+    ORDER BY ud.CreatedAt DESC;
+END //
+
+DROP PROCEDURE IF EXISTS SuperAdmin_User_GetFullProfile //
+CREATE PROCEDURE SuperAdmin_User_GetFullProfile(IN p_UserId INT UNSIGNED)
+BEGIN
+    -- Result Set 0: core profile
+    SELECT
+        u.UserId, u.Email, u.Mobile, u.IsActive, u.IsVerified,
+        COALESCE(pv.ValueCode, 'PENDING') AS ProfileVerificationStatus,
+        COALESCE(pv.ValueName, 'Not Reviewed') AS ProfileVerificationStatusName,
+        u.LastLoginAt, u.CreatedAt AS RegisteredAt,
+        up.FirstName, up.LastName,
+        CONCAT(up.FirstName, ' ', up.LastName) AS FullName,
+        up.DateOfBirth, up.Bio, up.ProfilePhoto,
+        up.Occupation, up.Organisation AS OrganisationName,
+        up.City, up.State, up.Country,
+        up.ImpactScore, up.ReliabilityPct,
+        gv.ValueName AS Gender,
+        ev.ValueName AS Education,
+        wv.ValueName AS WorkExperience
+    FROM Users u
+    JOIN  UserProfiles up ON up.UserId = u.UserId AND up.IsDeleted = 0
+    LEFT JOIN LookupValues pv ON u.ProfileVerificationLkpId = pv.LookupValueId
+    LEFT JOIN LookupValues gv ON up.GenderLkpId   = gv.LookupValueId
+    LEFT JOIN LookupValues ev ON up.EducationLkpId = ev.LookupValueId
+    LEFT JOIN LookupValues wv ON up.WorkExpLkpId   = wv.LookupValueId
+    WHERE u.UserId = p_UserId AND u.IsDeleted = 0;
+
+    -- Result Set 1: skills
+    SELECT s.ValueName AS SkillName, s.ValueCode AS SkillCode
+    FROM UserSkills us
+    JOIN LookupValues s ON us.SkillLkpId = s.LookupValueId
+    WHERE us.UserId = p_UserId AND us.IsDeleted = 0;
+
+    -- Result Set 2: interests
+    SELECT iv.ValueName, iv.ValueCode
+    FROM UserInterests ui
+    JOIN LookupValues iv ON ui.InterestLkpId = iv.LookupValueId
+    WHERE ui.UserId = p_UserId AND ui.IsDeleted = 0;
+
+    -- Result Set 3: badges
+    SELECT ub.BadgeType, ub.BadgeName, ub.AwardedAt, ub.AwardedBy,
+           ub.OrgId, o.OrgName
+    FROM UserBadges ub
+    LEFT JOIN Organisations o ON ub.OrgId = o.OrgId AND o.IsDeleted = 0
+    WHERE ub.UserId = p_UserId AND ub.IsDeleted = 0
+    ORDER BY ub.AwardedAt DESC;
+
+    -- Result Set 4: other orgs (membership history)
+    SELECT o.OrgId, o.OrgName, o.LogoUrl,
+           rv.ValueName AS Role, sv.ValueName AS MembershipStatus,
+           om.JoinedAt
+    FROM OrgMembers om
+    JOIN Organisations  o  ON om.OrgId  = o.OrgId  AND o.IsDeleted  = 0
+    JOIN LookupValues   rv ON om.RoleLkpId   = rv.LookupValueId
+    JOIN LookupValues   sv ON om.StatusLkpId = sv.LookupValueId
+    WHERE om.UserId = p_UserId AND om.IsDeleted = 0
+    ORDER BY om.JoinedAt DESC;
+END //
+
+DROP PROCEDURE IF EXISTS SuperAdmin_User_Reactivate //
+CREATE PROCEDURE SuperAdmin_User_Reactivate(
+    IN p_UserId         INT UNSIGNED,
+    IN p_SuperAdminUserId INT UNSIGNED
+)
+BEGIN
+    DECLARE v_Exists TINYINT DEFAULT 0;
+
+    SELECT COUNT(*) INTO v_Exists FROM Users
+    WHERE UserId = p_UserId AND IsDeleted = 0;
+
+    IF v_Exists = 0 THEN
+        SELECT 0 AS IsSuccess, 'User not found.' AS Message;
+    ELSE
+        UPDATE Users SET IsActive = 1, UpdatedAt = NOW()
+        WHERE UserId = p_UserId;
+
+        INSERT INTO Notifications (UserId, NotifType, Title, Body, RefId, RefType)
+        VALUES (p_UserId, 'ACCOUNT_REACTIVATED', 'Account reactivated',
+                'Your NGO Connect account has been reactivated. Welcome back!',
+                p_UserId, 'USER');
+
+        SELECT 1 AS IsSuccess, 'User account reactivated.' AS Message;
+    END IF;
+END //
+
+DROP PROCEDURE IF EXISTS SuperAdmin_User_RequestUpdate //
+CREATE PROCEDURE SuperAdmin_User_RequestUpdate(
+    IN p_UserId           INT UNSIGNED,
+    IN p_SuperAdminUserId INT UNSIGNED,
+    IN p_Reason           TEXT
+)
+BEGIN
+    DECLARE v_Exists TINYINT DEFAULT 0;
+
+    SELECT COUNT(*) INTO v_Exists FROM Users
+    WHERE UserId = p_UserId AND IsDeleted = 0;
+
+    IF v_Exists = 0 THEN
+        SELECT 0 AS IsSuccess, 'User not found.' AS Message;
+    ELSEIF p_Reason IS NULL OR TRIM(p_Reason) = '' THEN
+        SELECT 0 AS IsSuccess, 'A reason is required.' AS Message;
+    ELSE
+        -- Set profile back to PENDING so user re-submits
+        UPDATE Users
+        SET ProfileVerificationLkpId = (
+            SELECT lv.LookupValueId FROM LookupValues lv
+            JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+            WHERE lt.TypeCode = 'PROFILE_VERIFICATION_STATUS' AND lv.ValueCode = 'PENDING'
+            LIMIT 1
+        ),
+        UpdatedAt = NOW()
+        WHERE UserId = p_UserId;
+
+        INSERT INTO Notifications (UserId, NotifType, Title, Body, RefId, RefType)
+        VALUES (p_UserId, 'PROFILE_UPDATE_REQUESTED', 'Profile update required',
+                p_Reason, p_UserId, 'USER');
+
+        SELECT 1 AS IsSuccess, 'Profile update requested.' AS Message;
+    END IF;
+END //
+
+DROP PROCEDURE IF EXISTS SuperAdmin_User_Suspend //
+CREATE PROCEDURE SuperAdmin_User_Suspend(
+    IN p_UserId           INT UNSIGNED,
+    IN p_SuperAdminUserId INT UNSIGNED,
+    IN p_Reason           TEXT
+)
+BEGIN
+    DECLARE v_Exists TINYINT DEFAULT 0;
+
+    SELECT COUNT(*) INTO v_Exists FROM Users
+    WHERE UserId = p_UserId AND IsDeleted = 0;
+
+    IF v_Exists = 0 THEN
+        SELECT 0 AS IsSuccess, 'User not found.' AS Message;
+    ELSEIF p_Reason IS NULL OR TRIM(p_Reason) = '' THEN
+        SELECT 0 AS IsSuccess, 'A suspension reason is required.' AS Message;
+    ELSE
+        UPDATE Users SET IsActive = 0, UpdatedAt = NOW()
+        WHERE UserId = p_UserId;
+
+        INSERT INTO Notifications (UserId, NotifType, Title, Body, RefId, RefType)
+        VALUES (p_UserId, 'ACCOUNT_SUSPENDED', 'Account suspended',
+                p_Reason, p_UserId, 'USER');
+
+        SELECT 1 AS IsSuccess, 'User account suspended.' AS Message;
+    END IF;
+END //
+
+DROP PROCEDURE IF EXISTS SuperAdmin_User_VerifyProfile //
+CREATE PROCEDURE SuperAdmin_User_VerifyProfile(
+    IN p_UserId           INT UNSIGNED,
+    IN p_SuperAdminUserId INT UNSIGNED
+)
+BEGIN
+    DECLARE v_Exists   TINYINT DEFAULT 0;
+    DECLARE v_VerifiedId INT UNSIGNED;
+
+    SELECT COUNT(*) INTO v_Exists FROM Users
+    WHERE UserId = p_UserId AND IsDeleted = 0;
+
+    IF v_Exists = 0 THEN
+        SELECT 0 AS IsSuccess, 'User not found.' AS Message;
+    ELSE
+        SELECT lv.LookupValueId INTO v_VerifiedId
+        FROM LookupValues lv
+        JOIN LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
+        WHERE lt.TypeCode = 'PROFILE_VERIFICATION_STATUS' AND lv.ValueCode = 'VERIFIED'
+        LIMIT 1;
+
+        UPDATE Users
+        SET ProfileVerificationLkpId = v_VerifiedId, UpdatedAt = NOW()
+        WHERE UserId = p_UserId;
+
+        INSERT INTO Notifications (UserId, NotifType, Title, Body, RefId, RefType)
+        VALUES (p_UserId, 'PROFILE_VERIFIED', 'Profile verified',
+                'Your profile has been reviewed and verified by the NGO Connect team.',
+                p_UserId, 'USER');
+
+        SELECT 1 AS IsSuccess, 'User profile verified.' AS Message;
+    END IF;
+END //
+
 
 DELIMITER ;
 
@@ -12868,7 +13273,7 @@ END //
 DELIMITER ;
 
 -- SchemaVersions record
-INSERT INTO SchemaVersions (Version, Description, CreatedBy)
+INSERT INTO SchemaVersions (Version, Description, AppliedBy)
 VALUES ('v5.1', 'v5.1: NGO Reviews module — 3 new LookupTypes (REVIEWER_TYPE, REVIEW_MEDIA_TYPE, REVIEW_SORT), 14 new LookupValues, 4 new tables (OrgReviews, OrgReviewMedia, OrgReviewResponses, OrgReviewHelpful), 7 new SPs. AvgRating/RatingCount on Organisations now wired to review aggregates.', 'System');
 
 -- ============================================================
@@ -12881,51 +13286,51 @@ VALUES ('v5.1', 'v5.1: NGO Reviews module — 3 new LookupTypes (REVIEWER_TYPE, 
 
 -- ── Lookup Seeds ─────────────────────────────────────────────
 
-INSERT IGNORE INTO LookupTypes (TypeCode, TypeName, Description, IsActive, IsSystemType)
+INSERT IGNORE INTO LookupTypes (TypeCode, TypeName, Description, IsSystemType)
 VALUES ('SESSION_OPT_OUT_TYPE', 'Session Opt-Out Type',
-        'Reason a volunteer was removed from a specific session', 1, 1);
+        'Reason a volunteer was removed from a specific session', 1);
 
-INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsActive, IsSystemValue)
-SELECT lt.LookupTypeId, 'CLOSING', 'Closing', 6, 1, 1
+INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue)
+SELECT lt.LookupTypeId, 'CLOSING', 'Closing', 6, 1
 FROM LookupTypes lt WHERE lt.TypeCode = 'PROJECT_STATUS';
 
-INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsActive, IsSystemValue)
-SELECT lt.LookupTypeId, 'CHECKED_IN', 'Checked In', 4, 1, 1
+INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue)
+SELECT lt.LookupTypeId, 'CHECKED_IN', 'Checked In', 4, 1
 FROM LookupTypes lt WHERE lt.TypeCode = 'ATTENDANCE_STATUS';
 
-INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsActive, IsSystemValue)
-SELECT lt.LookupTypeId, 'CHECKOUT_MISSED', 'Checkout Missed', 5, 1, 1
+INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue)
+SELECT lt.LookupTypeId, 'CHECKOUT_MISSED', 'Checkout Missed', 5, 1
 FROM LookupTypes lt WHERE lt.TypeCode = 'ATTENDANCE_STATUS';
 
-INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsActive, IsSystemValue)
-SELECT lt.LookupTypeId, 'SELF', 'Self Opt-Out', 1, 1, 1
+INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue)
+SELECT lt.LookupTypeId, 'SELF', 'Self Opt-Out', 1, 1
 FROM LookupTypes lt WHERE lt.TypeCode = 'SESSION_OPT_OUT_TYPE';
 
-INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsActive, IsSystemValue)
-SELECT lt.LookupTypeId, 'ADMIN_EXCUSED', 'Admin Excused', 2, 1, 1
+INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue)
+SELECT lt.LookupTypeId, 'ADMIN_EXCUSED', 'Admin Excused', 2, 1
 FROM LookupTypes lt WHERE lt.TypeCode = 'SESSION_OPT_OUT_TYPE';
 
-INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsActive, IsSystemValue)
-SELECT lt.LookupTypeId, 'ADMIN_REMOVED', 'Admin Removed', 3, 1, 1
+INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue)
+SELECT lt.LookupTypeId, 'ADMIN_REMOVED', 'Admin Removed', 3, 1
 FROM LookupTypes lt WHERE lt.TypeCode = 'SESSION_OPT_OUT_TYPE';
 
-INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsActive, IsSystemValue)
-SELECT lt.LookupTypeId, 'PROJECT_COMPLETE', 'Project Completed', 8, 1, 1
+INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue)
+SELECT lt.LookupTypeId, 'PROJECT_COMPLETE', 'Project Completed', 8, 1
 FROM LookupTypes lt WHERE lt.TypeCode = 'BADGE_TYPE';
 
 -- ATTENDANCE_STATUS: volunteer withdrew from a specific session (opt-out). No penalty.
-INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsActive, IsSystemValue)
-SELECT lt.LookupTypeId, 'WITHDRAWN', 'Withdrawn', 6, 1, 1
+INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue)
+SELECT lt.LookupTypeId, 'WITHDRAWN', 'Withdrawn', 6, 1
 FROM LookupTypes lt WHERE lt.TypeCode = 'ATTENDANCE_STATUS';
 
 -- NOTIFICATION_TYPE: sent to checked-in FLEXIBLE volunteers 15 min before session end
-INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsActive, IsSystemValue)
-SELECT lt.LookupTypeId, 'CHECKOUT_REMINDER', 'Checkout Reminder', 85, 1, 1
+INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue)
+SELECT lt.LookupTypeId, 'CHECKOUT_REMINDER', 'Checkout Reminder', 85, 1
 FROM LookupTypes lt WHERE lt.TypeCode = 'NOTIFICATION_TYPE';
 
 -- NOTIFICATION_TYPE: sent to all approved participants when admin cancels a session
-INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsActive, IsSystemValue)
-SELECT lt.LookupTypeId, 'SESSION_CANCELLED', 'Session Cancelled', 86, 1, 1
+INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue)
+SELECT lt.LookupTypeId, 'SESSION_CANCELLED', 'Session Cancelled', 86, 1
 FROM LookupTypes lt WHERE lt.TypeCode = 'NOTIFICATION_TYPE';
 
 -- ── Settings Seeds ────────────────────────────────────────────
@@ -13692,7 +14097,7 @@ END //
 
 DELIMITER ;
 
-INSERT IGNORE INTO SchemaVersions (Version, Description, CreatedBy)
+INSERT IGNORE INTO SchemaVersions (Version, Description, AppliedBy)
 VALUES ('v5.1-rf', 'v5.1 RECURRING+FLEXIBLE: 3 new Projects columns, 2 new tables, 7 new lookups, 15 settings, 2 updated SPs (Project_GetById, Certificate_Issue), 15 new SPs, 4 Hangfire jobs.', 'System');
 
 -- ============================================================
@@ -13704,8 +14109,8 @@ VALUES ('v5.1-rf', 'v5.1 RECURRING+FLEXIBLE: 3 new Projects columns, 2 new table
 -- ============================================================
 
 -- Missing NOTIFICATION_TYPE LookupValues (PROJECT_CLOSING, MILESTONE_25/50/75)
-INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsActive, IsSystemValue)
-SELECT lt.LookupTypeId, vals.code, vals.name, vals.ord, 1, 1
+INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue)
+SELECT lt.LookupTypeId, vals.code, vals.name, vals.ord, 1
 FROM LookupTypes lt
 JOIN (
     SELECT 'NOTIFICATION_TYPE' AS tc, 'PROJECT_CLOSING' AS code, 'Project Closing'          AS name, 81 AS ord UNION ALL
@@ -14006,7 +14411,7 @@ END //
 
 DELIMITER ;
 
-INSERT IGNORE INTO SchemaVersions (Version, Description, CreatedBy)
+INSERT IGNORE INTO SchemaVersions (Version, Description, AppliedBy)
 VALUES ('v5.1-rf-p2', 'v5.1 patch2: Added NOTIFICATION_TYPE lookups (PROJECT_CLOSING/MILESTONE_25/50/75); Updated UserBadge_Award (p_SessionId), Project_GetSkillRatings (p_SessionId + session ratings), Project_ManualAttendance (CLOSING status); New Project_ReopenFromCancelled SP; Updated Application_GetByUser (progress fields: MyAttendedSessions, MyEligibleSessions, MyHoursLogged, MyRequiredHours, ActiveCheckInId, ActiveCheckInTime, MyCertCode).', 'System');
 
 -- ============================================================
@@ -14020,6 +14425,7 @@ VALUES ('v5.1-rf-p2', 'v5.1 patch2: Added NOTIFICATION_TYPE lookups (PROJECT_CLO
 -- Project_Create + Project_Update enforce the flags SP-side.
 -- ============================================================
 
+DELIMITER //
 DROP PROCEDURE IF EXISTS SuperAdmin_UpdateOrgProjectPermissions //
 CREATE PROCEDURE SuperAdmin_UpdateOrgProjectPermissions(
     IN p_OrgId              INT UNSIGNED,
@@ -14052,7 +14458,9 @@ BEGIN
     END IF;
 END //
 
-INSERT IGNORE INTO SchemaVersions (Version, Description, CreatedBy)
+DELIMITER ;
+
+INSERT IGNORE INTO SchemaVersions (Version, Description, AppliedBy)
 VALUES ('v5.1-org-perms', 'Org project permissions: CanCreateRecurring + CanCreateFlexible columns on Organisations; permission checks in Project_Create + Project_Update SPs; Org_GetProfile returns flags; SuperAdmin_UpdateOrgProjectPermissions SP added.', 'System');
 
 -- ============================================================
@@ -14069,6 +14477,7 @@ VALUES ('v5.1-org-perms', 'Org project permissions: CanCreateRecurring + CanCrea
 -- donation totals are wired up for public display.
 -- ============================================================
 
+DELIMITER //
 DROP PROCEDURE IF EXISTS Public_GetGlobalStats //
 CREATE PROCEDURE Public_GetGlobalStats()
 BEGIN
@@ -14085,6 +14494,8 @@ BEGIN
             WHERE u.IsDeleted = 0 AND u.IsActive = 1 AND sv.ValueCode = 'APPROVED') AS TotalVolunteers;
 END //
 
+DELIMITER ;
+
 -- Display floors — GREATEST(actual DB count, floor) is applied in PublicStatsDal,
 -- not in the SP itself, so Super Admin can retune these via the Settings table
 -- with zero redeploy (Core Mandate: Change-Adoptable). IsPublic = 0 — these are
@@ -14097,7 +14508,7 @@ INSERT IGNORE INTO Settings (SettingGroup, SettingKey, SettingValue, DataType, D
 ('PLATFORM', 'GLOBAL_STATS_RAISED_DISPLAY', '1000000',  'NUMBER', 'Website Global exploration section — static "Raised" display value. Not DB-driven (2026-08-17 product decision).', 0),
 ('PLATFORM', 'GLOBAL_STATS_CACHE_MINUTES',  '10',       'NUMBER', 'How long /api/v1/public/global-stats caches its DB query result in memory before re-querying.', 0);
 
-INSERT IGNORE INTO SchemaVersions (Version, Description, CreatedBy)
+INSERT IGNORE INTO SchemaVersions (Version, Description, AppliedBy)
 VALUES ('v5.2-public-global-stats', 'Public_GetGlobalStats SP + GLOBAL_STATS_* Settings for the website Global exploration section.', 'System');
 
 -- ============================================================
@@ -14106,6 +14517,7 @@ VALUES ('v5.2-public-global-stats', 'Public_GetGlobalStats SP + GLOBAL_STATS_* S
 -- Effect: Application → WITHDRAWN, CurrentVolunteers decremented (slot freed).
 -- ============================================================
 
+DELIMITER //
 DROP PROCEDURE IF EXISTS Project_AdminRemoveVolunteer //
 CREATE PROCEDURE Project_AdminRemoveVolunteer(
     IN p_ProjectId   INT UNSIGNED,
@@ -14180,5 +14592,240 @@ BEGIN
     END IF;
 END //
 
-INSERT IGNORE INTO SchemaVersions (Version, Description, CreatedBy)
+DELIMITER ;
+
+INSERT IGNORE INTO SchemaVersions (Version, Description, AppliedBy)
 VALUES ('v5.1-admin-remove-vol', 'Admin remove volunteer: Project_AdminRemoveVolunteer SP — sets application WITHDRAWN, frees slot (CurrentVolunteers--). Works for all schedule types.', 'System');
+
+-- ============================================================
+-- Missing SPs detected by DAL audit (added v5.0-fix2)
+-- ============================================================
+
+DELIMITER //
+
+DROP PROCEDURE IF EXISTS Donation_GetCampaignById //
+CREATE PROCEDURE Donation_GetCampaignById(IN p_CampaignId INT UNSIGNED)
+BEGIN
+    SELECT
+        dc.CampaignId, dc.OrgId, o.OrgName, o.LogoUrl,
+        dc.CampaignName, dc.Description,
+        dc.TargetAmount, dc.RaisedAmount, dc.DonorCount,
+        dc.StartDate, dc.EndDate, dc.BannerUrl,
+        tv.ValueCode AS CampaignTypeCode, tv.ValueName AS CampaignType,
+        sv.ValueCode AS StatusCode, sv.ValueName AS Status,
+        vv.ValueCode AS VisibilityCode,
+        o.Is80GEligible, o.Is12AEligible,
+        dc.CreatedAt
+    FROM DonationCampaigns dc
+    JOIN  Organisations  o  ON dc.OrgId              = o.OrgId
+    LEFT JOIN LookupValues tv ON dc.CampaignTypeLkpId = tv.LookupValueId
+    LEFT JOIN LookupValues sv ON dc.StatusLkpId        = sv.LookupValueId
+    LEFT JOIN LookupValues vv ON dc.VisibilityLkpId    = vv.LookupValueId
+    WHERE dc.CampaignId = p_CampaignId AND dc.IsDeleted = 0;
+END //
+
+DROP PROCEDURE IF EXISTS Donation_GetReceipt //
+CREATE PROCEDURE Donation_GetReceipt(
+    IN p_DonationId INT UNSIGNED,
+    IN p_UserId     INT UNSIGNED
+)
+BEGIN
+    SELECT
+        dt.TransactionId, dt.DonationId, dt.DonationAmount,
+        dt.OrgId, o.OrgName, o.Is80GEligible, o.Is12AEligible,
+        dc.CampaignId, dc.CampaignName,
+        COALESCE(dt.DonorName,
+            CONCAT(up.FirstName, ' ', up.LastName)) AS DonorName,
+        COALESCE(dt.DonorEmail, u.Email)     AS DonorEmail,
+        COALESCE(dt.DonorMobile, u.Mobile)   AS DonorMobile,
+        pmt.ValueName AS PaymentMethod,
+        dr.ReceiptNumber, dr.ReceiptUrl, dr.FiscalYear, dr.IssuedAt,
+        dt.CreatedAt AS DonatedAt
+    FROM DonationTransactions dt
+    JOIN  Organisations     o   ON dt.OrgId         = o.OrgId
+    LEFT JOIN DonationCampaigns dc  ON dt.CampaignId    = dc.CampaignId
+    LEFT JOIN Users             u   ON dt.DonorUserId   = u.UserId
+    LEFT JOIN UserProfiles      up  ON dt.DonorUserId   = up.UserId AND up.IsDeleted = 0
+    LEFT JOIN LookupValues      pmt ON dt.PayMethodLkpId = pmt.LookupValueId
+    LEFT JOIN DonationReceipts  dr  ON dt.TransactionId  = dr.TransactionId
+    WHERE dt.TransactionId = p_DonationId
+      AND dt.IsDeleted = 0
+      AND (p_UserId IS NULL OR p_UserId = 0 OR dt.DonorUserId = p_UserId);
+END //
+
+DROP PROCEDURE IF EXISTS Donation_SetupRecurring //
+CREATE PROCEDURE Donation_SetupRecurring(
+    IN p_UserId         INT UNSIGNED,
+    IN p_OrgId          INT UNSIGNED,
+    IN p_CampaignId     INT UNSIGNED,
+    IN p_Amount         DECIMAL(12,2),
+    IN p_FrequencyLkpId INT UNSIGNED,
+    IN p_StartDate      DATE
+)
+BEGIN
+    DECLARE v_ActiveStatusId INT UNSIGNED;
+    DECLARE v_NewId          INT UNSIGNED;
+
+    -- Guard: org must exist
+    IF NOT EXISTS (SELECT 1 FROM Organisations WHERE OrgId = p_OrgId AND IsDeleted = 0) THEN
+        SELECT 0 AS IsSuccess, 'Organisation not found.' AS Message, NULL AS RecurringDonId;
+    ELSEIF p_Amount <= 0 THEN
+        SELECT 0 AS IsSuccess, 'Amount must be greater than zero.' AS Message, NULL AS RecurringDonId;
+    ELSE
+        SELECT lv.LookupValueId INTO v_ActiveStatusId
+        FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+        WHERE lt.TypeCode = 'RECURRING_STATUS' AND lv.ValueCode = 'ACTIVE' LIMIT 1;
+
+        INSERT INTO RecurringDonations
+            (DonorUserId, OrgId, CampaignId, Amount, FrequencyLkpId, StatusLkpId, StartDate, NextChargeDate)
+        VALUES
+            (p_UserId, p_OrgId, p_CampaignId, p_Amount, p_FrequencyLkpId, v_ActiveStatusId, p_StartDate, p_StartDate);
+
+        SET v_NewId = LAST_INSERT_ID();
+        SELECT 1 AS IsSuccess, 'Recurring donation set up.' AS Message, v_NewId AS RecurringDonId;
+    END IF;
+END //
+
+DROP PROCEDURE IF EXISTS Donation_CancelRecurring //
+CREATE PROCEDURE Donation_CancelRecurring(
+    IN p_RecurringDonId INT UNSIGNED,
+    IN p_UserId         INT UNSIGNED
+)
+BEGIN
+    DECLARE v_Exists      TINYINT DEFAULT 0;
+    DECLARE v_CancelledId INT UNSIGNED;
+
+    SELECT COUNT(*) INTO v_Exists FROM RecurringDonations
+    WHERE RecurringDonId = p_RecurringDonId AND DonorUserId = p_UserId AND IsDeleted = 0;
+
+    IF v_Exists = 0 THEN
+        SELECT 0 AS IsSuccess, 'Recurring donation not found.' AS Message;
+    ELSE
+        SELECT lv.LookupValueId INTO v_CancelledId
+        FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+        WHERE lt.TypeCode = 'RECURRING_STATUS' AND lv.ValueCode = 'CANCELLED' LIMIT 1;
+
+        UPDATE RecurringDonations
+        SET StatusLkpId = v_CancelledId, CancelledAt = NOW(), UpdatedAt = NOW()
+        WHERE RecurringDonId = p_RecurringDonId AND DonorUserId = p_UserId;
+
+        SELECT 1 AS IsSuccess, 'Recurring donation cancelled.' AS Message;
+    END IF;
+END //
+
+DROP PROCEDURE IF EXISTS User_SendContactOtp //
+CREATE PROCEDURE User_SendContactOtp(
+    IN p_UserId    INT UNSIGNED,
+    IN p_Type      VARCHAR(20),
+    IN p_Value     VARCHAR(150),
+    IN p_OtpCode   VARCHAR(10),
+    IN p_IpAddress VARCHAR(45)
+)
+BEGIN
+    DECLARE v_PurposeLkpId INT UNSIGNED;
+    DECLARE v_RecentCount  INT DEFAULT 0;
+    DECLARE v_ExpiryMins   INT DEFAULT 10;
+
+    -- Map type to OTP purpose
+    SELECT lv.LookupValueId INTO v_PurposeLkpId
+    FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE lt.TypeCode = 'OTP_PURPOSE'
+      AND lv.ValueCode = IF(UPPER(p_Type) = 'EMAIL', 'CHANGE_EMAIL', 'CHANGE_MOBILE')
+    LIMIT 1;
+
+    IF v_PurposeLkpId IS NULL THEN
+        SELECT 0 AS IsSuccess, 'Invalid contact type.' AS Message;
+    ELSE
+        -- Rate limit: max 3 per 10 min
+        SELECT COUNT(*) INTO v_RecentCount
+        FROM OtpTokens
+        WHERE Recipient    = p_Value
+          AND PurposeLkpId = v_PurposeLkpId
+          AND CreatedAt   >= DATE_SUB(NOW(), INTERVAL 10 MINUTE)
+          AND IsUsed       = 0;
+
+        IF v_RecentCount >= 3 THEN
+            SELECT 0 AS IsSuccess, 'Too many OTP requests. Please wait before trying again.' AS Message;
+        ELSE
+            -- Invalidate previous OTPs for this recipient + purpose
+            UPDATE OtpTokens SET IsUsed = 1
+            WHERE Recipient = p_Value AND PurposeLkpId = v_PurposeLkpId AND IsUsed = 0;
+
+            INSERT INTO OtpTokens (UserId, Recipient, OtpCode, PurposeLkpId, IpAddress, ExpiresAt)
+            VALUES (p_UserId, p_Value, p_OtpCode, v_PurposeLkpId, p_IpAddress,
+                    DATE_ADD(NOW(), INTERVAL v_ExpiryMins MINUTE));
+
+            SELECT 1 AS IsSuccess, 'OTP sent.' AS Message;
+        END IF;
+    END IF;
+END //
+
+DROP PROCEDURE IF EXISTS User_VerifyContactOtp //
+CREATE PROCEDURE User_VerifyContactOtp(
+    IN p_UserId    INT UNSIGNED,
+    IN p_Type      VARCHAR(20),
+    IN p_Value     VARCHAR(150),
+    IN p_OtpCode   VARCHAR(10),
+    IN p_IpAddress VARCHAR(45)
+)
+BEGIN
+    DECLARE v_PurposeLkpId INT UNSIGNED;
+    DECLARE v_OtpTokenId   INT UNSIGNED;
+    DECLARE v_Attempts     TINYINT DEFAULT 0;
+    DECLARE v_IsExpired    TINYINT DEFAULT 0;
+
+    -- Map type to OTP purpose
+    SELECT lv.LookupValueId INTO v_PurposeLkpId
+    FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+    WHERE lt.TypeCode = 'OTP_PURPOSE'
+      AND lv.ValueCode = IF(UPPER(p_Type) = 'EMAIL', 'CHANGE_EMAIL', 'CHANGE_MOBILE')
+    LIMIT 1;
+
+    IF v_PurposeLkpId IS NULL THEN
+        SELECT 0 AS IsSuccess, 'Invalid contact type.' AS Message;
+    ELSE
+        SELECT OtpTokenId, AttemptCount,
+               IF(ExpiresAt < NOW(), 1, 0)
+        INTO v_OtpTokenId, v_Attempts, v_IsExpired
+        FROM OtpTokens
+        WHERE Recipient    = p_Value
+          AND PurposeLkpId = v_PurposeLkpId
+          AND IsUsed       = 0
+        ORDER BY CreatedAt DESC LIMIT 1;
+
+        IF v_OtpTokenId IS NULL THEN
+            SELECT 0 AS IsSuccess, 'No OTP found. Please request a new one.' AS Message;
+        ELSEIF v_IsExpired = 1 THEN
+            UPDATE OtpTokens SET IsUsed = 1 WHERE OtpTokenId = v_OtpTokenId;
+            SELECT 0 AS IsSuccess, 'OTP has expired. Please request a new one.' AS Message;
+        ELSEIF v_Attempts >= 3 THEN
+            SELECT 0 AS IsSuccess, 'Too many incorrect attempts. Please request a new OTP.' AS Message;
+        ELSE
+            -- Verify code
+            IF NOT EXISTS (
+                SELECT 1 FROM OtpTokens WHERE OtpTokenId = v_OtpTokenId AND OtpCode = p_OtpCode
+            ) THEN
+                UPDATE OtpTokens SET AttemptCount = AttemptCount + 1 WHERE OtpTokenId = v_OtpTokenId;
+                SELECT 0 AS IsSuccess, 'Invalid OTP.' AS Message;
+            ELSE
+                -- Mark used and update user contact
+                UPDATE OtpTokens SET IsUsed = 1 WHERE OtpTokenId = v_OtpTokenId;
+
+                IF UPPER(p_Type) = 'EMAIL' THEN
+                    UPDATE Users SET Email = p_Value, IsVerified = 1, UpdatedAt = NOW()
+                    WHERE UserId = p_UserId;
+                ELSE
+                    UPDATE Users SET Mobile = p_Value, IsVerified = 1, UpdatedAt = NOW()
+                    WHERE UserId = p_UserId;
+                END IF;
+
+                SELECT 1 AS IsSuccess, CONCAT(IF(UPPER(p_Type) = 'EMAIL', 'Email', 'Mobile'), ' updated successfully.') AS Message;
+            END IF;
+        END IF;
+    END IF;
+END //
+
+DELIMITER ;
+
+INSERT IGNORE INTO SchemaVersions (Version, Description, AppliedBy)
+VALUES ('v5.0-missing-sps-fix2', '6 SPs detected missing by DAL audit: Donation_GetCampaignById, Donation_GetReceipt, Donation_SetupRecurring, Donation_CancelRecurring, User_SendContactOtp, User_VerifyContactOtp.', 'System');

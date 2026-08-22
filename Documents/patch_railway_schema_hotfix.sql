@@ -1,0 +1,219 @@
+-- ============================================================
+-- patch_railway_schema_hotfix.sql  (v2 — conditional per-column)
+-- Uses PREPARE/EXECUTE so each column is added only if missing.
+-- Safe to re-run any number of times.
+-- ============================================================
+
+-- ── Helper macro ──────────────────────────────────────────────
+-- Pattern: SET @s = IF(column missing, ALTER, SELECT 1); PREPARE; EXECUTE; DEALLOCATE;
+
+-- ── Organisations: Is80GEligible ──────────────────────────────
+SET @s = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='Organisations' AND COLUMN_NAME='Is80GEligible')=0,
+    'ALTER TABLE Organisations ADD COLUMN Is80GEligible TINYINT(1) NOT NULL DEFAULT 0',
+    'SELECT 1');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+
+SET @s = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='Organisations' AND COLUMN_NAME='Is12AEligible')=0,
+    'ALTER TABLE Organisations ADD COLUMN Is12AEligible TINYINT(1) NOT NULL DEFAULT 0',
+    'SELECT 1');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+
+SET @s = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='Organisations' AND COLUMN_NAME='AvgRating')=0,
+    'ALTER TABLE Organisations ADD COLUMN AvgRating DECIMAL(3,2) NOT NULL DEFAULT 0.00',
+    'SELECT 1');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+
+SET @s = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='Organisations' AND COLUMN_NAME='RatingCount')=0,
+    'ALTER TABLE Organisations ADD COLUMN RatingCount INT UNSIGNED NOT NULL DEFAULT 0',
+    'SELECT 1');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+
+SET @s = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='Organisations' AND COLUMN_NAME='FollowerCount')=0,
+    'ALTER TABLE Organisations ADD COLUMN FollowerCount INT UNSIGNED NOT NULL DEFAULT 0',
+    'SELECT 1');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+
+SET @s = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='Organisations' AND COLUMN_NAME='VerificationStatusLkpId')=0,
+    'ALTER TABLE Organisations ADD COLUMN VerificationStatusLkpId INT UNSIGNED NULL',
+    'SELECT 1');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+
+SET @s = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='Organisations' AND COLUMN_NAME='CanCreateRecurring')=0,
+    'ALTER TABLE Organisations ADD COLUMN CanCreateRecurring TINYINT(1) NOT NULL DEFAULT 0',
+    'SELECT 1');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+
+SET @s = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='Organisations' AND COLUMN_NAME='CanCreateFlexible')=0,
+    'ALTER TABLE Organisations ADD COLUMN CanCreateFlexible TINYINT(1) NOT NULL DEFAULT 0',
+    'SELECT 1');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+
+SET @s = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='Organisations' AND COLUMN_NAME='OrgMaxVolunteers')=0,
+    'ALTER TABLE Organisations ADD COLUMN OrgMaxVolunteers INT UNSIGNED NOT NULL DEFAULT 100',
+    'SELECT 1');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+
+-- ── Projects ──────────────────────────────────────────────────
+SET @s = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='Projects' AND COLUMN_NAME='ScheduleTypeLkpId')=0,
+    'ALTER TABLE Projects ADD COLUMN ScheduleTypeLkpId INT UNSIGNED NULL',
+    'SELECT 1');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+
+SET @s = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='Projects' AND COLUMN_NAME='RecurStart')=0,
+    'ALTER TABLE Projects ADD COLUMN RecurStart DATE NULL',
+    'SELECT 1');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+
+SET @s = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='Projects' AND COLUMN_NAME='RecurEnd')=0,
+    'ALTER TABLE Projects ADD COLUMN RecurEnd DATE NULL',
+    'SELECT 1');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+
+SET @s = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='Projects' AND COLUMN_NAME='RecurDays')=0,
+    'ALTER TABLE Projects ADD COLUMN RecurDays VARCHAR(20) NULL',
+    'SELECT 1');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+
+SET @s = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='Projects' AND COLUMN_NAME='SessionStartTime')=0,
+    'ALTER TABLE Projects ADD COLUMN SessionStartTime TIME NULL',
+    'SELECT 1');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+
+SET @s = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='Projects' AND COLUMN_NAME='SessionEndTime')=0,
+    'ALTER TABLE Projects ADD COLUMN SessionEndTime TIME NULL',
+    'SELECT 1');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+
+SET @s = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='Projects' AND COLUMN_NAME='OneTimeDate')=0,
+    'ALTER TABLE Projects ADD COLUMN OneTimeDate DATE NULL',
+    'SELECT 1');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+
+SET @s = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='Projects' AND COLUMN_NAME='FlexFromDate')=0,
+    'ALTER TABLE Projects ADD COLUMN FlexFromDate DATE NULL',
+    'SELECT 1');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+
+SET @s = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='Projects' AND COLUMN_NAME='FlexToDate')=0,
+    'ALTER TABLE Projects ADD COLUMN FlexToDate DATE NULL',
+    'SELECT 1');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+
+SET @s = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='Projects' AND COLUMN_NAME='MinAttendPct')=0,
+    'ALTER TABLE Projects ADD COLUMN MinAttendPct DECIMAL(5,2) NULL',
+    'SELECT 1');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+
+SET @s = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='Projects' AND COLUMN_NAME='MaxDailyHours')=0,
+    'ALTER TABLE Projects ADD COLUMN MaxDailyHours DECIMAL(4,2) NULL',
+    'SELECT 1');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+
+SET @s = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='Projects' AND COLUMN_NAME='MinSessionHours')=0,
+    'ALTER TABLE Projects ADD COLUMN MinSessionHours DECIMAL(4,2) NULL',
+    'SELECT 1');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+
+SET @s = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='Projects' AND COLUMN_NAME='RequiresApproval')=0,
+    'ALTER TABLE Projects ADD COLUMN RequiresApproval TINYINT(1) NOT NULL DEFAULT 0',
+    'SELECT 1');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+
+-- ── Posts: ViewCount ──────────────────────────────────────────
+SET @s = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='Posts' AND COLUMN_NAME='ViewCount')=0,
+    'ALTER TABLE Posts ADD COLUMN ViewCount INT UNSIGNED NOT NULL DEFAULT 0',
+    'SELECT 1');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+
+-- ── New tables ────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS OrgFollowers (
+    FollowId    INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    OrgId       INT UNSIGNED NOT NULL,
+    UserId      INT UNSIGNED NOT NULL,
+    IsFollowing TINYINT(1)  NOT NULL DEFAULT 1,
+    CreatedAt   DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UpdatedAt   DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (FollowId),
+    UNIQUE KEY uq_orgfollower (OrgId, UserId),
+    INDEX idx_orgfollower_user (UserId),
+    CONSTRAINT fk_orgfollower_org  FOREIGN KEY (OrgId)  REFERENCES Organisations(OrgId),
+    CONSTRAINT fk_orgfollower_user FOREIGN KEY (UserId) REFERENCES Users(UserId)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS FeedInteractions (
+    InteractionId BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    UserId        INT UNSIGNED    NOT NULL,
+    PostId        INT UNSIGNED    NOT NULL,
+    SeenAt        DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    ExpiresAt     DATETIME        NOT NULL,
+    PRIMARY KEY (InteractionId),
+    UNIQUE KEY uq_feedinteraction (UserId, PostId),
+    INDEX idx_feedint_expires (ExpiresAt),
+    CONSTRAINT fk_feedint_user FOREIGN KEY (UserId) REFERENCES Users(UserId),
+    CONSTRAINT fk_feedint_post FOREIGN KEY (PostId) REFERENCES Posts(PostId)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ── Verify ────────────────────────────────────────────────────
+SELECT 'Organisations' AS Tbl, COUNT(*) AS ColsPresent
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='Organisations'
+  AND COLUMN_NAME IN ('Is80GEligible','Is12AEligible','FollowerCount',
+                      'VerificationStatusLkpId','CanCreateRecurring',
+                      'CanCreateFlexible','OrgMaxVolunteers')
+UNION ALL
+SELECT 'Projects', COUNT(*)
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='Projects'
+  AND COLUMN_NAME IN ('ScheduleTypeLkpId','RecurStart','OneTimeDate',
+                      'FlexFromDate','MinAttendPct','RequiresApproval')
+UNION ALL
+SELECT 'Posts', COUNT(*)
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='Posts'
+  AND COLUMN_NAME='ViewCount';
