@@ -45,6 +45,13 @@ namespace NGOConnect.API.Controllers
             [FromQuery] int pageSize   = 30)
             => await _feed.GetSavedPostsAsync(GetUserId(), pageNumber, pageSize);
 
+        /// <summary>Get all posts created by the current user, newest first.</summary>
+        [HttpGet("myposts")] [Authorize]
+        public async Task<ApiResponse<PagedResult<DynamicRow>>> GetMyPosts(
+            [FromQuery] int pageNumber = 1,
+            [FromQuery] int pageSize   = 30)
+            => await _feed.GetMyPostsAsync(GetUserId(), pageNumber, pageSize);
+
         /// <summary>
         /// Record a feed interaction for analytics (impression, view, click, etc.).
         /// Fire-and-forget from the mobile client; errors are logged but not surfaced.

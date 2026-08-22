@@ -31,5 +31,10 @@ namespace NGOConnect.Core.Interfaces
         /// Returns the paginated list of posts the user has saved, most-recently-saved first.
         /// </summary>
         Task<ApiResponse<PagedResult<DynamicRow>>> GetSavedPostsAsync(int userId, int pageNumber, int pageSize);
+
+        /// <summary>
+        /// Returns the paginated list of posts created by the user, newest first.
+        /// </summary>
+        Task<ApiResponse<PagedResult<DynamicRow>>> GetMyPostsAsync(int userId, int pageNumber, int pageSize);
     }
 }

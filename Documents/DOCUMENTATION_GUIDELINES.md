@@ -2470,3 +2470,17 @@ Added 6 SPs that were called in C# DAL but never defined in the setup SQL:
 **No patch file needed** — no table/SP changes, this was a URL-path rename + new page only.
 **Validator:** not applicable (no SP/DAL params touched).
 **Build verified:** Website `npm run build` — 881 modules, no errors. API build not verified in this session (no `dotnet` SDK available in the sandbox) — verify with a local `dotnet build` before deploying.
+
+
+**My Posts feature — Profile → My Posts screen (2026-08-22)**
+- `NGOConnect_Complete_Setup_v5.0.sql`: new SP `Post_GetByUser(p_UserId, p_PageNumber, p_PageSize)` — returns paginated posts created by the user, newest first. Same columns as `Post_GetSaved` minus `SavedAt`. Second result set: `TotalCount`. Safe to re-run.
+- `NGOConnect.Core/Interfaces/IFeedDal.cs`: added `GetMyPostsAsync(int userId, int pageNumber, int pageSize)`.
+- `NGOConnect.Infrastructure/DAL/FeedDal.cs`: implemented `GetMyPostsAsync` calling `ExecuteDynamicPagedListAsync("Post_GetByUser", ...)`.
+- `NGOConnect.API/Controllers/FeedController.cs`: new `GET /api/v1/feed/myposts?pageNumber=1&pageSize=30` endpoint — returns user's own posts paged.
+- `App/.../api/feed.api.ts`: added `feedApi.getMyPosts()` + named export `getMyPosts`.
+- NEW `App/.../screens/profile/MyPostsScreen.tsx`: identical rendering to SavedPostsScreen (media grid, fullscreen preview modal, pull-to-refresh, infinite scroll). Card shows ❤️ likes, 💬 comments, 👁 views in footer. Action button: **🗑️ Delete** (red, destructive) with confirmation alert — optimistic removal, reverts + shows error alert on API failure.
+- `App/.../navigation/AppNavigator.tsx`: imported and registered `MyPostsScreen` as `Stack.Screen name="MyPosts"`.
+- `App/.../screens/profile/ProfileScreen.tsx`: added `{ icon: '✍️', label: 'My Posts', screen: 'MyPosts' }` to `ACTIVITY_ITEMS` directly after Saved Posts.
+- **Patch file:** `Documents/patch_my_posts.sql` — run on local → Railway staging → Railway production.
+- **Validator:** all 6 phases passed.
+- **Database Documentation**: add `Post_GetByUser` SP + `GET /api/v1/feed/myposts` endpoint at next "update documents" pass.
