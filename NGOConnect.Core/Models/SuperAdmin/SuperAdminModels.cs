@@ -104,4 +104,57 @@ namespace NGOConnect.Core.Models.SuperAdmin
         /// <summary>Max volunteers per project for this org. Null = leave unchanged.</summary>
         [Range(1, int.MaxValue)] public int? OrgMaxVolunteers { get; set; }
     }
+
+    // ── Proactive Member + Organisation onboarding ───────────────────────────
+    // Super Admin creates a User + UserProfile + (new or existing) Organisation +
+    // OrgMembers association in one atomic call — SuperAdmin_CreateMemberWithOrg.
+    // See that SP for the full validation/rollback behaviour.
+    public class CreateMemberWithOrgRequest
+    {
+        // ── Member ──
+        [MaxLength(80)]  public string? FirstName { get; set; }
+        [MaxLength(80)]  public string? LastName  { get; set; }
+        [MaxLength(150)][EmailAddress] public string? Email  { get; set; }
+        [MaxLength(20)]  public string? Mobile      { get; set; }
+        [MaxLength(6)]   public string  CountryCode { get; set; } = "+91";
+        public int?      GenderLkpId  { get; set; }
+        public DateTime? DateOfBirth  { get; set; }
+        [MaxLength(500)] public string? ProfilePhoto { get; set; }
+        [MaxLength(200)] public string? AddressLine1 { get; set; }
+        [MaxLength(200)] public string? AddressLine2 { get; set; }
+        [MaxLength(100)] public string? City    { get; set; }
+        [MaxLength(100)] public string? State   { get; set; }
+        [MaxLength(20)]  public string? Pincode { get; set; }
+        [MaxLength(100)] public string? Country { get; set; }
+
+        // ── Organisation ──
+        /// <summary>"NEW" or "EXISTING".</summary>
+        [Required][MaxLength(10)] public string OrgMode { get; set; } = string.Empty;
+        /// <summary>Required when OrgMode = "EXISTING".</summary>
+        public int? ExistingOrgId { get; set; }
+
+        // Required when OrgMode = "NEW" — validated inside the SP, not here,
+        // since requiredness depends on OrgMode (conditional validation).
+        [MaxLength(200)] public string? OrgName      { get; set; }
+        public int?      OrgTypeLkpId  { get; set; }
+        [MaxLength(100)] public string? RegNumber    { get; set; }
+        [MaxLength(100)] public string? Category     { get; set; }
+        public string?   About   { get; set; }
+        public string?   Mission { get; set; }
+        public string?   Vision  { get; set; }
+        [MaxLength(500)] public string? LogoUrl      { get; set; }
+        [MaxLength(150)][EmailAddress] public string? ContactEmail { get; set; }
+        [MaxLength(20)]  public string? ContactPhone { get; set; }
+        [MaxLength(255)] public string? Website      { get; set; }
+        [MaxLength(200)] public string? OrgAddressLine1 { get; set; }
+        [MaxLength(200)] public string? OrgAddressLine2 { get; set; }
+        [MaxLength(100)] public string? OrgCity    { get; set; }
+        [MaxLength(100)] public string? OrgState   { get; set; }
+        [MaxLength(20)]  public string? OrgPincode { get; set; }
+        [MaxLength(100)] public string? OrgCountry { get; set; }
+
+        // ── Role ──
+        /// <summary>MEMBER_ROLE ValueCode: FOUNDER | ADMIN | MODERATOR | MEMBER.</summary>
+        [Required][MaxLength(20)] public string RoleCode { get; set; } = string.Empty;
+    }
 }

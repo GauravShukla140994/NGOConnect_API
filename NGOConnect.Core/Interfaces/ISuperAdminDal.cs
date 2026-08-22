@@ -49,5 +49,8 @@ namespace NGOConnect.Core.Interfaces
 
         // ── Org project permissions ───────────────────────────────────────────
         Task<ApiResponse> UpdateOrgProjectPermissionsAsync(int orgId, UpdateOrgProjectPermissionsRequest request, int superAdminUserId);
+
+        // ── Proactive Member + Organisation onboarding ───────────────────────
+        Task<ApiResponse<DynamicRow>> CreateMemberWithOrgAsync(CreateMemberWithOrgRequest request, int superAdminUserId);
     }
 }

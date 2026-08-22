@@ -26,16 +26,22 @@ namespace NGOConnect.Infrastructure.DAL
     /// </summary>
     public class SuperAdminDal : BaseDal, ISuperAdminDal
     {
-        private readonly IConfiguration   _config;
-        private readonly INotificationDal _notif;
-        private readonly IFCMService      _fcm;
+        private readonly IConfiguration    _config;
+        private readonly INotificationDal  _notif;
+        private readonly IFCMService       _fcm;
+        private readonly IUrlTokenService  _tokens;
 
-        public SuperAdminDal(IDbProvider db, IConfiguration config, INotificationDal notif, IFCMService fcm)
+        // Matches ShareController / CertificateDal's convention — hardcoded prod domain
+        // rather than Settings-driven. See CertificateDal.cs for the same note.
+        private const string BaseUrl = "https://www.ripplehub.app";
+
+        public SuperAdminDal(IDbProvider db, IConfiguration config, INotificationDal notif, IFCMService fcm, IUrlTokenService tokens)
             : base(db)
         {
             _config = config;
             _notif  = notif;
             _fcm    = fcm;
+            _tokens = tokens;
         }
 
         // ══════════════════════════════════════════════════════════════
@@ -782,6 +788,83 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 Log.Error(ex, "UpdateOrgProjectPermissionsAsync failed OrgId={OrgId}", orgId);
                 return ApiResponse.Fail("An error occurred while updating project permissions.", "INTERNAL_ERROR");
+            }
+        }
+
+        // ── Proactive Member + Organisation onboarding ───────────────────────
+
+        public async Task<ApiResponse<DynamicRow>> CreateMemberWithOrgAsync(
+            CreateMemberWithOrgRequest request, int superAdminUserId)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("SuperAdmin_CreateMemberWithOrg", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_FirstName",        request.FirstName);
+                    _db.AddParameter(cmd, "p_LastName",         request.LastName);
+                    _db.AddParameter(cmd, "p_Email",            request.Email);
+                    _db.AddParameter(cmd, "p_Mobile",           request.Mobile);
+                    _db.AddParameter(cmd, "p_CountryCode",      request.CountryCode);
+                    _db.AddParameter(cmd, "p_GenderLkpId",      (object?)request.GenderLkpId ?? DBNull.Value);
+                    _db.AddParameter(cmd, "p_DateOfBirth",      (object?)request.DateOfBirth ?? DBNull.Value);
+                    _db.AddParameter(cmd, "p_ProfilePhoto",     request.ProfilePhoto);
+                    _db.AddParameter(cmd, "p_AddressLine1",     request.AddressLine1);
+                    _db.AddParameter(cmd, "p_AddressLine2",     request.AddressLine2);
+                    _db.AddParameter(cmd, "p_City",             request.City);
+                    _db.AddParameter(cmd, "p_State",            request.State);
+                    _db.AddParameter(cmd, "p_Pincode",          request.Pincode);
+                    _db.AddParameter(cmd, "p_Country",          request.Country);
+
+                    _db.AddParameter(cmd, "p_OrgMode",          request.OrgMode);
+                    _db.AddParameter(cmd, "p_ExistingOrgId",    (object?)request.ExistingOrgId ?? DBNull.Value);
+
+                    _db.AddParameter(cmd, "p_OrgName",          request.OrgName);
+                    _db.AddParameter(cmd, "p_OrgTypeLkpId",     (object?)request.OrgTypeLkpId ?? DBNull.Value);
+                    _db.AddParameter(cmd, "p_RegNumber",        request.RegNumber);
+                    _db.AddParameter(cmd, "p_Category",         request.Category);
+                    _db.AddParameter(cmd, "p_About",            request.About);
+                    _db.AddParameter(cmd, "p_Mission",          request.Mission);
+                    _db.AddParameter(cmd, "p_Vision",           request.Vision);
+                    _db.AddParameter(cmd, "p_LogoUrl",          request.LogoUrl);
+                    _db.AddParameter(cmd, "p_ContactEmail",     request.ContactEmail);
+                    _db.AddParameter(cmd, "p_ContactPhone",     request.ContactPhone);
+                    _db.AddParameter(cmd, "p_Website",          request.Website);
+                    _db.AddParameter(cmd, "p_OrgAddressLine1",  request.OrgAddressLine1);
+                    _db.AddParameter(cmd, "p_OrgAddressLine2",  request.OrgAddressLine2);
+                    _db.AddParameter(cmd, "p_OrgCity",          request.OrgCity);
+                    _db.AddParameter(cmd, "p_OrgState",         request.OrgState);
+                    _db.AddParameter(cmd, "p_OrgPincode",       request.OrgPincode);
+                    _db.AddParameter(cmd, "p_OrgCountry",       request.OrgCountry);
+
+                    _db.AddParameter(cmd, "p_RoleCode",         request.RoleCode);
+                    _db.AddParameter(cmd, "p_SuperAdminUserId", superAdminUserId);
+                });
+
+                if (!result.Succeeded)
+                    return ApiResponse<DynamicRow>.Failure(result.Message, "VALIDATION_ERROR");
+
+                var userId = Col<int>(result.Row!, "UserId");
+                var orgId  = Col<int>(result.Row!, "OrgId");
+
+                // Reuses the same encrypted-token mechanism as ShareController/
+                // CertificateDal — no new secure-link plumbing needed. Entity type
+                // "ORG" is exactly what PublicController.GetOrgPreview decrypts.
+                var token = _tokens.Encrypt("ORG", orgId);
+
+                var data = new DynamicRow
+                {
+                    ["userId"]        = userId,
+                    ["orgId"]         = orgId,
+                    ["orgShareToken"] = token,
+                    ["orgShareUrl"]   = $"{BaseUrl}/ngo/{token}",
+                };
+
+                return ApiResponse<DynamicRow>.Success(data, result.Message);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "CreateMemberWithOrgAsync failed");
+                return ApiResponse<DynamicRow>.Failure("An error occurred while creating the member.", "INTERNAL_ERROR");
             }
         }
     }

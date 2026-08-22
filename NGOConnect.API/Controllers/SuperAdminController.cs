@@ -204,6 +204,17 @@ namespace NGOConnect.API.Controllers
             int orgId, [FromBody] UpdateOrgProjectPermissionsRequest request)
             => await _superAdmin.UpdateOrgProjectPermissionsAsync(orgId, request, GetSuperAdminUserId());
 
+        // ── Proactive Member + Organisation onboarding ───────────────────────
+
+        // Creates a User + UserProfile + (new or existing) Organisation + OrgMembers
+        // association in one atomic call, before the person has ever logged in.
+        // Returns the new UserId/OrgId plus the encrypted org share link (same
+        // mechanism as ShareController) ready to copy/share immediately.
+        [HttpPost("members")]
+        public async Task<ApiResponse<DynamicRow>> CreateMemberWithOrg(
+            [FromBody] CreateMemberWithOrgRequest request)
+            => await _superAdmin.CreateMemberWithOrgAsync(request, GetSuperAdminUserId());
+
         // ── Helpers ───────────────────────────────────────────────────────────
 
         private int GetSuperAdminUserId()
