@@ -2294,6 +2294,15 @@ BEGIN
         up.ImpactScore, up.ReliabilityPct,
         u.CreatedAt AS MemberSince,
         up.UpdatedAt,
+        -- v5.1: expose profile verification state + the Super Admin's remarks so the
+        -- app can show an "action required" banner instead of burying the reason in
+        -- notification history only (ProfileScreen reads these two fields).
+        COALESCE(pv.ValueCode, 'PENDING') AS ProfileVerificationStatusCode,
+        (
+            SELECT n.Body FROM Notifications n
+            WHERE n.UserId = u.UserId AND n.NotifType = 'PROFILE_UPDATE_REQUIRED'
+            ORDER BY n.CreatedAt DESC LIMIT 1
+        ) AS ProfileUpdateReason,
         CASE
             WHEN up.FirstName IS NOT NULL AND TRIM(up.FirstName) != ''
              AND up.LastName  IS NOT NULL AND TRIM(up.LastName)  != ''
@@ -2333,6 +2342,7 @@ BEGIN
     LEFT JOIN LookupValues gv ON up.GenderLkpId    = gv.LookupValueId
     LEFT JOIN LookupValues ev ON up.EducationLkpId = ev.LookupValueId
     LEFT JOIN LookupValues wv ON up.WorkExpLkpId   = wv.LookupValueId
+    LEFT JOIN LookupValues pv ON u.ProfileVerificationLkpId = pv.LookupValueId
     WHERE u.UserId = p_UserId AND u.IsDeleted = 0;
 END //
 
@@ -7254,9 +7264,12 @@ BEGIN
     DECLARE v_WithdrawnLkpId  INT UNSIGNED DEFAULT 0;
     DECLARE v_UpcomingProjId  INT UNSIGNED DEFAULT 0;
     DECLARE v_ActiveProjId    INT UNSIGNED DEFAULT 0;
+    DECLARE v_ClosingProjId   INT UNSIGNED DEFAULT 0;
     DECLARE v_CompletedProjId INT UNSIGNED DEFAULT 0;
     DECLARE v_ExpiredProjId   INT UNSIGNED DEFAULT 0;
     DECLARE v_CancelledProjId INT UNSIGNED DEFAULT 0;
+    DECLARE v_AttendedLkpId   INT UNSIGNED DEFAULT 0;
+    DECLARE v_CheckedInLkpId  INT UNSIGNED DEFAULT 0;
 
     SELECT LookupValueId INTO v_PendingLkpId   FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId WHERE lt.TypeCode = 'APPLICATION_STATUS' AND lv.ValueCode = 'PENDING'   LIMIT 1;
     SELECT LookupValueId INTO v_ApprovedLkpId  FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId WHERE lt.TypeCode = 'APPLICATION_STATUS' AND lv.ValueCode = 'APPROVED'  LIMIT 1;
@@ -7264,9 +7277,12 @@ BEGIN
     SELECT LookupValueId INTO v_WithdrawnLkpId FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId WHERE lt.TypeCode = 'APPLICATION_STATUS' AND lv.ValueCode = 'WITHDRAWN' LIMIT 1;
     SELECT LookupValueId INTO v_UpcomingProjId  FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId WHERE lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'UPCOMING'   LIMIT 1;
     SELECT LookupValueId INTO v_ActiveProjId    FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId WHERE lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'ACTIVE'     LIMIT 1;
+    SELECT LookupValueId INTO v_ClosingProjId   FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId WHERE lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'CLOSING'    LIMIT 1;
     SELECT LookupValueId INTO v_CompletedProjId FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId WHERE lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'COMPLETED'  LIMIT 1;
     SELECT LookupValueId INTO v_ExpiredProjId   FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId WHERE lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'EXPIRED'    LIMIT 1;
     SELECT LookupValueId INTO v_CancelledProjId FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId WHERE lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'CANCELLED'  LIMIT 1;
+    SELECT LookupValueId INTO v_AttendedLkpId   FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId WHERE lt.TypeCode = 'ATTENDANCE_STATUS' AND lv.ValueCode = 'ATTENDED'   LIMIT 1;
+    SELECT LookupValueId INTO v_CheckedInLkpId  FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId WHERE lt.TypeCode = 'ATTENDANCE_STATUS' AND lv.ValueCode = 'CHECKED_IN' LIMIT 1;
 
     -- RS0: Applied — PENDING
     SELECT
@@ -7291,7 +7307,7 @@ BEGIN
     WHERE pa.UserId = p_UserId AND pa.IsDeleted = 0 AND pa.StatusLkpId = v_PendingLkpId
     ORDER BY pa.CreatedAt DESC LIMIT p_AppLimit;
 
-    -- RS1: Upcoming — APPROVED + project UPCOMING/ACTIVE
+    -- RS1: Upcoming — APPROVED + project UPCOMING/ACTIVE/CLOSING (volunteer still in-progress)
     SELECT
         pa.ApplicationId, pa.ProjectId, p.ProjectName, o.OrgName, o.LogoUrl AS OrgLogoUrl,
         appSv.ValueCode AS StatusCode, appSv.ValueName AS Status,
@@ -7303,7 +7319,31 @@ BEGIN
         p.Category AS CategoryName,
         projSv.ValueCode AS ProjectStatusCode, projSv.ValueName AS ProjectStatus,
         IF(jtv.ValueCode = 'APPROVE_REQ', 1, 0) AS RequiresApproval,
-        IF(EXISTS(SELECT 1 FROM ProjectAttendance ata JOIN ProjectSessions pss ON ata.SessionId = pss.SessionId WHERE pss.ProjectId = p.ProjectId AND ata.UserId = p_UserId), 1, 0) AS IsCheckedIn
+        IF(EXISTS(SELECT 1 FROM ProjectAttendance ata JOIN ProjectSessions pss ON ata.SessionId = pss.SessionId WHERE pss.ProjectId = p.ProjectId AND ata.UserId = p_UserId), 1, 0) AS IsCheckedIn,
+        -- RECURRING: sessions this volunteer attended
+        (SELECT COUNT(*) FROM ProjectAttendance ata2 JOIN ProjectSessions pss2 ON ata2.SessionId = pss2.SessionId
+         WHERE pss2.ProjectId = p.ProjectId AND ata2.UserId = p_UserId AND ata2.AttendStatusLkpId = v_AttendedLkpId
+        ) AS MyAttendedSessions,
+        -- RECURRING: sessions eligible from approval date
+        (SELECT COUNT(*) FROM ProjectSessions ps3
+         WHERE ps3.ProjectId = p.ProjectId AND ps3.SessionDate >= DATE(pa.StatusUpdatedAt) AND ps3.IsDeleted = 0
+        ) AS MyEligibleSessions,
+        -- FLEXIBLE: hours logged
+        COALESCE((SELECT SUM(ata4.HoursLogged) FROM ProjectAttendance ata4 JOIN ProjectSessions pss4 ON ata4.SessionId = pss4.SessionId
+         WHERE pss4.ProjectId = p.ProjectId AND ata4.UserId = p_UserId AND ata4.AttendStatusLkpId = v_AttendedLkpId
+        ), 0) AS MyHoursLogged,
+        -- FLEXIBLE: required hours
+        ROUND(DATEDIFF(p.FlexToDate, p.FlexFromDate) * (TIMESTAMPDIFF(MINUTE, p.SessionStartTime, p.SessionEndTime) / 60.0) * COALESCE(p.MinAttendPct, 70) / 100.0, 2) AS MyRequiredHours,
+        p.MinAttendPct,
+        -- FLEXIBLE: active check-in record
+        (SELECT ata5.AttendanceId FROM ProjectAttendance ata5 JOIN ProjectSessions pss5 ON ata5.SessionId = pss5.SessionId
+         WHERE pss5.ProjectId = p.ProjectId AND ata5.UserId = p_UserId AND ata5.AttendStatusLkpId = v_CheckedInLkpId
+         ORDER BY ata5.CreatedAt DESC LIMIT 1
+        ) AS ActiveCheckInId,
+        -- Certificate (if already issued)
+        (SELECT vc.CertCode FROM VolunteerCertificates vc
+         WHERE vc.ProjectId = p.ProjectId AND vc.UserId = p_UserId AND vc.IsDeleted = 0 LIMIT 1
+        ) AS MyCertCode
     FROM ProjectApplications pa
     JOIN Projects p ON pa.ProjectId = p.ProjectId
     JOIN Organisations o ON p.OrgId = o.OrgId
@@ -7312,7 +7352,8 @@ BEGIN
     LEFT JOIN LookupValues ptv    ON p.ProjectTypeLkpId = ptv.LookupValueId
     LEFT JOIN LookupValues jtv    ON p.JoinTypeLkpId    = jtv.LookupValueId
     WHERE pa.UserId = p_UserId AND pa.IsDeleted = 0
-      AND pa.StatusLkpId = v_ApprovedLkpId AND p.StatusLkpId IN (v_UpcomingProjId, v_ActiveProjId)
+      AND pa.StatusLkpId = v_ApprovedLkpId
+      AND p.StatusLkpId IN (v_UpcomingProjId, v_ActiveProjId, v_ClosingProjId)
     ORDER BY p.RecurStart ASC LIMIT p_AppLimit;
 
     -- RS2: Completed — not REJECTED/WITHDRAWN + project COMPLETED
@@ -10368,19 +10409,25 @@ BEGIN
     ELSEIF p_Reason IS NULL OR TRIM(p_Reason) = '' THEN
         SELECT 0 AS IsSuccess, 'A reason is required.' AS Message;
     ELSE
-        -- Set profile back to PENDING so user re-submits
+        -- Set profile to NEEDS_UPDATE (distinct from PENDING/not-yet-reviewed) so the
+        -- app can show a dedicated "action required" banner with the admin's reason.
         UPDATE Users
         SET ProfileVerificationLkpId = (
             SELECT lv.LookupValueId FROM LookupValues lv
             JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
-            WHERE lt.TypeCode = 'PROFILE_VERIFICATION_STATUS' AND lv.ValueCode = 'PENDING'
+            WHERE lt.TypeCode = 'PROFILE_VERIFICATION_STATUS' AND lv.ValueCode = 'NEEDS_UPDATE'
             LIMIT 1
         ),
         UpdatedAt = NOW()
         WHERE UserId = p_UserId;
 
+        -- NotifType standardised to PROFILE_UPDATE_REQUIRED (matches mobile app's
+        -- RootNavigator/NotificationsScreen deep-link switch — was previously
+        -- PROFILE_UPDATE_REQUESTED, a string the app never handled, so tapping the
+        -- notification did nothing). This is the single canonical write for this
+        -- event; the C# DAL layer no longer inserts a duplicate row.
         INSERT INTO Notifications (UserId, NotifType, Title, Body, RefId, RefType)
-        VALUES (p_UserId, 'PROFILE_UPDATE_REQUESTED', 'Profile update required',
+        VALUES (p_UserId, 'PROFILE_UPDATE_REQUIRED', 'Profile update required',
                 p_Reason, p_UserId, 'USER');
 
         SELECT 1 AS IsSuccess, 'Profile update requested.' AS Message;

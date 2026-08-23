@@ -82,5 +82,22 @@ namespace NGOConnect.Core.Interfaces
 
         /// <summary>Called by AutoCheckoutMissedJob — marks FLEXIBLE CHECKED_IN records as CHECKOUT_MISSED after buffer.</summary>
         Task<ApiResponse<DynamicRow>>              AutoCheckoutMissedAsync();
+
+        // ── v5.1: 5 new background job entry points ───────────────────────────────
+
+        /// <summary>Called by GenerateRecurringSessionsJob — tops up sessions for ACTIVE RECURRING/FLEXIBLE projects.</summary>
+        Task<WriteResult>                          GenerateSessionsAsync(int daysAhead);
+
+        /// <summary>Called by AutoCompleteSessionsJob — marks ACTIVE sessions whose EndTime has passed as COMPLETED.</summary>
+        Task<WriteResult>                          AutoCompleteSessionsAsync();
+
+        /// <summary>Called by CheckoutReminderJob — returns FLEXIBLE volunteers checked-in near their session end.</summary>
+        Task<List<CheckoutReminderTarget>>         GetCheckoutReminderTargetsAsync(int minutesBefore);
+
+        /// <summary>Called by MilestoneNotificationJob — fires in-app notifications for newly crossed 25/50/75% milestones.</summary>
+        Task<WriteResult>                          CheckMilestoneNotificationsAsync();
+
+        /// <summary>Called by AutoFinalizeStaleClosingJob — auto-completes CLOSING projects past the day threshold.</summary>
+        Task<WriteResult>                          AutoFinalizeStaleClosingAsync(int daysThreshold);
     }
 }

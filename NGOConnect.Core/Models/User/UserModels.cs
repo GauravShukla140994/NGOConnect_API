@@ -47,6 +47,9 @@ namespace NGOConnect.Core.Models.User
         public decimal   TotalHours         { get; set; }
         public int       ProjectsCount      { get; set; }
         public int       NgosJoined         { get; set; }
+        // ── Profile verification state (v5.1) ────────────────────────────────
+        public string?   ProfileVerificationStatusCode { get; set; }  // PENDING | VERIFIED | NEEDS_UPDATE | REJECTED
+        public string?   ProfileUpdateReason           { get; set; }  // Super Admin's remarks when status = NEEDS_UPDATE
     }
 
     // ── Update Profile Request (v4.0 — 18 params) ───────────────────────────────

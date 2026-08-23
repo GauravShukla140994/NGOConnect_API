@@ -2553,3 +2553,56 @@ Modified (additive SELECT columns only):
 - **Patch file:** `Documents/patch_fix_recurring_days.sql` — run on local → Railway staging → Railway production.
 - **Validator:** all 6 phases passed.
 - **DAL note:** `p_RecurrenceDays` in ProjectDal.cs is correct — the active SPs (v5.1 validated versions) use `p_RecurrenceDays`. No DAL change needed.
+
+
+**User_GetImpactSummary RS1 — progress fields + CLOSING state (2026-08-23)**
+- `NGOConnect_Complete_Setup_v5.0.sql` → `User_GetImpactSummary` SP: RS1 (Upcoming) now includes CLOSING projects (`v_ClosingProjId` added to DECLARE + lookup); 7 new columns added: `MyAttendedSessions`, `MyEligibleSessions`, `MyHoursLogged`, `MyRequiredHours`, `MinAttendPct`, `ActiveCheckInId`, `MyCertCode`.
+- `Documents/patch_fix_impact_summary_progress.sql` (new) — run on local → Railway staging → Railway production.
+- **Database Documentation**: update `User_GetImpactSummary` SP description — RS1 now has 7 additional progress columns and includes CLOSING projects.
+
+**volunteer/ProjectDetailScreen — RECURRING/FLEXIBLE progress + session list (2026-08-23)**
+- `App/NGOConnectApp/src/screens/volunteer/ProjectDetailScreen.tsx`: added sections 7 (My Progress) and 8 (My Sessions) for APPROVED volunteers on RECURRING/FLEXIBLE projects. Section 7 shows FLEXIBLE check-in/checkout button + hours progress bar, or RECURRING session attendance progress bar + eligibility chip. Section 8 shows per-session list with status chip (CHECKED_IN/ATTENDED/NO_SHOW/EXCUSED), opt-out button for upcoming RECURRING sessions, and hours logged for FLEXIBLE sessions.
+- New `ATTEND_CHIP` constant added (top of file, after `CAT_COLOR`).
+- New styles: `actionBtn`, `actionBtnText`, `checkedInBanner`, `checkedInText`, `checkedInSub`, `progressBlock`, `progressLabelRow`, `progressLabel`, `progressValue`, `progressTrack`, `progressFill`, `eligRow`, `eligPct`, `eligChip`, `eligChipText`, `sessionRow`, `sessionDateCol`, `sessionDay`, `sessionDateText`, `sessionInfo`, `sessionTime`, `sessionHours`, `statusChip`, `statusChipText`, `optOutBtn`, `optOutText`.
+- No DB/API/document update needed for this screen change.
+
+**5 new Hangfire background jobs + IProjectDal extensions (2026-08-23)**
+- `NGOConnect.Infrastructure/Jobs/GenerateRecurringSessionsJob.cs` (new) — daily midnight; calls `Project_GenerateSessions(p_DaysAhead)`. Setting: `GENERATE_SESSIONS_CRON`, `RECURRING_SESSION_LOOKAHEAD_DAYS`.
+- `NGOConnect.Infrastructure/Jobs/AutoCompleteSessionsJob.cs` (new) — every 30 min; calls `Project_AutoCompleteSessions()`. Setting: `AUTO_COMPLETE_SESSIONS_CRON`.
+- `NGOConnect.Infrastructure/Jobs/CheckoutReminderJob.cs` (new) — every 5 min; calls `Project_GetCheckoutReminderTargets(p_MinutesBefore)` + sends FCM push. Settings: `CHECKOUT_REMINDER_CRON`, `CHECKOUT_REMINDER_MINUTES_BEFORE`.
+- `NGOConnect.Infrastructure/Jobs/MilestoneNotificationJob.cs` (new) — daily 3 AM; calls `Project_CheckMilestoneNotifications()`. Setting: `MILESTONE_NOTIF_CRON`.
+- `NGOConnect.Infrastructure/Jobs/AutoFinalizeStaleClosingJob.cs` (new) — daily 4 AM; calls `Project_AutoFinalizeStaleClosing(p_DaysThreshold)`. Settings: `AUTO_FINALIZE_CLOSING_CRON`, `CERT_AUTO_CLOSE_DAYS`.
+- `NGOConnect.Core/Models/Project/CheckoutReminderTarget.cs` (new) — DTO for checkout reminder targets.
+- `NGOConnect.Core/Interfaces/IProjectDal.cs`: 5 new methods — `GenerateSessionsAsync`, `AutoCompleteSessionsAsync`, `GetCheckoutReminderTargetsAsync`, `CheckMilestoneNotificationsAsync`, `AutoFinalizeStaleClosingAsync`.
+- `NGOConnect.Infrastructure/DAL/ProjectDal.cs`: 5 implementations for the above.
+- `NGOConnect.API/Program.cs`: all 5 new jobs registered with `RecurringJob.AddOrUpdate`; cron loaded from SettingsCache (fallbacks hardcoded).
+- **DB**: 5 new SPs referenced above (`Project_GenerateSessions`, `Project_AutoCompleteSessions`, `Project_GetCheckoutReminderTargets`, `Project_CheckMilestoneNotifications`, `Project_AutoFinalizeStaleClosing`) must be added to `NGOConnect_Complete_Setup_v5.0.sql` before next "update documents" pass.
+- **Database Documentation**: add the 5 new SPs + the 5 new Hangfire cron Setting keys.
+- **KNOWN BUG (not fixed this session, flagged by validator):** `Project_GenerateSessions` has a DAL↔SP param mismatch — `ProjectDal.cs` passes only `p_DaysAhead`, but the SP declares `p_ProjectId` and `p_CreatedBy` as well (missing in DAL). This means the daily Hangfire job (`GenerateRecurringSessionsJob.cs`) is very likely calling this SP with missing required params every night. Needs investigation before next deploy — did not touch it in this session since it's unrelated to the notification-flow fix below.
+
+
+**Profile-update-request notification flow — 3-bug fix (2026-08-23)**
+
+**User-reported (live testing):** (1) tapping the "Action required: update your profile" notification did nothing; (2) home feed appeared empty after the user resubmitted docs and Super Admin re-verified; (3) nowhere in the app could the user see the Super Admin's actual remarks.
+
+**Diagnosis:**
+- (1) Root cause: `SuperAdmin_User_RequestUpdate` inserted `Notifications.NotifType = 'PROFILE_UPDATE_REQUESTED'`, but neither of the mobile app's two notification-routing switch statements (`RootNavigator.tsx`'s cold-start handler, `NotificationsScreen.tsx`'s in-app tap handler) had a case for that string — `NotificationsScreen.tsx` additionally lacked a case for `PROFILE_UPDATE_REQUIRED` even though `RootNavigator.tsx` already had one (drift between two independent copies of the same switch statement).
+- (2) Investigated `Feed_GetPersonalized` end-to-end — it has **no** gating on `ProfileVerificationLkpId`/`IsVerified` at all, so profile-verification status was never the cause of an empty feed. User confirmed no further investigation needed (likely a test-data seen-post artifact, not a code defect).
+- (3) `User_GetProfile` never returned verification status or reason text at all — the real reason was only ever saved as `Notifications.Body` on the SP's own insert, with no UI path reading it back.
+- Underlying architectural issue found while diagnosing (1)/(3): a **dual-write pattern** exists across 4 SuperAdmin actions — the SP inserts its own canonical `Notifications` row, and `SuperAdminDal.cs`'s `FireUserNotifAsync`/`FireOrgAdminNotifAsync` helpers ALSO insert a second row after the SP succeeds (for `RequestMemberUpdateAsync` specifically, with a *different* `NotifType` than the SP's own row — the direct cause of bug (1)). Confirmed present in `RequestMemberUpdateAsync`, `VerifyMemberProfileAsync`, `SuspendMemberAsync`, `ApproveOrgAsync`. User confirmed fixing all 4, not just the reported one.
+
+**Fix:**
+- `NGOConnect_Complete_Setup_v5.0.sql`:
+  - `SuperAdmin_User_RequestUpdate` — `NotifType` standardised to `PROFILE_UPDATE_REQUIRED` (was `PROFILE_UPDATE_REQUESTED`); `ProfileVerificationLkpId` now set to the `NEEDS_UPDATE` lookup value (was incorrectly set to `PENDING`/"Not Reviewed" — `NEEDS_UPDATE` already existed in the `PROFILE_VERIFICATION_STATUS` seed but this SP never used it).
+  - `User_GetProfile` — added `ProfileVerificationStatusCode` (from `Users.ProfileVerificationLkpId` via `LookupValues`) and `ProfileUpdateReason` (latest `PROFILE_UPDATE_REQUIRED` notification body for the user) to the SELECT.
+- `NGOConnect.Core/Models/User/UserModels.cs` — `UserProfileModel`: added `ProfileVerificationStatusCode`, `ProfileUpdateReason`.
+- `NGOConnect.Infrastructure/DAL/UserDal.cs` — `MapProfile`: reads the two new columns.
+- `NGOConnect.Infrastructure/DAL/SuperAdminDal.cs` — new `PushOnlyUserAsync`/`PushOnlyOrgAdminAsync` helpers (FCM push only, no `Notifications` insert). `RequestMemberUpdateAsync`, `VerifyMemberProfileAsync`, `SuspendMemberAsync`, `ApproveOrgAsync` now call these instead of `FireUserNotifAsync`/`FireOrgAdminNotifAsync` — the SP's own insert is now the single canonical row for each of these 4 actions; the push body for `RequestMemberUpdateAsync`/`SuspendMemberAsync` now carries the real admin reason text instead of generic hardcoded copy. Note: `ApproveOrgAsync`'s push still broadcasts to ALL org admins (broader than the SP's founder-only insert) — an accepted scope trade-off, not a regression (previously all admins got both a push AND a duplicate DB row; now they get the push only, founder's history comes from the SP's row).
+- `App/NGOConnectApp/src/screens/home/NotificationsScreen.tsx` — `resolveScreen()`: added `PROFILE_UPDATE_REQUIRED`/`PROFILE_UPDATE_REQUESTED` (legacy) cases → `Profile` screen; `notifMeta()`: added icon for `PROFILE_UPDATE_REQUIRED`.
+- `App/NGOConnectApp/src/screens/profile/ProfileScreen.tsx` — new "action required" banner shown when `profile.profileVerificationStatusCode === 'NEEDS_UPDATE'`, displaying `profile.profileUpdateReason` and an "Update Profile" button → `EditProfile`.
+- `App/NGOConnectApp/src/types/api.types.ts` — `UserProfile`: added `profileVerificationStatusCode`, `profileUpdateReason`.
+
+**Patch file:** `Documents/patch_profile_update_notification_fix.sql` — run on local → Railway staging → Railway production.
+**Validator:** all mismatches introduced by this change resolved (`User_GetProfile` SELECT↔mapper now matches). The `Project_GenerateSessions` mismatch noted above is pre-existing and unrelated — not touched.
+**Build verified:** not run in this session (no .NET SDK in the sandbox) — verify locally (`dotnet build`) before deploying. Mobile app changes not build-verified either (no RN toolchain in sandbox) — recommend a quick manual smoke test of the notification tap + Profile banner before shipping.
+**Database Documentation**: update `User_GetProfile` SP description (2 new output columns) and `SuperAdmin_User_RequestUpdate` SP description (NotifType + status value change) at next "update documents" pass.

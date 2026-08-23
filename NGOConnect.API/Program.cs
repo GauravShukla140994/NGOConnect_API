@@ -198,8 +198,44 @@ try
         autoCheckoutMissedCron,
         new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
 
-    Log.Information("v5.1 Hangfire jobs registered: AutoActivate({Cron1}), TransitionToClosing({Cron2}), MarkNoShow({Cron3}), AutoCheckoutMissed({Cron4})",
-        autoActivateCron, transitionClosingCron, markNoShowCron, autoCheckoutMissedCron);
+    // v5.1 — 5 new jobs
+    var generateSessionsCron      = settingsCache.GetValue<string>("GENERATE_SESSIONS_CRON")      ?? "0 0 * * *";
+    var autoCompleteSessionsCron  = settingsCache.GetValue<string>("AUTO_COMPLETE_SESSIONS_CRON") ?? "*/30 * * * *";
+    var checkoutReminderCron      = settingsCache.GetValue<string>("CHECKOUT_REMINDER_CRON")      ?? "*/5 * * * *";
+    var milestoneNotifCron        = settingsCache.GetValue<string>("MILESTONE_NOTIF_CRON")        ?? "0 3 * * *";
+    var autoFinalizeClosingCron   = settingsCache.GetValue<string>("AUTO_FINALIZE_CLOSING_CRON")  ?? "0 4 * * *";
+
+    RecurringJob.AddOrUpdate<GenerateRecurringSessionsJob>(
+        "generate-recurring-sessions",
+        job => job.ExecuteAsync(),
+        generateSessionsCron,
+        new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
+
+    RecurringJob.AddOrUpdate<AutoCompleteSessionsJob>(
+        "auto-complete-sessions",
+        job => job.ExecuteAsync(),
+        autoCompleteSessionsCron,
+        new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
+
+    RecurringJob.AddOrUpdate<CheckoutReminderJob>(
+        "checkout-reminder",
+        job => job.ExecuteAsync(),
+        checkoutReminderCron,
+        new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
+
+    RecurringJob.AddOrUpdate<MilestoneNotificationJob>(
+        "milestone-notification",
+        job => job.ExecuteAsync(),
+        milestoneNotifCron,
+        new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
+
+    RecurringJob.AddOrUpdate<AutoFinalizeStaleClosingJob>(
+        "auto-finalize-stale-closing",
+        job => job.ExecuteAsync(),
+        autoFinalizeClosingCron,
+        new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
+
+    Log.Information("v5.1 Hangfire jobs registered: AutoActivate, TransitionToClosing, MarkNoShow, AutoCheckoutMissed, GenerateRecurringSessions, AutoCompleteSessions, CheckoutReminder, MilestoneNotification, AutoFinalizeStaleClosing");
 
     // 7. Static files — serve uploaded media under /uploads/*
     //    UploadRootPath must exist; LocalFileService creates subdirectories on first upload.

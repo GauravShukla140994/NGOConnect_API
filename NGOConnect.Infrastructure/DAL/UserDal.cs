@@ -569,7 +569,10 @@ namespace NGOConnect.Infrastructure.DAL
             // v4.9: impact stats now returned by User_GetProfile SP
             TotalHours        = Col<decimal>(row,  "TotalHours"),
             ProjectsCount     = Col<int>(row,      "ProjectsCount"),
-            NgosJoined        = Col<int>(row,      "NgosJoined")
+            NgosJoined        = Col<int>(row,      "NgosJoined"),
+            // v5.1: profile verification state + Super Admin remarks
+            ProfileVerificationStatusCode = Col<string>(row, "ProfileVerificationStatusCode"),
+            ProfileUpdateReason           = Col<string>(row, "ProfileUpdateReason")
         };
 
         private static UserSkillModel MapSkill(IDataReader r) => new()

@@ -259,7 +259,12 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_SuperAdminUserId", superAdminUserId);
                 });
                 if (result.Succeeded)
-                    _ = FireOrgAdminNotifAsync(orgId, "🎉 NGO Approved!",
+                    // SP already inserts the canonical Notifications row (founder only,
+                    // NotifType='ORG_APPROVED') — push-only here, broadcast to ALL org
+                    // admins (broader reach than the SP's founder-only insert; those
+                    // additional admins get the push but rely on the founder's DB row
+                    // for permanent history, an accepted scope trade-off).
+                    _ = PushOnlyOrgAdminAsync(orgId, "🎉 NGO Approved!",
                         "Your organisation has been approved. You can now start managing projects and volunteers.",
                         "ORG_APPROVED", orgId, "ORG");
                 return result.ToApiResponse();
@@ -494,7 +499,8 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_SuperAdminUserId", superAdminUserId);
                 });
                 if (result.Succeeded)
-                    _ = FireUserNotifAsync(userId, "✅ Profile Verified",
+                    // SP already inserts the canonical Notifications row (NotifType matches) — push-only.
+                    _ = PushOnlyUserAsync(userId, "✅ Profile Verified",
                         "Your profile has been verified! Your verified badge is now visible to NGOs.",
                         "PROFILE_VERIFIED", userId, "USER");
                 return result.ToApiResponse();
@@ -517,9 +523,12 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_Reason",           reason);
                 });
                 if (result.Succeeded)
-                    _ = FireUserNotifAsync(userId, "⚠️ Action Required: Update Your Profile",
-                        "Please review and update your profile to continue using NGO Connect.",
-                        "PROFILE_UPDATE_REQUIRED", userId, "USER");
+                    // SP already inserts the canonical Notifications row with the REAL
+                    // reason text (NotifType='PROFILE_UPDATE_REQUIRED') — push-only here,
+                    // and the push body now carries the actual reason instead of generic
+                    // text, so the user sees it immediately instead of only in-app later.
+                    _ = PushOnlyUserAsync(userId, "⚠️ Action Required: Update Your Profile",
+                        reason, "PROFILE_UPDATE_REQUIRED", userId, "USER");
                 return result.ToApiResponse();
             }
             catch (Exception ex)
@@ -540,9 +549,16 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_Reason",           request.Reason);
                 });
                 if (result.Succeeded)
-                    _ = FireUserNotifAsync(userId, "⚠️ Account Suspended",
-                        "Your account has been suspended. Please contact support for assistance.",
-                        "ACCOUNT_SUSPENDED", userId, "USER");
+                {
+                    // SP already inserts the canonical Notifications row with the real
+                    // reason as Body (NotifType matches) — push-only, and the push body
+                    // now carries the real reason too instead of generic text.
+                    var suspendPushBody = string.IsNullOrWhiteSpace(request.Reason)
+                        ? "Your account has been suspended. Please contact support for assistance."
+                        : request.Reason;
+                    _ = PushOnlyUserAsync(userId, "⚠️ Account Suspended",
+                        suspendPushBody, "ACCOUNT_SUSPENDED", userId, "USER");
+                }
                 return result.ToApiResponse();
             }
             catch (Exception ex)
@@ -782,6 +798,38 @@ namespace NGOConnect.Infrastructure.DAL
                 await _fcm.SendMulticastAsync(tokens, title, body, notifType, refId, refType);
             }
             catch (Exception ex) { Log.Error(ex, "SuperAdminDal.FireOrgAdminNotifAsync failed OrgId={OrgId}", orgId); }
+        }
+
+        // Push-only variants (2026-08-23) — for actions whose stored procedure ALREADY
+        // inserts the canonical Notifications row (SuperAdmin_User_RequestUpdate,
+        // _VerifyProfile, _Suspend, Org_Approve). Previously these callers ALSO called
+        // FireUserNotifAsync/FireOrgAdminNotifAsync, which inserted a SECOND duplicate
+        // row — for RequestMemberUpdateAsync with a different NotifType than the SP's
+        // own insert, which broke in-app notification tap navigation, and for the
+        // others a same-type but still-duplicate row. These variants send the FCM
+        // push only, leaving the SP's insert as the single source of truth.
+        private async Task PushOnlyUserAsync(int userId, string title, string body,
+            string notifType, int? refId = null, string? refType = null)
+        {
+            try
+            {
+                var tokens = await _notif.GetTokensByUserIdAsync(userId);
+                await _fcm.SendMulticastAsync(tokens, title, body, notifType, refId, refType);
+            }
+            catch (Exception ex) { Log.Error(ex, "SuperAdminDal.PushOnlyUserAsync failed"); }
+        }
+
+        private async Task PushOnlyOrgAdminAsync(int orgId, string title, string body,
+            string notifType, int? refId = null, string? refType = null)
+        {
+            try
+            {
+                var admins = await _notif.GetAdminsWithTokensAsync(orgId);
+                if (admins.Count == 0) return;
+                var tokens = admins.Select(a => a.Token).ToList();
+                await _fcm.SendMulticastAsync(tokens, title, body, notifType, refId, refType);
+            }
+            catch (Exception ex) { Log.Error(ex, "SuperAdminDal.PushOnlyOrgAdminAsync failed OrgId={OrgId}", orgId); }
         }
 
         // ── Org project permissions ───────────────────────────────────────────

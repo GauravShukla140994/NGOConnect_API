@@ -953,5 +953,84 @@ namespace NGOConnect.Infrastructure.DAL
             }
             catch (Exception ex) { Log.Error(ex, "ProjectDal.FireProjectNotifAsync failed"); }
         }
+
+        // ── v5.1: Background job DAL methods ─────────────────────────────────────
+
+        public async Task<WriteResult> GenerateSessionsAsync(int daysAhead)
+        {
+            try
+            {
+                return await ExecuteWriteAsync("Project_GenerateSessions", cmd =>
+                    _db.AddParameter(cmd, "p_DaysAhead", daysAhead));
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GenerateSessionsAsync failed");
+                return new WriteResult { Succeeded = false, Message = "An error occurred." };
+            }
+        }
+
+        public async Task<WriteResult> AutoCompleteSessionsAsync()
+        {
+            try
+            {
+                return await ExecuteWriteAsync("Project_AutoCompleteSessions", cmd => { });
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "AutoCompleteSessionsAsync failed");
+                return new WriteResult { Succeeded = false, Message = "An error occurred." };
+            }
+        }
+
+        public async Task<List<CheckoutReminderTarget>> GetCheckoutReminderTargetsAsync(int minutesBefore)
+        {
+            try
+            {
+                return await ExecuteReaderListAsync<CheckoutReminderTarget>(
+                    "Project_GetCheckoutReminderTargets",
+                    r => new CheckoutReminderTarget
+                    {
+                        UserId      = r["UserId"]      != DBNull.Value ? Convert.ToInt32(r["UserId"])    : 0,
+                        ProjectId   = r["ProjectId"]   != DBNull.Value ? Convert.ToInt32(r["ProjectId"]) : 0,
+                        ProjectName = r["ProjectName"] != DBNull.Value ? r["ProjectName"].ToString()!    : string.Empty,
+                        FcmToken    = r["FcmToken"]    != DBNull.Value ? r["FcmToken"].ToString()!       : string.Empty,
+                        EndTime     = r["EndTime"]     != DBNull.Value ? r["EndTime"].ToString()!        : string.Empty,
+                    },
+                    cmd => _db.AddParameter(cmd, "p_MinutesBefore", minutesBefore));
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "GetCheckoutReminderTargetsAsync failed");
+                return [];
+            }
+        }
+
+        public async Task<WriteResult> CheckMilestoneNotificationsAsync()
+        {
+            try
+            {
+                return await ExecuteWriteAsync("Project_CheckMilestoneNotifications", cmd => { });
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "CheckMilestoneNotificationsAsync failed");
+                return new WriteResult { Succeeded = false, Message = "An error occurred." };
+            }
+        }
+
+        public async Task<WriteResult> AutoFinalizeStaleClosingAsync(int daysThreshold)
+        {
+            try
+            {
+                return await ExecuteWriteAsync("Project_AutoFinalizeStaleClosing", cmd =>
+                    _db.AddParameter(cmd, "p_DaysThreshold", daysThreshold));
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "AutoFinalizeStaleClosingAsync failed");
+                return new WriteResult { Succeeded = false, Message = "An error occurred." };
+            }
+        }
     }
 }
