@@ -144,6 +144,12 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_PageNumber", pageNumber);
                     _db.AddParameter(cmd, "p_PageSize",   pageSize);
                 });
+                // orgToken added per row (2026-08-24) so the website can build
+                // detail/action URLs without exposing raw OrgId in the Network
+                // tab — orgId itself is left in the row too (already visible in
+                // the response body, used for table keys/filters).
+                foreach (var row in paged.Items)
+                    row["orgToken"] = _tokens.Encrypt("ORG", row.Get<int>("orgId"));
                 return ApiResponse<PagedResult<DynamicRow>>.Success(paged);
             }
             catch (Exception ex)
@@ -162,9 +168,11 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_OrgId", orgId);
                 });
 
-                return row is null
-                    ? ApiResponse<DynamicRow>.Failure("Organisation not found.", "ORG_NOT_FOUND")
-                    : ApiResponse<DynamicRow>.Success(row);
+                if (row is null)
+                    return ApiResponse<DynamicRow>.Failure("Organisation not found.", "ORG_NOT_FOUND");
+
+                row["orgToken"] = _tokens.Encrypt("ORG", orgId);
+                return ApiResponse<DynamicRow>.Success(row);
             }
             catch (Exception ex)
             {
@@ -181,6 +189,8 @@ namespace NGOConnect.Infrastructure.DAL
                 {
                     _db.AddParameter(cmd, "p_OrgId", orgId);
                 });
+                foreach (var row in list)
+                    row["orgDocumentToken"] = _tokens.Encrypt("ORGDOC", row.Get<int>("orgDocumentId"));
                 return ApiResponse<List<DynamicRow>>.Success(list);
             }
             catch (Exception ex)
@@ -190,21 +200,21 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
-        public async Task<ApiResponse> VerifyOrgDocumentAsync(VerifyOrgDocumentRequest request, int superAdminUserId)
+        public async Task<ApiResponse> VerifyOrgDocumentAsync(int orgDocumentId, bool isVerified, int superAdminUserId)
         {
             try
             {
                 var result = await ExecuteWriteAsync("SuperAdmin_OrgDocument_Verify", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_OrgDocumentId",    request.OrgDocumentId);
+                    _db.AddParameter(cmd, "p_OrgDocumentId",    orgDocumentId);
                     _db.AddParameter(cmd, "p_SuperAdminUserId", superAdminUserId);
-                    _db.AddParameter(cmd, "p_IsVerified",       request.IsVerified);
+                    _db.AddParameter(cmd, "p_IsVerified",       isVerified);
                 });
                 return result.ToApiResponse();
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "VerifyOrgDocumentAsync failed OrgDocumentId={Id}", request.OrgDocumentId);
+                Log.Error(ex, "VerifyOrgDocumentAsync failed OrgDocumentId={Id}", orgDocumentId);
                 return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
             }
         }
@@ -261,56 +271,56 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
-        public async Task<ApiResponse> RejectOrgAsync(RejectOrgRequest request, int superAdminUserId)
+        public async Task<ApiResponse> RejectOrgAsync(int orgId, string reason, int superAdminUserId)
         {
             try
             {
                 var result = await ExecuteWriteAsync("SuperAdmin_Org_Reject", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_OrgId",            request.OrgId);
+                    _db.AddParameter(cmd, "p_OrgId",            orgId);
                     _db.AddParameter(cmd, "p_SuperAdminUserId", superAdminUserId);
-                    _db.AddParameter(cmd, "p_Reason",           request.Reason);
+                    _db.AddParameter(cmd, "p_Reason",           reason);
                 });
                 if (result.Succeeded)
                 {
-                    var rejectBody = string.IsNullOrWhiteSpace(request.Reason)
+                    var rejectBody = string.IsNullOrWhiteSpace(reason)
                         ? "Your organisation registration was not approved. Please review your details and resubmit."
-                        : $"Your organisation registration was not approved. Reason: {request.Reason}";
-                    _ = FireOrgAdminNotifAsync(request.OrgId, "NGO Registration Not Approved",
-                        rejectBody, "ORG_REJECTED", request.OrgId, "ORG");
+                        : $"Your organisation registration was not approved. Reason: {reason}";
+                    _ = FireOrgAdminNotifAsync(orgId, "NGO Registration Not Approved",
+                        rejectBody, "ORG_REJECTED", orgId, "ORG");
                 }
                 return result.ToApiResponse();
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "RejectOrgAsync failed OrgId={OrgId}", request.OrgId);
+                Log.Error(ex, "RejectOrgAsync failed OrgId={OrgId}", orgId);
                 return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
             }
         }
 
-        public async Task<ApiResponse> SuspendOrgAsync(SuspendOrgRequest request, int superAdminUserId)
+        public async Task<ApiResponse> SuspendOrgAsync(int orgId, string? reason, int superAdminUserId)
         {
             try
             {
                 var result = await ExecuteWriteAsync("SuperAdmin_Org_Suspend", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_OrgId",            request.OrgId);
+                    _db.AddParameter(cmd, "p_OrgId",            orgId);
                     _db.AddParameter(cmd, "p_SuperAdminUserId", superAdminUserId);
-                    _db.AddParameter(cmd, "p_Reason",           request.Reason);
+                    _db.AddParameter(cmd, "p_Reason",           reason);
                 });
                 if (result.Succeeded)
                 {
-                    var suspendBody = string.IsNullOrWhiteSpace(request.Reason)
+                    var suspendBody = string.IsNullOrWhiteSpace(reason)
                         ? "Your organisation has been suspended. Please contact support for details."
-                        : $"Your organisation has been suspended. Reason: {request.Reason}";
-                    _ = FireOrgAdminNotifAsync(request.OrgId, "⚠️ NGO Suspended",
-                        suspendBody, "ORG_SUSPENDED", request.OrgId, "ORG");
+                        : $"Your organisation has been suspended. Reason: {reason}";
+                    _ = FireOrgAdminNotifAsync(orgId, "⚠️ NGO Suspended",
+                        suspendBody, "ORG_SUSPENDED", orgId, "ORG");
                 }
                 return result.ToApiResponse();
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "SuspendOrgAsync failed OrgId={OrgId}", request.OrgId);
+                Log.Error(ex, "SuspendOrgAsync failed OrgId={OrgId}", orgId);
                 return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
             }
         }
@@ -369,6 +379,10 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_PageNumber", pageNumber);
                     _db.AddParameter(cmd, "p_PageSize",   pageSize);
                 });
+                // userToken added per row (2026-08-24) — same rationale as
+                // orgToken on GetOrgListAsync. userId stays in the row too.
+                foreach (var row in paged.Items)
+                    row["userToken"] = _tokens.Encrypt("USER", row.Get<int>("userId"));
                 return ApiResponse<PagedResult<DynamicRow>>.Success(paged);
             }
             catch (Exception ex)
@@ -422,6 +436,7 @@ namespace NGOConnect.Infrastructure.DAL
                         otherOrgs.Add(new DynamicRow(r));
                 profile["otherOrgs"] = otherOrgs;
 
+                profile["userToken"] = _tokens.Encrypt("USER", userId);
                 return ApiResponse<DynamicRow>.Success(profile);
             }
             catch (Exception ex)
@@ -439,6 +454,8 @@ namespace NGOConnect.Infrastructure.DAL
                 {
                     _db.AddParameter(cmd, "p_UserId", userId);
                 });
+                foreach (var row in list)
+                    row["userDocumentToken"] = _tokens.Encrypt("USERDOC", row.Get<int>("userDocumentId"));
                 return ApiResponse<List<DynamicRow>>.Success(list);
             }
             catch (Exception ex)
@@ -448,21 +465,21 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
-        public async Task<ApiResponse> VerifyMemberDocumentAsync(VerifyMemberDocumentRequest request, int superAdminUserId)
+        public async Task<ApiResponse> VerifyMemberDocumentAsync(int userDocumentId, bool isVerified, int superAdminUserId)
         {
             try
             {
                 var result = await ExecuteWriteAsync("SuperAdmin_UserDocument_Verify", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_UserDocumentId",   request.UserDocumentId);
+                    _db.AddParameter(cmd, "p_UserDocumentId",   userDocumentId);
                     _db.AddParameter(cmd, "p_SuperAdminUserId", superAdminUserId);
-                    _db.AddParameter(cmd, "p_IsVerified",       request.IsVerified);
+                    _db.AddParameter(cmd, "p_IsVerified",       isVerified);
                 });
                 return result.ToApiResponse();
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "VerifyMemberDocumentAsync failed UserDocumentId={Id}", request.UserDocumentId);
+                Log.Error(ex, "VerifyMemberDocumentAsync failed UserDocumentId={Id}", userDocumentId);
                 return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
             }
         }
@@ -489,25 +506,25 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
-        public async Task<ApiResponse> RequestMemberUpdateAsync(RequestMemberUpdateRequest request, int superAdminUserId)
+        public async Task<ApiResponse> RequestMemberUpdateAsync(int userId, string reason, int superAdminUserId)
         {
             try
             {
                 var result = await ExecuteWriteAsync("SuperAdmin_User_RequestUpdate", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_UserId",           request.UserId);
+                    _db.AddParameter(cmd, "p_UserId",           userId);
                     _db.AddParameter(cmd, "p_SuperAdminUserId", superAdminUserId);
-                    _db.AddParameter(cmd, "p_Reason",           request.Reason);
+                    _db.AddParameter(cmd, "p_Reason",           reason);
                 });
                 if (result.Succeeded)
-                    _ = FireUserNotifAsync(request.UserId, "⚠️ Action Required: Update Your Profile",
+                    _ = FireUserNotifAsync(userId, "⚠️ Action Required: Update Your Profile",
                         "Please review and update your profile to continue using NGO Connect.",
-                        "PROFILE_UPDATE_REQUIRED", request.UserId, "USER");
+                        "PROFILE_UPDATE_REQUIRED", userId, "USER");
                 return result.ToApiResponse();
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "RequestMemberUpdateAsync failed UserId={UserId}", request.UserId);
+                Log.Error(ex, "RequestMemberUpdateAsync failed UserId={UserId}", userId);
                 return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
             }
         }

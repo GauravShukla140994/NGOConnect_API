@@ -19,34 +19,38 @@ namespace NGOConnect.Core.Models.SuperAdmin
     }
 
     // ── Organisation review ──────────────────────────────────────────────────
+    // OrgId/OrgDocumentId/UserId/UserDocumentId fields below were replaced with
+    // encrypted tokens (2026-08-24) — see SuperAdminController.TryResolveId.
+    // Raw sequential IDs are decrypted server-side in the controller only; the
+    // DAL/SP layer below still works with plain ints exactly as before.
     public class RejectOrgRequest
     {
-        [Required] public int    OrgId  { get; set; }
+        [Required] public string OrgToken { get; set; } = string.Empty;
         [Required][MaxLength(1000)] public string Reason { get; set; } = string.Empty;
     }
 
     public class SuspendOrgRequest
     {
-        [Required] public int    OrgId  { get; set; }
+        [Required] public string OrgToken { get; set; } = string.Empty;
         [MaxLength(1000)] public string? Reason { get; set; }
     }
 
     public class VerifyOrgDocumentRequest
     {
-        [Required] public int  OrgDocumentId { get; set; }
-        [Required] public bool IsVerified    { get; set; }
+        [Required] public string OrgDocumentToken { get; set; } = string.Empty;
+        [Required] public bool   IsVerified       { get; set; }
     }
 
     // ── Member review ─────────────────────────────────────────────────────────
     public class VerifyMemberDocumentRequest
     {
-        [Required] public int  UserDocumentId { get; set; }
-        [Required] public bool IsVerified     { get; set; }
+        [Required] public string UserDocumentToken { get; set; } = string.Empty;
+        [Required] public bool   IsVerified         { get; set; }
     }
 
     public class RequestMemberUpdateRequest
     {
-        [Required] public int    UserId { get; set; }
+        [Required] public string UserToken { get; set; } = string.Empty;
         [Required][MaxLength(1000)] public string Reason { get; set; } = string.Empty;
     }
 

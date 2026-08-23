@@ -17,11 +17,11 @@ namespace NGOConnect.Core.Interfaces
         Task<ApiResponse<PagedResult<DynamicRow>>> GetOrgListAsync(string statusCode, int pageNumber, int pageSize);
         Task<ApiResponse<DynamicRow>>              GetOrgDetailAsync(int orgId);
         Task<ApiResponse<List<DynamicRow>>>        GetOrgDocumentsAsync(int orgId);
-        Task<ApiResponse>                          VerifyOrgDocumentAsync(VerifyOrgDocumentRequest request, int superAdminUserId);
+        Task<ApiResponse>                          VerifyOrgDocumentAsync(int orgDocumentId, bool isVerified, int superAdminUserId);
         Task<ApiResponse>                          VerifyOrgProfileAsync(int orgId, string statusCode, int superAdminUserId);
         Task<ApiResponse>                          ApproveOrgAsync(int orgId, int superAdminUserId);
-        Task<ApiResponse>                          RejectOrgAsync(RejectOrgRequest request, int superAdminUserId);
-        Task<ApiResponse>                          SuspendOrgAsync(SuspendOrgRequest request, int superAdminUserId);
+        Task<ApiResponse>                          RejectOrgAsync(int orgId, string reason, int superAdminUserId);
+        Task<ApiResponse>                          SuspendOrgAsync(int orgId, string? reason, int superAdminUserId);
         Task<ApiResponse>                          ReactivateOrgAsync(int orgId, int superAdminUserId);
         Task<ApiResponse<List<DynamicRow>>>        GetOrgStatusHistoryAsync(int orgId);
 
@@ -29,9 +29,9 @@ namespace NGOConnect.Core.Interfaces
         Task<ApiResponse<PagedResult<DynamicRow>>> GetMemberListAsync(string? orgIds, string? search, int pageNumber, int pageSize);
         Task<ApiResponse<DynamicRow>>              GetMemberProfileAsync(int userId);
         Task<ApiResponse<List<DynamicRow>>>        GetMemberDocumentsAsync(int userId);
-        Task<ApiResponse>                          VerifyMemberDocumentAsync(VerifyMemberDocumentRequest request, int superAdminUserId);
+        Task<ApiResponse>                          VerifyMemberDocumentAsync(int userDocumentId, bool isVerified, int superAdminUserId);
         Task<ApiResponse>                          VerifyMemberProfileAsync(int userId, int superAdminUserId);
-        Task<ApiResponse>                          RequestMemberUpdateAsync(RequestMemberUpdateRequest request, int superAdminUserId);
+        Task<ApiResponse>                          RequestMemberUpdateAsync(int userId, string reason, int superAdminUserId);
         Task<ApiResponse>                          SuspendMemberAsync(int userId, SuspendMemberRequest request, int superAdminUserId);
         Task<ApiResponse>                          ReactivateMemberAsync(int userId, int superAdminUserId);
 

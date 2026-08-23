@@ -2486,6 +2486,35 @@ Modified (additive SELECT columns only):
 - `SuperAdmin_Org_GetDetail` — added `o.OrgTypeLkpId` (needed to pre-select the edit form's org type dropdown).
 - `SuperAdmin_User_GetFullProfile` (result set 0) — added `u.CountryCode`, `up.AddressLine1`, `up.AddressLine2`, `up.Pincode`, `up.GenderLkpId` (needed to pre-fill the member edit form — several of these weren't returned at all before).
 
+**Also fixed — pre-existing bugs found while testing this feature (not introduced by it, but this SP had never actually worked before — all 5 result sets now individually cross-checked against the live `CREATE TABLE` definitions):**
+- `SuperAdmin_User_GetFullProfile` result set 1 (skills) — old query joined `UserSkills.SkillLkpId` to `LookupValues`, but that column has never existed; `UserSkills.SkillName` is a plain `VARCHAR`. Every call errored with `Unknown column 'us.SkillLkpId' in 'on clause'` (reported live from Railway logs, `UserId=17`). Fixed to select `us.SkillName` directly, no join.
+- `SuperAdmin_User_GetFullProfile` result set 2 (interests) — old query filtered `WHERE ui.IsDeleted = 0`, but `UserInterests` has no `IsDeleted` column at all (no soft-delete on this table). Errored with `Unknown column 'ui.IsDeleted' in 'where clause'` (reported live from Railway logs immediately after the skills fix was deployed). Fixed by dropping that filter.
+- `SuperAdmin_User_GetFullProfile` result set 3 (badges) — old query selected `ub.BadgeType`/`ub.BadgeName`/`ub.AwardedAt`/`ub.OrgId`, none of which exist on `UserBadges` (actual columns: `BadgeLkpId`, `AwardedByOrgId`, `CreatedAt`). Would have failed identically the moment execution reached it — caught proactively rather than waiting for a third bug report. Fixed to join `LookupValues` on `BadgeLkpId` and alias the correct columns.
+- Result set 4 (other-orgs membership history) was re-verified column-by-column against `OrgMembers`/`Organisations`/`LookupValues` and is correct as-is.
+- Result set 0 (core profile) was missing `AccountStatus` entirely (user-reported: MemberDrawer's "Account" pill showed "—"). `MemberDrawer.jsx`'s `StatusPill` and its suspend/reactivate branch both read `profile.accountStatus`, which was never returned by this SP at all. Added `IF(u.IsActive = 1, 'ACTIVE', 'SUSPENDED') AS AccountStatus` — same derivation `SuperAdmin_User_GetList` already uses for the members table. No C# change needed — flows through the existing `DynamicRow` camelCase mapping.
+
+---
+
+### [2026-08-24] Super Admin website — encrypted tokens replace raw OrgId/UserId in all SuperAdminController URLs
+
+**User-reported:** clicking "View" on the Organisations list page showed raw sequential `OrgId` values (e.g. `64`, `78`) in the browser Network tab — leaking org/member count and growth rate to anyone with eyes on an authenticated Super Admin session. Confirmed with user before building: auth is already fully enforced by the `[Authorize(Roles = "SUPER_ADMIN")]` JWT, not by ID secrecy, so this is info-leak hardening (defense-in-depth), not an access-control fix. Scope agreed: hide raw IDs from all `SuperAdminController` URLs (path segments + body-carried IDs used to target a specific entity) across org + member endpoints; list-endpoint query filters (`orgIds=`) and response-body `orgId`/`userId` fields were explicitly left alone (raw ints still present there — same info already visible in the response body regardless, out of scope per the option the user picked).
+
+**No table/SP changes** — this is entirely a controller/DAL/website change. Reuses the existing `IUrlTokenService` (AES-256-GCM, same mechanism as the public `/organisation/{token}` share links) with two new entity type labels: `USER` (member IDs) and `ORGDOC`/`USERDOC` (document IDs), alongside the existing `ORG`.
+
+#### Backend changes
+- `SuperAdminController.cs` — injected `IUrlTokenService`; added a `TryResolveId`/`TryResolveId<T>` helper that decrypts a token, validates its entity type, and returns the resolved int (or an `INVALID_TOKEN` error). Every route that previously took `{orgId:int}`/`{userId:int}` now takes a plain `{orgToken}`/`{userToken}` string segment and resolves it at the top of the action; every SP/DAL call below is completely unchanged (still plain ints internally). ~19 endpoints updated: org detail/documents/verify-profile/approve/reject/suspend/reactivate/history/project-permissions/profile, and the member equivalents (profile/documents/verify-profile/request-update/suspend/reactivate/profile), plus the two document-verify endpoints (`OrgDocumentToken`/`UserDocumentToken` in the request body).
+- `SuperAdminModels.cs` — `RejectOrgRequest`, `SuspendOrgRequest` (`OrgId` → `OrgToken`), `VerifyOrgDocumentRequest` (`OrgDocumentId` → `OrgDocumentToken`), `VerifyMemberDocumentRequest` (`UserDocumentId` → `UserDocumentToken`), `RequestMemberUpdateRequest` (`UserId` → `UserToken`).
+- `ISuperAdminDal.cs` / `SuperAdminDal.cs` — `VerifyOrgDocumentAsync`, `RejectOrgAsync`, `SuspendOrgAsync`, `VerifyMemberDocumentAsync`, `RequestMemberUpdateAsync` signatures changed from taking a `*Request` object to taking the resolved int(s) + remaining fields directly (token resolution now happens once, in the controller). `GetOrgListAsync`, `GetOrgDetailAsync`, `GetOrgDocumentsAsync`, `GetMemberListAsync`, `GetMemberProfileAsync`, `GetMemberDocumentsAsync` now mint and attach a `orgToken`/`userToken`/`orgDocumentToken`/`userDocumentToken` field to each row/response (raw `orgId`/`userId` fields are left in the row too — unchanged, still used for React keys/display).
+
+#### Website changes
+- `admin/api/orgs.js`, `admin/api/members.js` — every function that previously took a raw `orgId`/`userId`/`orgDocumentId`/`userDocumentId` now takes the corresponding token; `getOrgShareUrl` (the separate `/share/token` call added for the "View profile" button) was removed entirely — `org.orgToken` from the detail response IS the same encrypted `"ORG:{id}"` payload `ShareController` would have minted, so `OrgDrawer` now builds the `/organisation/{token}` link client-side with zero extra network calls and zero raw-ID exposure.
+- `admin/pages/OrganisationsPage.jsx`, `admin/pages/MembersPage.jsx` — `selectedOrgId`/`selectedUserId` state renamed to `selectedOrgToken`/`selectedUserToken`, sourced from `o.orgToken`/`m.userToken` in the list rows instead of `o.orgId`/`m.userId`.
+- `admin/pages/OrgDrawer.jsx`, `admin/pages/MemberDrawer.jsx` — `orgId`/`userId` prop renamed to `orgToken`/`userToken`; every internal API call updated to match. Document verify calls now pass `doc.orgDocumentToken`/`doc.userDocumentToken` (minted server-side per row) instead of the raw document id.
+
+**Patch file:** none — no SP/DB changes.
+**Validator:** `validate_sp_params.py` re-run, all phases passed (no SP/DAL param signatures touched by this change — DAL still calls the same SPs with the same params, only the C# method signature *above* the SP call layer changed).
+**Build verified:** Website `npm run build` — 881 modules, no errors. API `dotnet build` **not verified** in this session (no .NET SDK in the sandbox) — this was a substantial cross-cutting C# change (controller + interface + DAL across ~19 endpoints); strongly recommend a full local `dotnet build` before deploying, on top of the manual read-through already done here.
+
 #### Backend changes
 - `SuperAdminModels.cs` — new `UpdateOrgProfileRequest`, `UpdateMemberProfileRequest`.
 - `ISuperAdminDal.cs` / `SuperAdminDal.cs` — new `UpdateOrgProfileAsync`, `UpdateMemberProfileAsync`.
@@ -2514,3 +2543,13 @@ Modified (additive SELECT columns only):
 - **Patch file:** `Documents/patch_my_posts.sql` — run on local → Railway staging → Railway production.
 - **Validator:** all 6 phases passed.
 - **Database Documentation**: add `Post_GetByUser` SP + `GET /api/v1/feed/myposts` endpoint at next "update documents" pass.
+
+
+**RECURRING day-match bug fix — Project_SelfCheckIn + Project_ManualAttendance (2026-08-23)**
+- **Bug:** Both SPs used `FIND_IN_SET(DAYNAME(v_TodayIST), v_RecurDays)`. `DAYNAME()` returns full names ("Monday") but stored `RecurDays` format is 3-letter abbreviations ("MON,TUE,WED"). Result: RECURRING self-check-in and manual attendance always returned "no session today".
+- **Fix:** Changed both SPs to use `FIND_IN_SET(LEFT(UPPER(DAYNAME(v_TodayIST)), 3), UPPER(REPLACE(COALESCE(v_RecurDays, ''), ' ', '')))` — matches stored "MON","TUE" format correctly.
+- ONE_TIME and FLEXIBLE branches untouched.
+- `NGOConnect_Complete_Setup_v5.0.sql`: both SPs updated.
+- **Patch file:** `Documents/patch_fix_recurring_days.sql` — run on local → Railway staging → Railway production.
+- **Validator:** all 6 phases passed.
+- **DAL note:** `p_RecurrenceDays` in ProjectDal.cs is correct — the active SPs (v5.1 validated versions) use `p_RecurrenceDays`. No DAL change needed.

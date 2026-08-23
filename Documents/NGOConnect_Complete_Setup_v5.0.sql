@@ -8979,7 +8979,8 @@ BEGIN
                 END IF;
             ELSEIF v_ScheduleTypeCode = 'RECURRING' THEN
                 IF v_TodayIST BETWEEN v_RecurStart AND v_RecurEnd
-                   AND FIND_IN_SET(DAYNAME(v_TodayIST), v_RecurDays) > 0 THEN
+                   AND FIND_IN_SET(LEFT(UPPER(DAYNAME(v_TodayIST)), 3),
+                                   UPPER(REPLACE(COALESCE(v_RecurDays, ''), ' ', ''))) > 0 THEN
                     SET v_SessionDate = v_TodayIST;
                 END IF;
             ELSEIF v_ScheduleTypeCode = 'FLEXIBLE' THEN
@@ -10241,6 +10242,12 @@ BEGIN
     -- Result Set 0: core profile
     SELECT
         u.UserId, u.Email, u.Mobile, u.IsActive, u.IsVerified,
+        -- v5.5-fix: AccountStatus was never returned by this SP at all —
+        -- MemberDrawer.jsx's "Account" StatusPill and its suspend/reactivate
+        -- branch both read profile.accountStatus, which was always undefined
+        -- (rendered as "—"). Same derivation already used by
+        -- SuperAdmin_User_GetList for the members table — reusing it here.
+        IF(u.IsActive = 1, 'ACTIVE', 'SUSPENDED') AS AccountStatus,
         COALESCE(pv.ValueCode, 'PENDING') AS ProfileVerificationStatus,
         COALESCE(pv.ValueName, 'Not Reviewed') AS ProfileVerificationStatusName,
         u.LastLoginAt, u.CreatedAt AS RegisteredAt,
@@ -10271,24 +10278,40 @@ BEGIN
     WHERE u.UserId = p_UserId AND u.IsDeleted = 0;
 
     -- Result Set 1: skills
-    SELECT s.ValueName AS SkillName, s.ValueCode AS SkillCode
+    -- v5.5-fix: UserSkills.SkillName is a plain VARCHAR (see CREATE TABLE
+    -- UserSkills) — there is no SkillLkpId column and never was. The old
+    -- JOIN LookupValues ON us.SkillLkpId = ... referenced a column that
+    -- doesn't exist, breaking every call to this SP (Unknown column
+    -- 'us.SkillLkpId' in 'on clause') — this was a pre-existing bug, not
+    -- something introduced by the v5.5 profile-edit work; just surfaced by
+    -- it since MemberDrawer now calls GetMemberProfile more often.
+    SELECT us.SkillName AS SkillName, us.SkillName AS SkillCode
     FROM UserSkills us
-    JOIN LookupValues s ON us.SkillLkpId = s.LookupValueId
     WHERE us.UserId = p_UserId AND us.IsDeleted = 0;
 
     -- Result Set 2: interests
+    -- v5.5-fix: same class of bug as skills/badges above — UserInterests has
+    -- no IsDeleted column at all (see CREATE TABLE UserInterests: UserId,
+    -- InterestLkpId, CreatedAt only) -> "Unknown column 'ui.IsDeleted'".
     SELECT iv.ValueName, iv.ValueCode
     FROM UserInterests ui
     JOIN LookupValues iv ON ui.InterestLkpId = iv.LookupValueId
-    WHERE ui.UserId = p_UserId AND ui.IsDeleted = 0;
+    WHERE ui.UserId = p_UserId;
 
     -- Result Set 3: badges
-    SELECT ub.BadgeType, ub.BadgeName, ub.AwardedAt, ub.AwardedBy,
-           ub.OrgId, o.OrgName
+    -- v5.5-fix: same class of bug as the skills query above — UserBadges has
+    -- no BadgeType/BadgeName/AwardedAt/OrgId columns (see CREATE TABLE
+    -- UserBadges: BadgeLkpId, AwardedByOrgId, CreatedAt). Never actually
+    -- executed successfully before (execution always stopped at the skills
+    -- query first) — fixing both together rather than leaving this one to
+    -- surface as a second round-trip bug report.
+    SELECT lv.ValueName AS BadgeType, ub.AwardedBy, ub.CreatedAt AS AwardedAt,
+           ub.AwardedByOrgId AS OrgId, o.OrgName
     FROM UserBadges ub
-    LEFT JOIN Organisations o ON ub.OrgId = o.OrgId AND o.IsDeleted = 0
+    LEFT JOIN LookupValues lv ON ub.BadgeLkpId = lv.LookupValueId
+    LEFT JOIN Organisations o ON ub.AwardedByOrgId = o.OrgId AND o.IsDeleted = 0
     WHERE ub.UserId = p_UserId AND ub.IsDeleted = 0
-    ORDER BY ub.AwardedAt DESC;
+    ORDER BY ub.CreatedAt DESC;
 
     -- Result Set 4: other orgs (membership history)
     SELECT o.OrgId, o.OrgName, o.LogoUrl,
@@ -12779,7 +12802,8 @@ BEGIN
 
             ELSEIF v_ScheduleTypeCode = 'RECURRING' THEN
                 IF v_TodayIST BETWEEN v_RecurStart AND v_RecurEnd
-                   AND FIND_IN_SET(DAYNAME(v_TodayIST), v_RecurDays) > 0 THEN
+                   AND FIND_IN_SET(LEFT(UPPER(DAYNAME(v_TodayIST)), 3),
+                                   UPPER(REPLACE(COALESCE(v_RecurDays, ''), ' ', ''))) > 0 THEN
                     SET v_SessionDate = v_TodayIST;
                 END IF;
 
@@ -14971,7 +14995,7 @@ END //
 DELIMITER ;
 
 INSERT IGNORE INTO SchemaVersions (Version, Description, AppliedBy)
-VALUES ('v5.5-superadmin-profile-edit', 'SuperAdmin_Org_UpdateProfile + SuperAdmin_User_UpdateProfile — post-creation field correction for Super Admin onboarded orgs/members. Email/Mobile edit locked once Users.IsVerified = 1.', 'System');
+VALUES ('v5.5-superadmin-profile-edit', 'SuperAdmin_Org_UpdateProfile + SuperAdmin_User_UpdateProfile — post-creation field correction for Super Admin onboarded orgs/members. Email/Mobile edit locked once Users.IsVerified = 1. Also extends SuperAdmin_Org_GetDetail (+OrgTypeLkpId) and SuperAdmin_User_GetFullProfile (+CountryCode/AddressLine1/AddressLine2/Pincode/GenderLkpId/AccountStatus) so the edit forms and Account status pill can be pre-filled, and fixes three pre-existing column-name bugs in SuperAdmin_User_GetFullProfile (skills: UserSkills.SkillLkpId does not exist; interests: UserInterests.IsDeleted does not exist; badges: UserBadges.BadgeType/BadgeName/AwardedAt/OrgId do not exist) that broke every call to it.', 'System');
 
 -- ============================================================
 -- RICH PUBLIC ORGANISATION PROFILE (Super Admin onboarding Phase 3)

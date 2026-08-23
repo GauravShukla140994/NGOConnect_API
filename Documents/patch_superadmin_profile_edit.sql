@@ -29,6 +29,27 @@
 --                                    member edit form; several of these
 --                                    weren't returned at all before).
 --
+-- ALSO FIXES (pre-existing bugs, surfaced while testing the above — not
+-- introduced by this patch, but this SP never worked correctly before):
+--   Result Set 1 (skills) — old query joined UserSkills.SkillLkpId to
+--   LookupValues, but that column never existed (UserSkills.SkillName is a
+--   plain VARCHAR) -> "Unknown column 'us.SkillLkpId'" on every call.
+--   Result Set 3 (badges) — old query selected ub.BadgeType/BadgeName/
+--   AwardedAt/OrgId, none of which exist on UserBadges (actual columns:
+--   BadgeLkpId, AwardedByOrgId, CreatedAt) -> would have failed identically
+--   the moment execution reached it, just never got that far before.
+--   Result Set 2 (interests) — old query filtered WHERE ui.IsDeleted = 0,
+--   but UserInterests has no IsDeleted column at all (no soft-delete on
+--   this table) -> "Unknown column 'ui.IsDeleted' in 'where clause'"
+--   (reported live from Railway logs, UserId=17, right after the skills fix
+--   was deployed — same underlying pattern: this SP had 3 separate broken
+--   result sets and had evidently never completed successfully before).
+--   Result set 0 (core profile) was also missing AccountStatus entirely —
+--   MemberDrawer.jsx's "Account" StatusPill and suspend/reactivate branch
+--   both read profile.accountStatus, which was always undefined (rendered
+--   as "—" in the UI). Added IF(u.IsActive = 1, 'ACTIVE', 'SUSPENDED') AS
+--   AccountStatus — same derivation already used by SuperAdmin_User_GetList.
+--
 -- Run on: local -> Railway staging -> Railway production
 -- Safe to re-run: all DROP+CREATE, idempotent.
 -- ============================================================
@@ -81,6 +102,11 @@ BEGIN
     -- Result Set 0: core profile
     SELECT
         u.UserId, u.Email, u.Mobile, u.IsActive, u.IsVerified,
+        -- AccountStatus was never returned by this SP — MemberDrawer.jsx's
+        -- "Account" StatusPill/suspend-reactivate branch reads
+        -- profile.accountStatus, always undefined before. Same derivation
+        -- already used by SuperAdmin_User_GetList (members table).
+        IF(u.IsActive = 1, 'ACTIVE', 'SUSPENDED') AS AccountStatus,
         COALESCE(pv.ValueCode, 'PENDING') AS ProfileVerificationStatus,
         COALESCE(pv.ValueName, 'Not Reviewed') AS ProfileVerificationStatusName,
         u.LastLoginAt, u.CreatedAt AS RegisteredAt,
@@ -108,25 +134,28 @@ BEGIN
     LEFT JOIN LookupValues wv ON up.WorkExpLkpId   = wv.LookupValueId
     WHERE u.UserId = p_UserId AND u.IsDeleted = 0;
 
-    -- Result Set 1: skills
-    SELECT s.ValueName AS SkillName, s.ValueCode AS SkillCode
+    -- Result Set 1: skills — UserSkills.SkillName is a plain VARCHAR, no
+    -- SkillLkpId column exists (fixed here — see header note above).
+    SELECT us.SkillName AS SkillName, us.SkillName AS SkillCode
     FROM UserSkills us
-    JOIN LookupValues s ON us.SkillLkpId = s.LookupValueId
     WHERE us.UserId = p_UserId AND us.IsDeleted = 0;
 
-    -- Result Set 2: interests
+    -- Result Set 2: interests — UserInterests has no IsDeleted column
+    -- (fixed here — see header note above).
     SELECT iv.ValueName, iv.ValueCode
     FROM UserInterests ui
     JOIN LookupValues iv ON ui.InterestLkpId = iv.LookupValueId
-    WHERE ui.UserId = p_UserId AND ui.IsDeleted = 0;
+    WHERE ui.UserId = p_UserId;
 
-    -- Result Set 3: badges
-    SELECT ub.BadgeType, ub.BadgeName, ub.AwardedAt, ub.AwardedBy,
-           ub.OrgId, o.OrgName
+    -- Result Set 3: badges — UserBadges has no BadgeType/BadgeName/AwardedAt/
+    -- OrgId columns (fixed here — see header note above).
+    SELECT lv.ValueName AS BadgeType, ub.AwardedBy, ub.CreatedAt AS AwardedAt,
+           ub.AwardedByOrgId AS OrgId, o.OrgName
     FROM UserBadges ub
-    LEFT JOIN Organisations o ON ub.OrgId = o.OrgId AND o.IsDeleted = 0
+    LEFT JOIN LookupValues lv ON ub.BadgeLkpId = lv.LookupValueId
+    LEFT JOIN Organisations o ON ub.AwardedByOrgId = o.OrgId AND o.IsDeleted = 0
     WHERE ub.UserId = p_UserId AND ub.IsDeleted = 0
-    ORDER BY ub.AwardedAt DESC;
+    ORDER BY ub.CreatedAt DESC;
 
     -- Result Set 4: other orgs (membership history)
     SELECT o.OrgId, o.OrgName, o.LogoUrl,
@@ -301,7 +330,7 @@ END //
 DELIMITER ;
 
 INSERT IGNORE INTO SchemaVersions (Version, Description, AppliedBy)
-VALUES ('v5.5-superadmin-profile-edit', 'SuperAdmin_Org_UpdateProfile + SuperAdmin_User_UpdateProfile — post-creation field correction for Super Admin onboarded orgs/members. Email/Mobile edit locked once Users.IsVerified = 1. Also extends SuperAdmin_Org_GetDetail (+OrgTypeLkpId) and SuperAdmin_User_GetFullProfile (+CountryCode/AddressLine1/AddressLine2/Pincode/GenderLkpId) so the edit forms can be pre-filled.', 'System');
+VALUES ('v5.5-superadmin-profile-edit', 'SuperAdmin_Org_UpdateProfile + SuperAdmin_User_UpdateProfile — post-creation field correction for Super Admin onboarded orgs/members. Email/Mobile edit locked once Users.IsVerified = 1. Also extends SuperAdmin_Org_GetDetail (+OrgTypeLkpId) and SuperAdmin_User_GetFullProfile (+CountryCode/AddressLine1/AddressLine2/Pincode/GenderLkpId/AccountStatus) so the edit forms and Account status pill can be pre-filled, and fixes three pre-existing column-name bugs in SuperAdmin_User_GetFullProfile (skills: UserSkills.SkillLkpId does not exist; interests: UserInterests.IsDeleted does not exist; badges: UserBadges.BadgeType/BadgeName/AwardedAt/OrgId do not exist) that broke every call to it.', 'System');
 
 -- ============================================================
 -- VERIFICATION (run after applying)
