@@ -9565,6 +9565,10 @@ BEGIN
         -- Same gap repeated with OrgMaxVolunteers when that field was added —
         -- fixing both here together.
         o.CanCreateRecurring, o.CanCreateFlexible, o.OrgMaxVolunteers,
+        -- v5.5: OrgTypeLkpId added — needed so the Super Admin website can
+        -- pre-select the org type dropdown when editing an org's profile
+        -- (only the resolved name, tv.ValueName, was returned before).
+        o.OrgTypeLkpId,
         tv.ValueName AS OrgType,
         sv.ValueCode AS StatusCode, sv.ValueName AS StatusName,
         o.CreatedAt AS SubmittedAt, o.StatusUpdatedAt,
@@ -10240,11 +10244,20 @@ BEGIN
         COALESCE(pv.ValueCode, 'PENDING') AS ProfileVerificationStatus,
         COALESCE(pv.ValueName, 'Not Reviewed') AS ProfileVerificationStatusName,
         u.LastLoginAt, u.CreatedAt AS RegisteredAt,
+        -- v5.5: CountryCode added alongside the existing Mobile column —
+        -- needed by the Super Admin website's member edit form.
+        u.CountryCode,
         up.FirstName, up.LastName,
         CONCAT(up.FirstName, ' ', up.LastName) AS FullName,
         up.DateOfBirth, up.Bio, up.ProfilePhoto,
         up.Occupation, up.Organisation AS OrganisationName,
-        up.City, up.State, up.Country,
+        -- v5.5: AddressLine1/2, Pincode, GenderLkpId added — only the City/
+        -- State/Country and resolved Gender NAME were returned before, which
+        -- isn't enough to pre-fill a full edit form (address lines/pincode
+        -- were missing entirely; GenderLkpId is needed to pre-select the
+        -- dropdown, not just display the resolved name).
+        up.AddressLine1, up.AddressLine2, up.City, up.State, up.Pincode, up.Country,
+        up.GenderLkpId,
         up.ImpactScore, up.ReliabilityPct,
         gv.ValueName AS Gender,
         ev.ValueName AS Education,
@@ -14777,6 +14790,188 @@ END //
 
 INSERT IGNORE INTO SchemaVersions (Version, Description, AppliedBy)
 VALUES ('v5.3-superadmin-member-onboarding', 'SuperAdmin_CreateMemberWithOrg — proactive Super Admin onboarding: creates User+UserProfile+Organisation(optional)+OrgMembers atomically.', 'System');
+
+-- ============================================================
+-- SUPER ADMIN — EDIT ORGANISATION / MEMBER PROFILE VALUES
+-- Post-creation correction flow: fix a typo'd org name, wrong
+-- contact email, wrong address, etc. after Create Member/Org.
+-- Full-profile overwrite (same style as the create SP), not
+-- per-field PATCH — matches Core Mandate "Change-Adoptable".
+--
+-- SuperAdmin_User_UpdateProfile enforces server-side (not just
+-- trusting the caller/UI) that Email/Mobile can only change while
+-- Users.IsVerified = 0 (member has never actually logged in yet).
+-- Once verified, those two columns are silently left untouched
+-- even if new values are passed — self-service change-email/
+-- change-mobile (User_SendContactOtp/VerifyContactOtp) is the
+-- only path once a login identity is live. Confirmed with product
+-- 2026-08-23 — see DOCUMENTATION_GUIDELINES.md pending log.
+-- ============================================================
+
+DELIMITER //
+
+DROP PROCEDURE IF EXISTS SuperAdmin_Org_UpdateProfile //
+CREATE PROCEDURE SuperAdmin_Org_UpdateProfile(
+    IN p_OrgId           INT UNSIGNED,
+    IN p_OrgName         VARCHAR(200),
+    IN p_OrgTypeLkpId    INT UNSIGNED,
+    IN p_RegNumber       VARCHAR(100),
+    IN p_Category        VARCHAR(100),
+    IN p_ContactPerson   VARCHAR(100),
+    IN p_About           TEXT,
+    IN p_Mission         TEXT,
+    IN p_Vision          TEXT,
+    IN p_LogoUrl         VARCHAR(500),
+    IN p_ContactEmail    VARCHAR(150),
+    IN p_ContactPhone    VARCHAR(20),
+    IN p_Website         VARCHAR(255),
+    IN p_AddressLine1    VARCHAR(200),
+    IN p_AddressLine2    VARCHAR(200),
+    IN p_City            VARCHAR(100),
+    IN p_State           VARCHAR(100),
+    IN p_Pincode         VARCHAR(20),
+    IN p_Country         VARCHAR(100),
+    IN p_SuperAdminUserId INT UNSIGNED
+)
+BEGIN
+    DECLARE v_Error VARCHAR(500) DEFAULT NULL;
+
+    IF NOT EXISTS (SELECT 1 FROM Organisations WHERE OrgId = p_OrgId AND IsDeleted = 0) THEN
+        SET v_Error = 'Organisation not found.';
+    ELSEIF p_OrgName IS NULL OR p_OrgName = '' THEN
+        SET v_Error = 'Organisation name is required.';
+    ELSEIF p_RegNumber IS NULL OR p_RegNumber = '' THEN
+        SET v_Error = 'Organisation registration number is required.';
+    ELSEIF p_OrgTypeLkpId IS NULL THEN
+        SET v_Error = 'Organisation type is required.';
+    ELSEIF EXISTS (SELECT 1 FROM Organisations WHERE RegNumber = p_RegNumber AND IsDeleted = 0 AND OrgId != p_OrgId) THEN
+        SET v_Error = 'Another organisation is already using this registration number.';
+    ELSEIF EXISTS (SELECT 1 FROM Organisations WHERE LOWER(TRIM(OrgName)) = LOWER(TRIM(p_OrgName)) AND IsDeleted = 0 AND OrgId != p_OrgId) THEN
+        SET v_Error = 'Another organisation is already using this name.';
+    END IF;
+
+    IF v_Error IS NOT NULL THEN
+        SELECT 0 AS IsSuccess, v_Error AS Message, NULL AS OrgId;
+    ELSE
+        UPDATE Organisations
+        SET OrgName       = p_OrgName,
+            OrgTypeLkpId   = p_OrgTypeLkpId,
+            RegNumber      = p_RegNumber,
+            Category       = IFNULL(NULLIF(p_Category, ''), 'General'),
+            ContactPerson  = p_ContactPerson,
+            About          = p_About,
+            Mission        = p_Mission,
+            Vision         = p_Vision,
+            LogoUrl        = p_LogoUrl,
+            ContactEmail   = p_ContactEmail,
+            ContactPhone   = p_ContactPhone,
+            Website        = p_Website,
+            AddressLine1   = p_AddressLine1,
+            AddressLine2   = p_AddressLine2,
+            City           = p_City,
+            State          = p_State,
+            Pincode        = p_Pincode,
+            Country        = IFNULL(NULLIF(p_Country, ''), 'India'),
+            UpdatedBy      = p_SuperAdminUserId
+        WHERE OrgId = p_OrgId;
+
+        SELECT 1 AS IsSuccess, 'Organisation profile updated.' AS Message, p_OrgId AS OrgId;
+    END IF;
+END //
+
+DROP PROCEDURE IF EXISTS SuperAdmin_User_UpdateProfile //
+CREATE PROCEDURE SuperAdmin_User_UpdateProfile(
+    IN p_UserId          INT UNSIGNED,
+    IN p_FirstName       VARCHAR(80),
+    IN p_LastName        VARCHAR(80),
+    IN p_Email           VARCHAR(150),   -- only applied if user IsVerified = 0
+    IN p_Mobile          VARCHAR(20),    -- only applied if user IsVerified = 0
+    IN p_CountryCode     VARCHAR(6),
+    IN p_GenderLkpId     INT UNSIGNED,
+    IN p_DateOfBirth     DATE,
+    IN p_ProfilePhoto    VARCHAR(500),
+    IN p_AddressLine1    VARCHAR(200),
+    IN p_AddressLine2    VARCHAR(200),
+    IN p_City            VARCHAR(100),
+    IN p_State           VARCHAR(100),
+    IN p_Pincode         VARCHAR(20),
+    IN p_Country         VARCHAR(100),
+    IN p_SuperAdminUserId INT UNSIGNED
+)
+BEGIN
+    DECLARE v_Error      VARCHAR(500) DEFAULT NULL;
+    DECLARE v_IsVerified TINYINT(1)   DEFAULT NULL;
+
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        ROLLBACK;
+        SELECT 0 AS IsSuccess,
+               'An unexpected error occurred while updating the member. No changes were saved.' AS Message,
+               NULL AS UserId, NULL AS EmailMobileLocked;
+    END;
+
+    SELECT IsVerified INTO v_IsVerified FROM Users WHERE UserId = p_UserId AND IsDeleted = 0 LIMIT 1;
+
+    IF v_IsVerified IS NULL THEN
+        SET v_Error = 'Member not found.';
+    ELSEIF p_FirstName IS NULL OR p_FirstName = '' THEN
+        SET v_Error = 'First name is required.';
+    ELSEIF v_IsVerified = 0 THEN
+        -- Not yet logged in — Email/Mobile are still safe to correct here.
+        IF (p_Email IS NULL OR p_Email = '') AND (p_Mobile IS NULL OR p_Mobile = '') THEN
+            SET v_Error = 'At least one of Email or Mobile must be provided.';
+        ELSEIF p_Email IS NOT NULL AND p_Email != ''
+               AND EXISTS (SELECT 1 FROM Users WHERE Email = p_Email AND IsDeleted = 0 AND UserId != p_UserId) THEN
+            SET v_Error = 'Another user already has this email.';
+        ELSEIF p_Mobile IS NOT NULL AND p_Mobile != ''
+               AND EXISTS (SELECT 1 FROM Users WHERE Mobile = p_Mobile AND IsDeleted = 0 AND UserId != p_UserId) THEN
+            SET v_Error = 'Another user already has this mobile number.';
+        END IF;
+    END IF;
+
+    IF v_Error IS NOT NULL THEN
+        SELECT 0 AS IsSuccess, v_Error AS Message, NULL AS UserId, NULL AS EmailMobileLocked;
+    ELSE
+        START TRANSACTION;
+
+        -- Email/Mobile only touched pre-first-login. Once IsVerified = 1 this
+        -- block is skipped entirely — enforced here, not just in the API layer,
+        -- so a stale/forced request can never overwrite a live login identity.
+        IF v_IsVerified = 0 THEN
+            UPDATE Users
+            SET Email       = NULLIF(p_Email, ''),
+                Mobile      = NULLIF(p_Mobile, ''),
+                CountryCode = IFNULL(NULLIF(p_CountryCode, ''), CountryCode),
+                UpdatedBy   = p_SuperAdminUserId
+            WHERE UserId = p_UserId;
+        END IF;
+
+        UPDATE UserProfiles
+        SET FirstName     = p_FirstName,
+            LastName      = IFNULL(p_LastName, ''),
+            DateOfBirth   = p_DateOfBirth,
+            GenderLkpId   = p_GenderLkpId,
+            ProfilePhoto  = p_ProfilePhoto,
+            AddressLine1  = p_AddressLine1,
+            AddressLine2  = p_AddressLine2,
+            City          = p_City,
+            State         = p_State,
+            Pincode       = p_Pincode,
+            Country       = IFNULL(NULLIF(p_Country, ''), 'India'),
+            UpdatedBy     = p_SuperAdminUserId
+        WHERE UserId = p_UserId;
+
+        COMMIT;
+
+        SELECT 1 AS IsSuccess, 'Member profile updated.' AS Message,
+               p_UserId AS UserId, (v_IsVerified = 1) AS EmailMobileLocked;
+    END IF;
+END //
+
+DELIMITER ;
+
+INSERT IGNORE INTO SchemaVersions (Version, Description, AppliedBy)
+VALUES ('v5.5-superadmin-profile-edit', 'SuperAdmin_Org_UpdateProfile + SuperAdmin_User_UpdateProfile — post-creation field correction for Super Admin onboarded orgs/members. Email/Mobile edit locked once Users.IsVerified = 1.', 'System');
 
 -- ============================================================
 -- RICH PUBLIC ORGANISATION PROFILE (Super Admin onboarding Phase 3)

@@ -867,5 +867,88 @@ namespace NGOConnect.Infrastructure.DAL
                 return ApiResponse<DynamicRow>.Failure("An error occurred while creating the member.", "INTERNAL_ERROR");
             }
         }
+
+        // ── Post-creation profile correction ─────────────────────────────────
+
+        public async Task<ApiResponse<DynamicRow>> UpdateOrgProfileAsync(
+            int orgId, UpdateOrgProfileRequest request, int superAdminUserId)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("SuperAdmin_Org_UpdateProfile", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_OrgId",           orgId);
+                    _db.AddParameter(cmd, "p_OrgName",         request.OrgName);
+                    _db.AddParameter(cmd, "p_OrgTypeLkpId",    request.OrgTypeLkpId);
+                    _db.AddParameter(cmd, "p_RegNumber",       request.RegNumber);
+                    _db.AddParameter(cmd, "p_Category",        request.Category);
+                    _db.AddParameter(cmd, "p_ContactPerson",   request.ContactPerson);
+                    _db.AddParameter(cmd, "p_About",           request.About);
+                    _db.AddParameter(cmd, "p_Mission",         request.Mission);
+                    _db.AddParameter(cmd, "p_Vision",          request.Vision);
+                    _db.AddParameter(cmd, "p_LogoUrl",         request.LogoUrl);
+                    _db.AddParameter(cmd, "p_ContactEmail",    request.ContactEmail);
+                    _db.AddParameter(cmd, "p_ContactPhone",    request.ContactPhone);
+                    _db.AddParameter(cmd, "p_Website",         request.Website);
+                    _db.AddParameter(cmd, "p_AddressLine1",    request.AddressLine1);
+                    _db.AddParameter(cmd, "p_AddressLine2",    request.AddressLine2);
+                    _db.AddParameter(cmd, "p_City",            request.City);
+                    _db.AddParameter(cmd, "p_State",           request.State);
+                    _db.AddParameter(cmd, "p_Pincode",         request.Pincode);
+                    _db.AddParameter(cmd, "p_Country",         request.Country);
+                    _db.AddParameter(cmd, "p_SuperAdminUserId", superAdminUserId);
+                });
+
+                if (!result.Succeeded)
+                    return ApiResponse<DynamicRow>.Failure(result.Message, "VALIDATION_ERROR");
+
+                var data = new DynamicRow { ["orgId"] = orgId };
+                return ApiResponse<DynamicRow>.Success(data, result.Message);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "UpdateOrgProfileAsync failed OrgId={OrgId}", orgId);
+                return ApiResponse<DynamicRow>.Failure("An error occurred while updating the organisation.", "INTERNAL_ERROR");
+            }
+        }
+
+        public async Task<ApiResponse<DynamicRow>> UpdateMemberProfileAsync(
+            int userId, UpdateMemberProfileRequest request, int superAdminUserId)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("SuperAdmin_User_UpdateProfile", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_UserId",          userId);
+                    _db.AddParameter(cmd, "p_FirstName",       request.FirstName);
+                    _db.AddParameter(cmd, "p_LastName",        request.LastName);
+                    _db.AddParameter(cmd, "p_Email",           request.Email);
+                    _db.AddParameter(cmd, "p_Mobile",          request.Mobile);
+                    _db.AddParameter(cmd, "p_CountryCode",     request.CountryCode);
+                    _db.AddParameter(cmd, "p_GenderLkpId",     (object?)request.GenderLkpId ?? DBNull.Value);
+                    _db.AddParameter(cmd, "p_DateOfBirth",     (object?)request.DateOfBirth ?? DBNull.Value);
+                    _db.AddParameter(cmd, "p_ProfilePhoto",    request.ProfilePhoto);
+                    _db.AddParameter(cmd, "p_AddressLine1",    request.AddressLine1);
+                    _db.AddParameter(cmd, "p_AddressLine2",    request.AddressLine2);
+                    _db.AddParameter(cmd, "p_City",            request.City);
+                    _db.AddParameter(cmd, "p_State",           request.State);
+                    _db.AddParameter(cmd, "p_Pincode",         request.Pincode);
+                    _db.AddParameter(cmd, "p_Country",         request.Country);
+                    _db.AddParameter(cmd, "p_SuperAdminUserId", superAdminUserId);
+                });
+
+                if (!result.Succeeded)
+                    return ApiResponse<DynamicRow>.Failure(result.Message, "VALIDATION_ERROR");
+
+                var emailMobileLocked = Col<bool>(result.Row!, "EmailMobileLocked");
+                var data = new DynamicRow { ["userId"] = userId, ["emailMobileLocked"] = emailMobileLocked };
+                return ApiResponse<DynamicRow>.Success(data, result.Message);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "UpdateMemberProfileAsync failed UserId={UserId}", userId);
+                return ApiResponse<DynamicRow>.Failure("An error occurred while updating the member.", "INTERNAL_ERROR");
+            }
+        }
     }
 }

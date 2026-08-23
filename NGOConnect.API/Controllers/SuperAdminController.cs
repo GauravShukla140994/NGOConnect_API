@@ -215,6 +215,25 @@ namespace NGOConnect.API.Controllers
             [FromBody] CreateMemberWithOrgRequest request)
             => await _superAdmin.CreateMemberWithOrgAsync(request, GetSuperAdminUserId());
 
+        // ── Post-creation profile correction ─────────────────────────────────
+
+        // Full-profile overwrite for a Super-Admin-onboarded (or any) organisation.
+        // Re-validates OrgName/RegNumber uniqueness excluding this OrgId.
+        [HttpPut("orgs/{orgId:int}/profile")]
+        public async Task<ApiResponse<DynamicRow>> UpdateOrgProfile(
+            int orgId, [FromBody] UpdateOrgProfileRequest request)
+            => await _superAdmin.UpdateOrgProfileAsync(orgId, request, GetSuperAdminUserId());
+
+        // Full-profile overwrite for a member. Email/Mobile are only actually
+        // applied while the member has never logged in (Users.IsVerified = 0) —
+        // enforced server-side in SuperAdmin_User_UpdateProfile regardless of
+        // what's sent here. Response's emailMobileLocked flag tells the caller
+        // whether those two fields were skipped.
+        [HttpPut("members/{userId:int}/profile")]
+        public async Task<ApiResponse<DynamicRow>> UpdateMemberProfile(
+            int userId, [FromBody] UpdateMemberProfileRequest request)
+            => await _superAdmin.UpdateMemberProfileAsync(userId, request, GetSuperAdminUserId());
+
         // ── Helpers ───────────────────────────────────────────────────────────
 
         private int GetSuperAdminUserId()

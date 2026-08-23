@@ -2471,6 +2471,36 @@ Added 6 SPs that were called in C# DAL but never defined in the setup SQL:
 **Validator:** not applicable (no SP/DAL params touched).
 **Build verified:** Website `npm run build` — 881 modules, no errors. API build not verified in this session (no `dotnet` SDK available in the sandbox) — verify with a local `dotnet build` before deploying.
 
+---
+
+### [2026-08-23] Super Admin — post-creation profile edit for orgs/members
+
+**User request:** after using "Create member" (Super Admin proactive onboarding), Super Admin needs a way to correct field values (typo'd org name, wrong email, wrong address, etc.) afterward. Flow confirmed with user before building: (1) full-profile overwrite SP per entity, not per-field PATCH; (2) Email/Mobile editable only while the member has never logged in (`Users.IsVerified = 0`) — locked server-side once verified, self-service change-email/change-mobile is the only path after that; (3) server log only on edit, no in-app notification; (4) changing a member's org association/role is explicitly OUT of scope for this round.
+
+#### DB changes — `NGOConnect_Complete_Setup_v5.0.sql`
+New:
+- `SuperAdmin_Org_UpdateProfile(p_OrgId, p_OrgName, p_OrgTypeLkpId, p_RegNumber, p_Category, p_ContactPerson, p_About, p_Mission, p_Vision, p_LogoUrl, p_ContactEmail, p_ContactPhone, p_Website, p_AddressLine1, p_AddressLine2, p_City, p_State, p_Pincode, p_Country, p_SuperAdminUserId)` — full-profile overwrite, re-validates OrgName/RegNumber uniqueness excluding itself.
+- `SuperAdmin_User_UpdateProfile(p_UserId, p_FirstName, p_LastName, p_Email, p_Mobile, p_CountryCode, p_GenderLkpId, p_DateOfBirth, p_ProfilePhoto, p_AddressLine1, p_AddressLine2, p_City, p_State, p_Pincode, p_Country, p_SuperAdminUserId)` — full-profile overwrite for `Users` (Email/Mobile/CountryCode) + `UserProfiles` (everything else) in one transaction (`START TRANSACTION`/`EXIT HANDLER`). Email/Mobile block is skipped entirely server-side once `IsVerified = 1`, regardless of what's passed. Returns `EmailMobileLocked` flag.
+
+Modified (additive SELECT columns only):
+- `SuperAdmin_Org_GetDetail` — added `o.OrgTypeLkpId` (needed to pre-select the edit form's org type dropdown).
+- `SuperAdmin_User_GetFullProfile` (result set 0) — added `u.CountryCode`, `up.AddressLine1`, `up.AddressLine2`, `up.Pincode`, `up.GenderLkpId` (needed to pre-fill the member edit form — several of these weren't returned at all before).
+
+#### Backend changes
+- `SuperAdminModels.cs` — new `UpdateOrgProfileRequest`, `UpdateMemberProfileRequest`.
+- `ISuperAdminDal.cs` / `SuperAdminDal.cs` — new `UpdateOrgProfileAsync`, `UpdateMemberProfileAsync`.
+- `SuperAdminController.cs` — new `PUT /api/v1/superadmin/orgs/{orgId}/profile`, `PUT /api/v1/superadmin/members/{userId}/profile`.
+
+#### Website changes
+- `admin/api/orgs.js` — `updateOrgProfile(orgId, payload)`.
+- `admin/api/members.js` — `updateMemberProfile(userId, payload)`.
+- `admin/pages/OrgDrawer.jsx` — "Edit" button + inline edit form (org type dropdown fetched via `ORG_TYPE` lookup) toggling the existing read-only sections.
+- `admin/pages/MemberDrawer.jsx` — "Edit" button + inline edit form (gender dropdown via `GENDER` lookup); Email/Mobile inputs disabled with an explanatory note when `profile.isVerified` is true.
+
+**Patch file:** `Documents/patch_superadmin_profile_edit.sql` — **run on Railway staging → Railway production**
+**Validator:** all phases passed (`python scripts/validate_sp_params.py`).
+**Build verified:** Website `npm run build` — 881 modules, no errors. API build/`dotnet build` not verified in this session (no .NET SDK in the sandbox) — verify locally before deploying.
+
 
 **My Posts feature — Profile → My Posts screen (2026-08-22)**
 - `NGOConnect_Complete_Setup_v5.0.sql`: new SP `Post_GetByUser(p_UserId, p_PageNumber, p_PageSize)` — returns paginated posts created by the user, newest first. Same columns as `Post_GetSaved` minus `SavedAt`. Second result set: `TotalCount`. Safe to re-run.

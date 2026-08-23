@@ -157,4 +157,52 @@ namespace NGOConnect.Core.Models.SuperAdmin
         /// <summary>MEMBER_ROLE ValueCode: FOUNDER | ADMIN | MODERATOR | MEMBER.</summary>
         [Required][MaxLength(20)] public string RoleCode { get; set; } = string.Empty;
     }
+
+    // ── Post-creation profile correction (SuperAdmin_Org_UpdateProfile / SuperAdmin_User_UpdateProfile) ──
+    // Full-profile overwrite, same shape as the corresponding fields on
+    // CreateMemberWithOrgRequest — not a per-field PATCH.
+    public class UpdateOrgProfileRequest
+    {
+        [Required][MaxLength(200)] public string  OrgName      { get; set; } = string.Empty;
+        [Required] public int      OrgTypeLkpId   { get; set; }
+        [Required][MaxLength(100)] public string  RegNumber    { get; set; } = string.Empty;
+        [MaxLength(100)] public string? Category      { get; set; }
+        [MaxLength(100)] public string? ContactPerson { get; set; }
+        public string?   About   { get; set; }
+        public string?   Mission { get; set; }
+        public string?   Vision  { get; set; }
+        [MaxLength(500)] public string? LogoUrl      { get; set; }
+        [MaxLength(150)][EmailAddress] public string? ContactEmail { get; set; }
+        [MaxLength(20)]  public string? ContactPhone { get; set; }
+        [MaxLength(255)] public string? Website      { get; set; }
+        [MaxLength(200)] public string? AddressLine1 { get; set; }
+        [MaxLength(200)] public string? AddressLine2 { get; set; }
+        [MaxLength(100)] public string? City    { get; set; }
+        [MaxLength(100)] public string? State   { get; set; }
+        [MaxLength(20)]  public string? Pincode { get; set; }
+        [MaxLength(100)] public string? Country { get; set; }
+    }
+
+    /// <summary>
+    /// Email/Mobile are included so a pre-first-login (IsVerified=0) member's
+    /// typo'd contact details can still be fixed here. SuperAdmin_User_UpdateProfile
+    /// silently ignores both once the member has logged in — see that SP.
+    /// </summary>
+    public class UpdateMemberProfileRequest
+    {
+        [Required][MaxLength(80)] public string  FirstName { get; set; } = string.Empty;
+        [MaxLength(80)]  public string? LastName  { get; set; }
+        [MaxLength(150)][EmailAddress] public string? Email  { get; set; }
+        [MaxLength(20)]  public string? Mobile      { get; set; }
+        [MaxLength(6)]   public string? CountryCode { get; set; }
+        public int?      GenderLkpId  { get; set; }
+        public DateTime? DateOfBirth  { get; set; }
+        [MaxLength(500)] public string? ProfilePhoto { get; set; }
+        [MaxLength(200)] public string? AddressLine1 { get; set; }
+        [MaxLength(200)] public string? AddressLine2 { get; set; }
+        [MaxLength(100)] public string? City    { get; set; }
+        [MaxLength(100)] public string? State   { get; set; }
+        [MaxLength(20)]  public string? Pincode { get; set; }
+        [MaxLength(100)] public string? Country { get; set; }
+    }
 }

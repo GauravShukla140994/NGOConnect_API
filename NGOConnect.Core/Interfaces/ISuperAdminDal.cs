@@ -52,5 +52,9 @@ namespace NGOConnect.Core.Interfaces
 
         // ── Proactive Member + Organisation onboarding ───────────────────────
         Task<ApiResponse<DynamicRow>> CreateMemberWithOrgAsync(CreateMemberWithOrgRequest request, int superAdminUserId);
+
+        // ── Post-creation profile correction ─────────────────────────────────
+        Task<ApiResponse<DynamicRow>> UpdateOrgProfileAsync(int orgId, UpdateOrgProfileRequest request, int superAdminUserId);
+        Task<ApiResponse<DynamicRow>> UpdateMemberProfileAsync(int userId, UpdateMemberProfileRequest request, int superAdminUserId);
     }
 }
