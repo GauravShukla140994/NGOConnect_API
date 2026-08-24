@@ -2606,3 +2606,8 @@ Modified (additive SELECT columns only):
 **Validator:** all mismatches introduced by this change resolved (`User_GetProfile` SELECT↔mapper now matches). The `Project_GenerateSessions` mismatch noted above is pre-existing and unrelated — not touched.
 **Build verified:** not run in this session (no .NET SDK in the sandbox) — verify locally (`dotnet build`) before deploying. Mobile app changes not build-verified either (no RN toolchain in sandbox) — recommend a quick manual smoke test of the notification tap + Profile banner before shipping.
 **Database Documentation**: update `User_GetProfile` SP description (2 new output columns) and `SuperAdmin_User_RequestUpdate` SP description (NotifType + status value change) at next "update documents" pass.
+
+### [2026-08-24] Fix: Applicant name blank in Participants + generic notification body
+- **DB** (`Database_Documentation_v5.0.md`): `Application_GetByProject` — changed `CONCAT(FirstName, LastName)` to `CONCAT_WS` + `JOIN Users` fallback; added `ApplicantName` column note
+- **DB** (`Database_Documentation_v5.0.md`): `Application_Apply` — now returns `ApplicantName` column in success result rows
+- **Patch**: `patch_fix_applicant_name.sql` — run on Railway staging + production

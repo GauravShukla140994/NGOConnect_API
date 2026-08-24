@@ -27,8 +27,12 @@ namespace NGOConnect.Infrastructure.DAL
 
                 if (result.Succeeded && result.Row is not null)
                 {
-                    var orgId = Col<int>(result.Row, "OrgId");
-                    _ = FireAdminNotifAsync(orgId, "New Application", "A new volunteer has applied to your project.", "NEW_APPLICATION", projectId, "PROJECT");
+                    var orgId         = Col<int>(result.Row, "OrgId");
+                    var applicantName = Col<string>(result.Row, "ApplicantName") ?? "A volunteer";
+                    _ = FireAdminNotifAsync(orgId,
+                        "New Application 📋",
+                        $"{applicantName} has applied to your project.",
+                        "NEW_APPLICATION", projectId, "PROJECT");
                 }
                 return result.ToApiResponse();
             }

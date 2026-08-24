@@ -3620,7 +3620,10 @@ BEGIN
     SELECT
         pa.ApplicationId,
         pa.UserId,
-        CONCAT(up.FirstName, ' ', up.LastName)     AS ApplicantName,
+        -- CONCAT returns NULL if either part is NULL (unfinished profile).
+        -- CONCAT_WS skips NULLs; fall back to phone/email from Users table.
+        COALESCE(NULLIF(CONCAT_WS(' ', up.FirstName, up.LastName), ''),
+                 u.PhoneNumber, u.Email)             AS ApplicantName,
         up.ProfilePhoto,
         up.City,
         up.Occupation                               AS Profession,
@@ -3656,6 +3659,7 @@ BEGIN
                     AND vc2.IsDeleted = 0), 1, 0)   AS HasCertificate
     FROM   ProjectApplications pa
     JOIN   UserProfiles up   ON pa.UserId        = up.UserId AND up.IsDeleted = 0
+    JOIN   Users u           ON u.UserId         = pa.UserId
     LEFT JOIN LookupValues appSv ON pa.StatusLkpId = appSv.LookupValueId
     -- Most-recent attendance record for this user on this project
     LEFT JOIN ProjectAttendance att ON att.AttendanceId = (
@@ -7615,6 +7619,7 @@ BEGIN
     DECLARE v_UserDob        DATE         DEFAULT NULL;
     DECLARE v_UserAge        INT          DEFAULT NULL;
     DECLARE v_MembershipOk   TINYINT(1)   DEFAULT 1;
+    DECLARE v_ApplicantName  VARCHAR(200) DEFAULT NULL;
 
     -- Resolve PENDING lookup id
     SELECT lv.LookupValueId INTO v_PendingLkpId
@@ -7698,18 +7703,32 @@ BEGIN
                UpdatedAt         = NOW()
         WHERE  ApplicationId = v_ExistingId;
 
+        -- Resolve applicant name for notification body
+        SELECT COALESCE(NULLIF(CONCAT_WS(' ', up.FirstName, up.LastName), ''), u.PhoneNumber, u.Email)
+        INTO   v_ApplicantName
+        FROM   UserProfiles up JOIN Users u ON u.UserId = p_UserId
+        WHERE  up.UserId = p_UserId AND up.IsDeleted = 0 LIMIT 1;
+
         SELECT 1 AS IsSuccess, 'Application re-submitted successfully.' AS Message,
                v_ExistingId AS ApplicationId,
-               v_OrgId AS OrgId;
+               v_OrgId AS OrgId,
+               v_ApplicantName AS ApplicantName;
 
     ELSE
         -- No existing application — fresh INSERT
         INSERT INTO ProjectApplications (ProjectId, UserId, StatusLkpId, Motivation, RequestedSessions, CreatedBy)
         VALUES (p_ProjectId, p_UserId, v_PendingLkpId, p_Motivation, p_RequestedSessions, p_UserId);
 
+        -- Resolve applicant name for notification body
+        SELECT COALESCE(NULLIF(CONCAT_WS(' ', up.FirstName, up.LastName), ''), u.PhoneNumber, u.Email)
+        INTO   v_ApplicantName
+        FROM   UserProfiles up JOIN Users u ON u.UserId = p_UserId
+        WHERE  up.UserId = p_UserId AND up.IsDeleted = 0 LIMIT 1;
+
         SELECT 1 AS IsSuccess, 'Application submitted.' AS Message,
                LAST_INSERT_ID() AS ApplicationId,
-               v_OrgId AS OrgId;
+               v_OrgId AS OrgId,
+               v_ApplicantName AS ApplicantName;
     END IF;
 
     END IF; -- end checks gate
@@ -8861,7 +8880,10 @@ BEGIN
     SELECT
         pa.ApplicationId,
         pa.UserId,
-        CONCAT(up.FirstName, ' ', up.LastName)     AS ApplicantName,
+        -- CONCAT returns NULL if either part is NULL (unfinished profile).
+        -- CONCAT_WS skips NULLs; fall back to phone/email from Users table.
+        COALESCE(NULLIF(CONCAT_WS(' ', up.FirstName, up.LastName), ''),
+                 u.PhoneNumber, u.Email)             AS ApplicantName,
         up.ProfilePhoto,
         up.City,
         up.Occupation                               AS Profession,
@@ -8895,6 +8917,7 @@ BEGIN
                     AND vc2.IsDeleted = 0), 1, 0)   AS HasCertificate
     FROM   ProjectApplications pa
     JOIN   UserProfiles up   ON pa.UserId        = up.UserId AND up.IsDeleted = 0
+    JOIN   Users u           ON u.UserId         = pa.UserId
     LEFT JOIN LookupValues appSv ON pa.StatusLkpId = appSv.LookupValueId
     -- Most-recent attendance record for this user on this project
     LEFT JOIN ProjectAttendance att ON att.AttendanceId = (
