@@ -579,7 +579,7 @@ namespace NGOConnect.Infrastructure.DAL
                 });
                 if (result.Succeeded)
                     _ = FireUserNotifAsync(userId, "✅ Account Reactivated",
-                        "Your account has been reactivated. Welcome back to NGO Connect!",
+                        "Your account has been reactivated. Welcome back to Ripple Hub!",
                         "ACCOUNT_REACTIVATED", userId, "USER");
                 return result.ToApiResponse();
             }

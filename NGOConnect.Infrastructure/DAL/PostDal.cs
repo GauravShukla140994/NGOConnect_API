@@ -447,7 +447,7 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var supportAddress = _config["Email:SupportAddress"] ?? "support@ripplehub.app";
 
-                var subject = $"[NGO Connect] Post Report Alert — {reportCount} report(s) on Post #{postId}";
+                var subject = $"[Ripple Hub] Post Report Alert — {reportCount} report(s) on Post #{postId}";
                 var html = $@"
 <div style=""font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px"">
   <h2 style=""color:#DC2626"">⚠️ Post Report Alert</h2>
@@ -461,7 +461,7 @@ namespace NGOConnect.Infrastructure.DAL
         <td style=""padding:8px;border:1px solid #E5E7EB"">{reportCount}</td></tr>
   </table>
   <p style=""color:#6B7280;font-size:13px"">Log in to the Super Admin portal to review and take action (remove the post if it violates community guidelines).</p>
-  <p style=""color:#9CA3AF;font-size:12px;margin-top:24px"">This is an automated alert from NGO Connect.</p>
+  <p style=""color:#9CA3AF;font-size:12px;margin-top:24px"">This is an automated alert from Ripple Hub.</p>
 </div>";
 
                 await _email.SendCampaignEmailAsync(supportAddress, subject, html);

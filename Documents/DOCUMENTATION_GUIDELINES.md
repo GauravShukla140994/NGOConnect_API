@@ -2619,6 +2619,51 @@ Modified (additive SELECT columns only):
 **Validator:** re-ran `validate_sp_params.py` after this change — all phases pass (no SP/DAL param signatures touched).
 **Build verified:** not run in this session (no .NET SDK in the sandbox) — please run a local `dotnet build` and send a real test contact-update SMS before deploying.
 
+
+**Legacy dual-write Notifications cleanup + "NGO Connect" → "Ripple Hub" rebrand sweep (2026-08-25)**
+
+**User-reported:** ProfileScreen's "Action required" banner showed the OLD generic text ("...to continue using NGO Connect") instead of the Super Admin's real reason, even for a user whose profile had since been updated. Also asked to confirm the app is fully rebranded to "Ripple Hub".
+
+**Root cause (banner text):** before the 2026-08-23 notification-dedup fix shipped, `RequestMemberUpdateAsync`'s old duplicate C# insert wrote a `Notifications` row with `NotifType='PROFILE_UPDATE_REQUIRED'` and hardcoded generic body text. `User_GetProfile`'s new `ProfileUpdateReason` subquery reads the *latest* row of that exact type — for any user whose "Request update" happened before the fix, that's the old generic-text row, not the real reason (which was under the now-retired `PROFILE_UPDATE_REQUESTED` type).
+
+**Fix — data cleanup (no schema/SP change):**
+- `Documents/cleanup_legacy_profile_update_notifications.sql` (new, one-time DML, safe to re-run): (1) deletes `Notifications` rows with the exact old generic body text; (2) renames any surviving `PROFILE_UPDATE_REQUESTED` rows (the real-reason ones) to the canonical `PROFILE_UPDATE_REQUIRED` type so they become visible again.
+- **Run:** local → Railway staging → Railway production (data cleanup, not a schema patch — order still matters since it touches live rows).
+
+**"Needs update" persisting on Super Admin members list:** confirmed with user — **not a bug**. Status only flips back to `VERIFIED` when Super Admin explicitly clicks Verify; a user editing their own profile does not auto-clear it. No fix needed.
+
+**Rebrand sweep — full audit across all 3 repos (API, App, Website):** App and Website were already fully rebranded (app display name, `android/.../strings.xml`, `ios/.../Info.plist`, Website `index.html` title/OG tags, legal pages, Footer/Navbar — all already say "Ripple Hub"). Backend had 8 leftover live user-facing occurrences of "NGO Connect", all fixed:
+- `Documents/NGOConnect_Complete_Setup_v5.0.sql`: `Settings.APP_NAME` seed value (rendered as an editable field on Website Super Admin → Settings); `Auth_VerifyOTP` registration-welcome message; `SuperAdmin_Org_Approve` org-approved notification body; `SuperAdmin_User_Reactivate` account-reactivated notification body; `SuperAdmin_User_VerifyProfile` profile-verified notification body.
+- `NGOConnect.Infrastructure/DAL/SuperAdminDal.cs` — `ReactivateMemberAsync`'s FCM push body text (matches the SP text above).
+- `NGOConnect.Infrastructure/DAL/PostDal.cs` — post-report admin alert email subject line + footer text.
+- `NGOConnect.Core/Models/Notification/NotificationModels.cs` — `SendTestNotificationRequest.Body` default text.
+- `NGOConnect.API/appsettings.Development.json` — Email `FromName` (was drifted from prod, which already correctly said "RippleHub"; `FromAddress`/`SmtpUsername` already used the `ripplehub.app` domain).
+- `NGOConnect.API/Extensions/ServiceCollectionExtensions.cs` + `Program.cs` — Swagger UI title/description/contact name (dev-tool only, no deploy-order dependency).
+- **Deliberately left alone** (technical identifiers, not display copy — flagging for a separate decision if you want these changed too): `Settings.SUPPORT_EMAIL` seed value is still `support@ngoconnect.app` (inconsistent with the `ripplehub.app` domain used elsewhere in config — worth a look), Swagger contact email `api@ngoconnect.app`, JWT `Issuer`/`Audience` config values (`NGOConnect`/`NGOConnectUsers` — internal only, never displayed), all internal comments/doc-headers/file names across both repos, and historical `Documents/NGOConnect_Complete_Setup_v4.x.sql` snapshot files (superseded, not live).
+
+**Patch file:** `Documents/patch_rebrand_ripple_hub.sql` — run on local → Railway staging → Railway production.
+**Validator:** all phases pass.
+**Build verified:** not run in this session (no .NET SDK) — verify locally before deploying.
+
+
+**New RESUBMITTED profile-verification status (2026-08-25)**
+
+**User-reported:** on the Super Admin members list, a member's status stayed stuck on "Needs update" even after the member had gone and updated their profile — no signal that anything had changed, so admins couldn't tell "flagged, nothing done" from "member responded, take another look".
+
+**Root cause:** neither `User_UpdateProfile` nor `User_UploadDocument` ever touched `Users.ProfileVerificationLkpId` — it only ever changed via explicit Super Admin actions (`SuperAdmin_User_RequestUpdate` / `_VerifyProfile`). A member editing their profile had zero effect on the status.
+
+**Confirmed with user:** add a new distinct `RESUBMITTED` status (not reuse `PENDING`) so Super Admin can tell a first-time-never-reviewed member apart from one specifically responding to feedback; trigger the flip on **both** profile edit and document re-upload.
+
+**Fix:**
+- `NGOConnect_Complete_Setup_v5.0.sql`: new lookup value `PROFILE_VERIFICATION_STATUS` / `RESUBMITTED` / "Resubmitted" (OrderNo 5). `User_UpdateProfile` and `User_UploadDocument` — both now flip `Users.ProfileVerificationLkpId` from `NEEDS_UPDATE` → `RESUBMITTED` (no-op if current status is anything else) after their existing update/insert.
+- `Website/src/admin/components/StatusPill.jsx` — added `RESUBMITTED` → orange pill, label "Resubmitted". `MemberDrawer.jsx`'s "Mark as verified"/"Request update" buttons needed no change — both already render unconditionally regardless of current status, so either action still works from the new `RESUBMITTED` state.
+- Mobile `ProfileScreen.tsx` banner (`profileVerificationStatusCode === 'NEEDS_UPDATE'`) needed no change — it correctly disappears once the member's edit flips them to `RESUBMITTED`, since that's a different code value; no separate "pending re-review" banner was requested.
+
+**Patch file:** `Documents/patch_profile_resubmitted_status.sql` — run on local → Railway staging → Railway production.
+**Validator:** all phases pass.
+**Build verified:** not run in this session (no .NET SDK) — no C# changes in this fix, SQL/Website only; Website not rebuilt/tested in this session either, recommend `npm run build` before deploying.
+**Database Documentation**: add `RESUBMITTED` to the `PROFILE_VERIFICATION_STATUS` lookup description; update `User_UpdateProfile`/`User_UploadDocument` SP descriptions (status side-effect) at next "update documents" pass.
+
 ### [2026-08-24] Fix: Applicant name blank in Participants + generic notification body
 - **DB** (`Database_Documentation_v5.0.md`): `Application_GetByProject` — changed `CONCAT(FirstName, LastName)` to `CONCAT_WS` + `JOIN Users` fallback; added `ApplicantName` column note
 - **DB** (`Database_Documentation_v5.0.md`): `Application_Apply` — now returns `ApplicantName` column in success result rows

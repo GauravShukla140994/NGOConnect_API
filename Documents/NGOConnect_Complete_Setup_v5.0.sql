@@ -1602,7 +1602,8 @@ JOIN (
     SELECT 'PENDING'      AS ValueCode, 'Not Reviewed' AS ValueName, 1 AS OrderNo UNION ALL
     SELECT 'VERIFIED',       'Verified',               2 UNION ALL
     SELECT 'NEEDS_UPDATE',   'Needs Update',            3 UNION ALL
-    SELECT 'REJECTED',       'Rejected',                4
+    SELECT 'REJECTED',       'Rejected',                4 UNION ALL
+    SELECT 'RESUBMITTED',    'Resubmitted',             5
 ) v ON 1=1
 WHERE lt.TypeCode = 'PROFILE_VERIFICATION_STATUS';
 
@@ -1863,7 +1864,7 @@ INSERT INTO Settings (SettingGroup, SettingKey, SettingValue, DataType, Descript
 ('AUTH',       'MAX_SESSIONS',         '5',                      'NUMBER',  'Max concurrent sessions per user',       0),
 ('PAGINATION', 'DEFAULT_PAGE_SIZE',    '20',                     'NUMBER',  'Default page size for list APIs',        1),
 ('PAGINATION', 'MAX_PAGE_SIZE',        '100',                    'NUMBER',  'Maximum allowed page size',              1),
-('PLATFORM',   'APP_NAME',             'NGO Connect',            'STRING',  'Platform display name',                  1),
+('PLATFORM',   'APP_NAME',             'Ripple Hub',             'STRING',  'Platform display name',                  1),
 ('PLATFORM',   'SUPPORT_EMAIL',        'support@ngoconnect.app', 'STRING',  'Support email address',                  1),
 ('FEATURE',    'SOS_ENABLED',          'true',                   'BOOLEAN', 'Toggle SOS feature on/off',              0),
 ('FEATURE',    'DONATIONS_ENABLED',    'true',                   'BOOLEAN', 'Toggle donations feature on/off',        0),
@@ -2116,7 +2117,7 @@ BEGIN
 
         SELECT 1            AS IsSuccess,
                CASE WHEN v_IsNewUser = 1
-                    THEN 'Registration successful. Welcome to NGO Connect!'
+                    THEN 'Registration successful. Welcome to Ripple Hub!'
                     ELSE 'Login successful.'
                END           AS Message,
                v_UserId      AS UserId,
@@ -2403,6 +2404,22 @@ BEGIN
         Country        = COALESCE(p_Country,        Country),
         UpdatedAt      = NOW()
     WHERE UserId = p_UserId AND IsDeleted = 0;
+
+    -- v5.1: if a Super Admin had flagged this profile NEEDS_UPDATE, editing the
+    -- profile now flips it to RESUBMITTED so the Super Admin's member list shows
+    -- this member needs a fresh look — distinct from NEEDS_UPDATE (nothing done
+    -- yet) and from PENDING (never reviewed at all).
+    UPDATE Users u
+    JOIN LookupValues lv ON u.ProfileVerificationLkpId = lv.LookupValueId
+    SET u.ProfileVerificationLkpId = (
+            SELECT lv2.LookupValueId FROM LookupValues lv2
+            JOIN LookupTypes lt2 ON lv2.LookupTypeId = lt2.LookupTypeId
+            WHERE lt2.TypeCode = 'PROFILE_VERIFICATION_STATUS' AND lv2.ValueCode = 'RESUBMITTED'
+            LIMIT 1
+        ),
+        u.UpdatedAt = NOW()
+    WHERE u.UserId = p_UserId AND lv.ValueCode = 'NEEDS_UPDATE';
+
     SELECT 1 AS IsSuccess, 'Profile updated.' AS Message;
 END //
 
@@ -8164,6 +8181,19 @@ BEGIN
     INSERT INTO UserDocuments (UserId, DocumentTypeLkpId, FileUrl, FileName, FileSizeKb, CreatedBy, UpdatedBy)
     VALUES (p_UserId, p_DocumentTypeLkpId, p_FileUrl, p_FileName, p_FileSizeKb, p_UserId, p_UserId);
 
+    -- v5.1: same RESUBMITTED flip as User_UpdateProfile — re-uploading a document
+    -- after being flagged NEEDS_UPDATE signals the Super Admin should take another look.
+    UPDATE Users u
+    JOIN LookupValues lv ON u.ProfileVerificationLkpId = lv.LookupValueId
+    SET u.ProfileVerificationLkpId = (
+            SELECT lv2.LookupValueId FROM LookupValues lv2
+            JOIN LookupTypes lt2 ON lv2.LookupTypeId = lt2.LookupTypeId
+            WHERE lt2.TypeCode = 'PROFILE_VERIFICATION_STATUS' AND lv2.ValueCode = 'RESUBMITTED'
+            LIMIT 1
+        ),
+        u.UpdatedAt = NOW()
+    WHERE u.UserId = p_UserId AND lv.ValueCode = 'NEEDS_UPDATE';
+
     SELECT 1 AS IsSuccess, 'Document saved.' AS Message, LAST_INSERT_ID() AS UserDocumentId;
 END //
 
@@ -9730,7 +9760,7 @@ BEGIN
         IF v_FounderUserId IS NOT NULL THEN
             INSERT INTO Notifications (UserId, NotifType, Title, Body, RefId, RefType)
             VALUES (v_FounderUserId, 'ORG_APPROVED', 'Your NGO has been approved',
-                    'Congratulations — your organisation is now live on NGO Connect.', p_OrgId, 'ORGANISATION');
+                    'Congratulations — your organisation is now live on Ripple Hub.', p_OrgId, 'ORGANISATION');
         END IF;
 
         SELECT 1 AS IsSuccess, 'Organisation approved.' AS Message;
@@ -10408,7 +10438,7 @@ BEGIN
 
         INSERT INTO Notifications (UserId, NotifType, Title, Body, RefId, RefType)
         VALUES (p_UserId, 'ACCOUNT_REACTIVATED', 'Account reactivated',
-                'Your NGO Connect account has been reactivated. Welcome back!',
+                'Your Ripple Hub account has been reactivated. Welcome back!',
                 p_UserId, 'USER');
 
         SELECT 1 AS IsSuccess, 'User account reactivated.' AS Message;
@@ -10512,7 +10542,7 @@ BEGIN
 
         INSERT INTO Notifications (UserId, NotifType, Title, Body, RefId, RefType)
         VALUES (p_UserId, 'PROFILE_VERIFIED', 'Profile verified',
-                'Your profile has been reviewed and verified by the NGO Connect team.',
+                'Your profile has been reviewed and verified by the Ripple Hub team.',
                 p_UserId, 'USER');
 
         SELECT 1 AS IsSuccess, 'User profile verified.' AS Message;

@@ -289,12 +289,12 @@ namespace NGOConnect.API.Extensions
             {
                 options.SwaggerDoc("v1", new OpenApiInfo
                 {
-                    Title       = "NGO Connect API",
+                    Title       = "Ripple Hub API",
                     Version     = "v1",
-                    Description = "NGO Connect — The LinkedIn of Social Impact",
+                    Description = "Ripple Hub — The LinkedIn of Social Impact",
                     Contact     = new OpenApiContact
                     {
-                        Name  = "NGO Connect Team",
+                        Name  = "Ripple Hub Team",
                         Email = "api@ngoconnect.app"
                     }
                 });

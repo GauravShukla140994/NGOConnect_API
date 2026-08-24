@@ -148,9 +148,9 @@ try
         app.UseSwagger();
         app.UseSwaggerUI(options =>
         {
-            options.SwaggerEndpoint("/swagger/v1/swagger.json", "NGO Connect API v1");
+            options.SwaggerEndpoint("/swagger/v1/swagger.json", "Ripple Hub API v1");
             options.RoutePrefix = "swagger";
-            options.DocumentTitle = "NGO Connect API";
+            options.DocumentTitle = "Ripple Hub API";
         });
     }
 
