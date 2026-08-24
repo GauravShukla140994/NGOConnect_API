@@ -10,10 +10,12 @@ namespace NGOConnect.Infrastructure.DAL
     public class UserDal : BaseDal, IUserDal
     {
         private readonly IEmailService _email;
+        private readonly ISmsService   _sms;
 
-        public UserDal(IDbProvider db, IEmailService email) : base(db)
+        public UserDal(IDbProvider db, IEmailService email, ISmsService sms) : base(db)
         {
             _email = email;
+            _sms   = sms;
         }
 
         public async Task<ApiResponse<UserProfileModel>> GetProfileAsync(int userId)
@@ -483,9 +485,13 @@ namespace NGOConnect.Infrastructure.DAL
                 }
                 else
                 {
-                    // SMS — TODO: integrate MSG91/Twilio when confirmed
-                    Log.Warning("SMS contact OTP not yet implemented for {Value} — OTP stored in DB only",
-                        request.Value);
+                    // SMS — Fast2SMS (India), same gateway/ISmsService as AuthDal.SendOtpAsync.
+                    // No country code on this request (contact-update is India-only today) —
+                    // defaults to "+91" same as AuthDal's fallback.
+                    var sent = await _sms.SendOtpAsync(request.Value.Trim(), "+91", otp, 10);
+                    if (!sent)
+                        Log.Warning("Contact OTP SMS delivery failed for {Value} — OTP stored but not delivered",
+                            request.Value);
                 }
 
                 // Always log to debug for dev convenience

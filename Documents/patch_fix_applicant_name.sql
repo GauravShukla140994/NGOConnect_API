@@ -41,7 +41,7 @@ BEGIN
         pa.UserId,
         -- CONCAT_WS skips NULLs; fall back to phone/email for unfinished profiles
         COALESCE(NULLIF(CONCAT_WS(' ', up.FirstName, up.LastName), ''),
-                 u.PhoneNumber, u.Email)             AS ApplicantName,
+                 u.Mobile, u.Email)             AS ApplicantName,
         up.ProfilePhoto,
         up.City,
         up.Occupation                               AS Profession,
@@ -212,7 +212,7 @@ BEGIN
                UpdatedAt         = NOW()
         WHERE  ApplicationId = v_ExistingId;
 
-        SELECT COALESCE(NULLIF(CONCAT_WS(' ', up.FirstName, up.LastName), ''), u.PhoneNumber, u.Email)
+        SELECT COALESCE(NULLIF(CONCAT_WS(' ', up.FirstName, up.LastName), ''), u.Mobile, u.Email)
         INTO   v_ApplicantName
         FROM   UserProfiles up JOIN Users u ON u.UserId = p_UserId
         WHERE  up.UserId = p_UserId AND up.IsDeleted = 0 LIMIT 1;
@@ -226,7 +226,7 @@ BEGIN
         INSERT INTO ProjectApplications (ProjectId, UserId, StatusLkpId, Motivation, RequestedSessions, CreatedBy)
         VALUES (p_ProjectId, p_UserId, v_PendingLkpId, p_Motivation, p_RequestedSessions, p_UserId);
 
-        SELECT COALESCE(NULLIF(CONCAT_WS(' ', up.FirstName, up.LastName), ''), u.PhoneNumber, u.Email)
+        SELECT COALESCE(NULLIF(CONCAT_WS(' ', up.FirstName, up.LastName), ''), u.Mobile, u.Email)
         INTO   v_ApplicantName
         FROM   UserProfiles up JOIN Users u ON u.UserId = p_UserId
         WHERE  up.UserId = p_UserId AND up.IsDeleted = 0 LIMIT 1;
