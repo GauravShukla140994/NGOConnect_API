@@ -45,7 +45,7 @@ namespace NGOConnect.Infrastructure.Services
 
         // ── IEmailService ────────────────────────────────────────────────────────
 
-        public Task<bool> SendOtpAsync(string toEmail, string otpCode, int expiryMinutes)
+        public Task<bool> SendOtpAsync(string toEmail, string otpCode, int expiryMinutes, string purpose = "verification")
         {
             var from    = BuildFrom();
             var subject = $"{otpCode} is your RippleHub verification code";
@@ -54,8 +54,8 @@ namespace NGOConnect.Infrastructure.Services
                 from:    from,
                 to:      [toEmail],
                 subject: subject,
-                html:    SmtpEmailService.BuildOtpHtmlInternal(otpCode, expiryMinutes),
-                text:    $"Your RippleHub verification code is: {otpCode}\n\nExpires in {expiryMinutes} minutes. Do not share.",
+                html:    SmtpEmailService.BuildOtpHtmlInternal(otpCode, expiryMinutes, purpose),
+                text:    $"{otpCode} is your OTP for RippleHub {purpose}. It is valid for {expiryMinutes} minutes. Do not share this OTP with anyone.",
                 context: $"OTP to {MaskEmail(toEmail)}");
         }
 

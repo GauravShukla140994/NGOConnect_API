@@ -9,9 +9,11 @@ namespace NGOConnect.Core.Interfaces
     {
         /// <summary>
         /// Send a 6-digit OTP to the given email address.
+        /// <paramref name="purpose"/> is shown in the email body, e.g. "sign in",
+        /// "email address verification". Defaults to "verification".
         /// Returns true if the email was accepted by the SMTP server.
         /// </summary>
-        Task<bool> SendOtpAsync(string toEmail, string otpCode, int expiryMinutes);
+        Task<bool> SendOtpAsync(string toEmail, string otpCode, int expiryMinutes, string purpose = "verification");
 
         /// <summary>
         /// Send an org member invitation email with an accept link.

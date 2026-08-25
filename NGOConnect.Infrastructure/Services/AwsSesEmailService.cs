@@ -33,7 +33,7 @@ namespace NGOConnect.Infrastructure.Services
             _config = config;
         }
 
-        public async Task<bool> SendOtpAsync(string toEmail, string otpCode, int expiryMinutes)
+        public async Task<bool> SendOtpAsync(string toEmail, string otpCode, int expiryMinutes, string purpose = "verification")
         {
             try
             {
@@ -68,12 +68,12 @@ namespace NGOConnect.Infrastructure.Services
                             {
                                 Html = new Content
                                 {
-                                    Data    = BuildOtpHtml(otpCode, expiryMinutes),
+                                    Data    = BuildOtpHtml(otpCode, expiryMinutes, purpose),
                                     Charset = "UTF-8"
                                 },
                                 Text = new Content
                                 {
-                                    Data    = $"Your RippleHub verification code is: {otpCode}\n\nThis code expires in {expiryMinutes} minutes.\n\nIf you did not request this, please ignore this email.",
+                                    Data    = $"{otpCode} is your OTP for RippleHub {purpose}. It is valid for {expiryMinutes} minutes. Do not share this OTP with anyone.",
                                     Charset = "UTF-8"
                                 }
                             }
@@ -93,7 +93,7 @@ namespace NGOConnect.Infrastructure.Services
         }
 
         // ── HTML Email Template (identical to SmtpEmailService) ──────────────
-        private static string BuildOtpHtml(string otpCode, int expiryMinutes) => $"""
+        private static string BuildOtpHtml(string otpCode, int expiryMinutes, string purpose = "verification") => $"""
             <!DOCTYPE html>
             <html lang="en">
             <head>
@@ -122,7 +122,7 @@ namespace NGOConnect.Infrastructure.Services
                         <td style="padding:40px 40px 32px;">
                           <p style="margin:0 0 8px;color:#111827;font-size:15px;">Hello,</p>
                           <p style="margin:0 0 28px;color:#4b5563;font-size:14px;line-height:1.6;">
-                            Use the verification code below to complete your sign-in.
+                            Use the verification code below to complete your <strong>{purpose}</strong>.
                             This code is valid for <strong>{expiryMinutes} minutes</strong>.
                           </p>
 

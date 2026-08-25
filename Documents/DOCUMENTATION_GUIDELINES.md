@@ -2685,3 +2685,11 @@ Modified (additive SELECT columns only):
 - **Patch**: `patch_fix_contact_otp.sql` — run on Railway staging + production
 - **Database Documentation**: update `User_SendContactOtp` + `User_VerifyContactOtp` SP descriptions (fixed purpose codes, new uniqueness check) at next "update documents" pass
 - No C# DAL/model changes needed — parameters already match.
+
+### [2026-08-25] Fix: 2 Hangfire SP bugs found in Railway staging logs
+- **Root causes**:
+  1. `Project_AutoCompleteSessions`: used `ps.StatusLkpId` in UPDATE SET and WHERE — column does not exist on `ProjectSessions`. Correct column is `ps.SessionStatusLkpId`.
+  2. `Project_GetCheckoutReminderTargets`: joined `UserDevices` table (does not exist). Correct table is `UserDeviceTokens`. Column is `Token` (aliased as `FcmToken`). Removed `ud.IsActive` filter (no such column on `UserDeviceTokens`).
+- **DB** (`NGOConnect_Complete_Setup_v5.0.sql`): both SPs corrected.
+- **Patch**: `patch_fix_hangfire_sp_bugs.sql` — run on Railway staging + production
+- **Database Documentation**: update `Project_AutoCompleteSessions` + `Project_GetCheckoutReminderTargets` SP descriptions at next "update documents" pass

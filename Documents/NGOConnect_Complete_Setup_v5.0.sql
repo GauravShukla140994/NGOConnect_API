@@ -15632,9 +15632,9 @@ BEGIN
     WHERE lt.TypeCode = 'SESSION_STATUS' AND lv.ValueCode = 'COMPLETED' LIMIT 1;
 
     UPDATE ProjectSessions ps
-    SET    ps.StatusLkpId = v_CompletedLkpId, ps.UpdatedAt = NOW()
-    WHERE  ps.IsDeleted   = 0
-      AND  ps.StatusLkpId IN (v_ScheduledLkpId, v_ActiveLkpId)
+    SET    ps.SessionStatusLkpId = v_CompletedLkpId, ps.UpdatedAt = NOW()
+    WHERE  ps.IsDeleted          = 0
+      AND  ps.SessionStatusLkpId IN (v_ScheduledLkpId, v_ActiveLkpId)
       AND  CONVERT_TZ(CONCAT(ps.SessionDate, ' ', ps.EndTime), '+05:30', '+00:00') < NOW();
 
     SELECT 1 AS IsSuccess, CONCAT('Auto-completed ', ROW_COUNT(), ' sessions.') AS Message;
@@ -15655,16 +15655,15 @@ BEGIN
     FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
     WHERE lt.TypeCode = 'PROJECT_SCHEDULE_TYPE' AND lv.ValueCode = 'FLEXIBLE' LIMIT 1;
 
-    SELECT att.UserId, p.ProjectId, p.ProjectName, ud.FcmToken,
+    SELECT att.UserId, p.ProjectId, p.ProjectName, ud.Token AS FcmToken,
            TIME_FORMAT(ps.EndTime, '%H:%i') AS EndTime
     FROM   ProjectAttendance att
-    JOIN   ProjectSessions   ps ON ps.SessionId = att.SessionId AND ps.IsDeleted = 0
-    JOIN   Projects          p  ON p.ProjectId  = ps.ProjectId  AND p.IsDeleted  = 0
-    JOIN   Users             u  ON u.UserId     = att.UserId
-    LEFT JOIN UserDevices    ud ON ud.UserId     = att.UserId    AND ud.IsActive  = 1
+    JOIN   ProjectSessions      ps ON ps.SessionId = att.SessionId AND ps.IsDeleted = 0
+    JOIN   Projects             p  ON p.ProjectId  = ps.ProjectId  AND p.IsDeleted  = 0
+    JOIN   Users                u  ON u.UserId     = att.UserId
+    LEFT JOIN UserDeviceTokens  ud ON ud.UserId     = att.UserId
     WHERE  att.AttendStatusLkpId = v_CheckedInLkpId
       AND  att.CheckOutTime      IS NULL
-      AND  att.IsDeleted         = 0
       AND  p.ProjectTypeLkpId    = v_FlexibleTypeId
       AND  ps.SessionDate        = CURDATE()
       AND  TIMESTAMPDIFF(MINUTE, NOW(),

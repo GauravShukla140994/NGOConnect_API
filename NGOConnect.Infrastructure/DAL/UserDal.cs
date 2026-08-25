@@ -478,7 +478,7 @@ namespace NGOConnect.Infrastructure.DAL
                 var isEmail = request.Type.Equals("EMAIL", StringComparison.OrdinalIgnoreCase);
                 if (isEmail)
                 {
-                    var sent = await _email.SendOtpAsync(request.Value.Trim(), otp, 10);
+                    var sent = await _email.SendOtpAsync(request.Value.Trim(), otp, 10, purpose: "email address verification");
                     if (!sent)
                         Log.Warning("Contact OTP email delivery failed for {Value} — OTP stored but not delivered",
                             request.Value);

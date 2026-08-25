@@ -69,7 +69,7 @@ namespace NGOConnect.Infrastructure.DAL
 
                 if (isEmail)
                 {
-                    var sent = await _email.SendOtpAsync(request.Recipient, otp, expiryMinutes);
+                    var sent = await _email.SendOtpAsync(request.Recipient, otp, expiryMinutes, purpose: "sign in");
                     if (!sent)
                         Log.Warning("OTP email delivery failed for {Recipient} — OTP stored but not delivered",
                             MaskRecipient(request.Recipient));
