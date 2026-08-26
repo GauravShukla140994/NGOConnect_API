@@ -207,7 +207,12 @@ namespace NGOConnect.Infrastructure.Services
         }
 
         private static string BuildInviteHtml(
-            string inviterName, string orgName, string inviteLink, string? logoUrl = null) => $"""
+            string inviterName, string orgName, string inviteLink, string? logoUrl = null)
+        {
+            var logoHtml = !string.IsNullOrWhiteSpace(logoUrl)
+                ? $"<img src=\"{logoUrl}\" alt=\"RippleHub\" height=\"56\" style=\"display:block;margin:0 auto 10px;height:56px;width:auto;border:0;\"/>"
+                : "<h1 style=\"margin:0 0 8px;color:#ffffff;font-size:26px;font-weight:800;letter-spacing:-0.5px;\">&#127754; RippleHub</h1>";
+            return $"""
             <!DOCTYPE html>
             <html lang="en">
             <head>
@@ -225,11 +230,7 @@ namespace NGOConnect.Infrastructure.Services
                     <!-- Header -->
                     <tr>
                       <td style="background:#6B4EFF;padding:36px 40px;text-align:center;">
-                        {(!string.IsNullOrWhiteSpace(logoUrl)
-                            ? $"""<img src="{logoUrl}" alt="RippleHub" height="56"
-                                       style="display:block;margin:0 auto 10px;height:56px;width:auto;border:0;"/>"""
-                            : """<h1 style="margin:0 0 8px;color:#ffffff;font-size:26px;font-weight:800;
-                                            letter-spacing:-0.5px;">🌊 RippleHub</h1>""")}
+                        {logoHtml}
                         <p style="margin:0;color:#c4b5fd;font-size:13px;font-weight:500;">
                           Global Social Impact Platform
                         </p>
@@ -343,6 +344,7 @@ namespace NGOConnect.Infrastructure.Services
             </body>
             </html>
             """;
+        }
 
         public async Task<bool> SendSupportEmailAsync(
             string contactName,
