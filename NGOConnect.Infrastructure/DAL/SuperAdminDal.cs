@@ -249,7 +249,7 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
-        public async Task<ApiResponse> ApproveOrgAsync(int orgId, bool isNonRegistered, int superAdminUserId)
+        public async Task<ApiResponse> ApproveOrgAsync(int orgId, bool isNonRegistered, string? remarks, int superAdminUserId)
         {
             try
             {
@@ -258,21 +258,54 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_OrgId",            orgId);
                     _db.AddParameter(cmd, "p_SuperAdminUserId", superAdminUserId);
                     _db.AddParameter(cmd, "p_IsNonRegistered",  isNonRegistered ? 1 : 0);
+                    _db.AddParameter(cmd, "p_Remarks",          remarks);
                 });
                 if (result.Succeeded)
+                {
                     // SP already inserts the canonical Notifications row (founder only,
                     // NotifType='ORG_APPROVED') — push-only here, broadcast to ALL org
-                    // admins (broader reach than the SP's founder-only insert; those
-                    // additional admins get the push but rely on the founder's DB row
-                    // for permanent history, an accepted scope trade-off).
-                    _ = PushOnlyOrgAdminAsync(orgId, "🎉 NGO Approved!",
-                        "Your organisation has been approved. You can now start managing projects and volunteers.",
-                        "ORG_APPROVED", orgId, "ORG");
+                    // admins (broader reach than the SP's founder-only insert).
+                    var pushBody = string.IsNullOrWhiteSpace(remarks)
+                        ? "Your organisation has been approved. You can now start managing projects and volunteers."
+                        : $"Your organisation has been approved. Note from admin: {remarks.Trim()}";
+                    _ = PushOnlyOrgAdminAsync(orgId, "🎉 NGO Approved!", pushBody, "ORG_APPROVED", orgId, "ORG");
+                }
                 return result.ToApiResponse();
             }
             catch (Exception ex)
             {
                 Log.Error(ex, "ApproveOrgAsync failed OrgId={OrgId}", orgId);
+                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        public async Task<ApiResponse> SetOrgNonRegisteredAsync(int orgId, bool isNonRegistered, string? remarks, int superAdminUserId)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("SuperAdmin_Org_SetNonRegistered", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_OrgId",            orgId);
+                    _db.AddParameter(cmd, "p_IsNonRegistered",  isNonRegistered ? 1 : 0);
+                    _db.AddParameter(cmd, "p_Remarks",          remarks);
+                    _db.AddParameter(cmd, "p_SuperAdminUserId", superAdminUserId);
+                });
+                if (result.Succeeded)
+                {
+                    // SP inserts Notifications row for founder only — push to all org admins here
+                    var title    = isNonRegistered ? "Organisation Marked as Non-Registered" : "Organisation Registration Status Updated";
+                    var pushBody = isNonRegistered
+                        ? "Your organisation has been classified as non-registered by the platform admin."
+                        : "Your organisation registration status has been updated by the platform admin.";
+                    if (!string.IsNullOrWhiteSpace(remarks))
+                        pushBody = $"{pushBody} Note from admin: {remarks.Trim()}";
+                    _ = PushOnlyOrgAdminAsync(orgId, title, pushBody, "ORG_STATUS_UPDATE", orgId, "ORG");
+                }
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "SetOrgNonRegisteredAsync failed OrgId={OrgId}", orgId);
                 return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
             }
         }

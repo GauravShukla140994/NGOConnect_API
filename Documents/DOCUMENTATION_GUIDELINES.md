@@ -2717,3 +2717,17 @@ Modified (additive SELECT columns only):
   - `ExploreScreen.tsx`: `OrgRowCard` + `OrgGridCard` — show amber "Non-Reg" badge when `isNonRegistered`, green "✓ Reg" badge otherwise; added `nonRegBadge` + `nonRegBadgeText` styles
   - `NgoProfileScreen.tsx`: hero section — show green "✓ Registered" or amber "Non-Registered" badge when `orgStatusCode === 'APPROVED'`; added `orgNonRegBadge` + `orgNonRegBadgeText` styles
 - **Database Documentation**: update `Organisations` table schema + 6 SP descriptions at next "update documents" pass
+
+### [2026-08-26] Feature: Super Admin — Approval Remarks + Set Non-Registered (post-approval)
+- **DB** (`NGOConnect_Complete_Setup_v5.0.sql`):
+  - `SuperAdmin_Org_Approve` SP: added `IN p_Remarks VARCHAR(1000)` param; builds `OrgStatusHistory.Reason` from non-registered flag + remarks; notification `Body` now includes remarks suffix ("Note from admin: …") when provided
+  - NEW `SuperAdmin_Org_SetNonRegistered` SP: toggles `IsNonRegistered` on any org (including already-approved); records reason in `OrgStatusHistory`; inserts founder `Notifications` row with contextual title/body; returns IsSuccess + Message
+- **Patch**: `patch_approve_remarks_set_nonreg.sql` — run on local → Railway staging → production; restart API after (SP param list changed on `SuperAdmin_Org_Approve`)
+- **Backend**:
+  - `SuperAdminModels`: `ApproveOrgRequest` — added `Remarks string?` property; new `SetNonRegisteredRequest` class (`OrgToken`, `IsNonRegistered`, `Remarks?`)
+  - `ISuperAdminDal`: `ApproveOrgAsync` signature → `(int orgId, bool isNonRegistered, string? remarks, int superAdminUserId)`; new `SetOrgNonRegisteredAsync(int orgId, bool isNonRegistered, string? remarks, int superAdminUserId)`
+  - `SuperAdminDal`: `ApproveOrgAsync` passes `p_Remarks`; push body includes remarks; new `SetOrgNonRegisteredAsync` calls new SP + `PushOnlyOrgAdminAsync` with contextual title/body
+  - `SuperAdminController`: `PUT /orgs/approve` passes `request.Remarks`; NEW endpoint `PUT /orgs/set-non-registered` → `SetNonRegisteredAsync`
+- **Mobile** (`CreateOrgScreen.tsx`): "Organisation is not registered" checkbox moved **above** the Registration Number field (was below)
+- **API Documentation**: add `PUT /api/v1/superadmin/orgs/set-non-registered` endpoint + updated `PUT /orgs/approve` request body (new `remarks` field) at next "update documents" pass
+- **Database Documentation**: update `SuperAdmin_Org_Approve` SP description; add `SuperAdmin_Org_SetNonRegistered` SP entry

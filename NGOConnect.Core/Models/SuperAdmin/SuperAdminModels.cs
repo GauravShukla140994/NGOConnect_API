@@ -25,9 +25,20 @@ namespace NGOConnect.Core.Models.SuperAdmin
     // DAL/SP layer below still works with plain ints exactly as before.
     public class ApproveOrgRequest
     {
-        [Required] public string OrgToken        { get; set; } = string.Empty;
+        [Required] public string OrgToken { get; set; } = string.Empty;
         /// <summary>True = organisation has no government registration number.</summary>
         public bool IsNonRegistered { get; set; } = false;
+        /// <summary>Optional admin remarks — stored in OrgStatusHistory and included in the approval notification sent to org admins.</summary>
+        [MaxLength(1000)] public string? Remarks { get; set; }
+    }
+
+    public class SetNonRegisteredRequest
+    {
+        [Required] public string OrgToken { get; set; } = string.Empty;
+        /// <summary>True = mark as non-registered, false = mark as registered.</summary>
+        public bool IsNonRegistered { get; set; } = false;
+        /// <summary>Optional admin remarks — stored in OrgStatusHistory and pushed to org admins.</summary>
+        [MaxLength(1000)] public string? Remarks { get; set; }
     }
 
     public class RejectOrgRequest

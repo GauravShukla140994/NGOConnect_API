@@ -132,7 +132,15 @@ namespace NGOConnect.API.Controllers
         {
             var err = TryResolveId("ORG", request.OrgToken, out var orgId);
             if (err is not null) return err;
-            return await _superAdmin.ApproveOrgAsync(orgId, request.IsNonRegistered, GetSuperAdminUserId());
+            return await _superAdmin.ApproveOrgAsync(orgId, request.IsNonRegistered, request.Remarks, GetSuperAdminUserId());
+        }
+
+        [HttpPut("orgs/set-non-registered")]
+        public async Task<ApiResponse> SetOrgNonRegistered([FromBody] SetNonRegisteredRequest request)
+        {
+            var err = TryResolveId("ORG", request.OrgToken, out var orgId);
+            if (err is not null) return err;
+            return await _superAdmin.SetOrgNonRegisteredAsync(orgId, request.IsNonRegistered, request.Remarks, GetSuperAdminUserId());
         }
 
         [HttpPut("orgs/reject")]
