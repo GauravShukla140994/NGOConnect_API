@@ -183,10 +183,11 @@ namespace NGOConnect.Core.Models.Org
         public string?  LogoUrl      { get; set; }
         public string?  City        { get; set; }
         public string?  State       { get; set; }
-        public int      MemberCount { get; set; }
-        public decimal  AvgRating   { get; set; }   // 0.00–5.00
-        public decimal? Latitude    { get; set; }   // for client-side distance calc
-        public decimal? Longitude   { get; set; }
+        public int      MemberCount      { get; set; }
+        public decimal  AvgRating        { get; set; }   // 0.00–5.00
+        public decimal? Latitude         { get; set; }   // for client-side distance calc
+        public decimal? Longitude        { get; set; }
+        public bool     IsNonRegistered  { get; set; }   // true = no govt reg number
     }
 
     // ── Recommended org (s-explore Recommended tab) ───────────────────────────────

@@ -191,6 +191,14 @@ When it is included in a Railway patch, update to `✅ Railway applied`.
 | `NGOConnect_Patch_CertificateVerifyToken.sql` | Certificate_GetDataById SP; IUrlTokenService wired for CERT entityType | ✅ Railway applied |
 | `NGOConnect_Patch_ExcludeExpiredProjects.sql` | Project_List: ACTIVE+UPCOMING whitelist for public browse; approved-orgs-only filter | ✅ Railway applied |
 
+### Standalone bug-fix patches (2026-08-26)
+
+| File | What it fixes | Status |
+|---|---|---|
+| `patch_fix_org_resubmit_nonreg.sql` | Org_Resubmit: add p_RegistrationNo + p_IsNonRegistered so founders can correct non-reg status on Fix & Resubmit | 🟡 Local only |
+| `patch_fix_recommended_nonreg.sql` | Org_ListRecommended: restore IsNonRegistered — dropped by patch_org_category_name.sql | ✅ Railway applied |
+| `patch_fix_list_nonreg.sql` | Org_List + Org_ListRecommended: restore IsNonRegistered in both SPs (supersedes patch_fix_recommended_nonreg.sql) | 🟡 Local only |
+
 ### Other Individual Patches (absorbed into versioned patches or superseded)
 
 | File | Absorbed into | Status |
@@ -2769,3 +2777,14 @@ Backend endpoints (`PUT /superadmin/orgs/approve` with new `isNonRegistered`/`re
 - **Mobile** (`org.api.ts`): `resubmit` inline type — added `registrationNumber?` and `isNonRegistered?` fields
 - **API Documentation**: update `PUT /api/v1/org/{orgId}/resubmit` request body — add `registrationNumber` and `isNonRegistered` fields
 - **Database Documentation**: update `Org_Resubmit` SP signature — add `p_RegistrationNo`, `p_IsNonRegistered` params
+
+### [2026-08-26] Bug Fix: Org_ListRecommended missing IsNonRegistered
+- **Root cause**: `Org_ListRecommended` SP SELECT did not include `o.IsNonRegistered`, so the Recommended tab in ExploreScreen always received `undefined` → `!!(undefined) = false` → every org showed `✓ Reg` badge regardless of actual registration status. `Org_List` (All Orgs tab) already had the column; `Trending` tab shows campaign cards, no registration badge.
+- **DB** (`NGOConnect_Complete_Setup_v5.0.sql`): `Org_ListRecommended` — added `o.IsNonRegistered` to SELECT; added `o.IsNonRegistered` to GROUP BY. Patch: `patch_fix_recommended_nonreg.sql` (SchemaVersion 5.1.10)
+- **Database Documentation**: update `Org_ListRecommended` SP — add `IsNonRegistered` to return columns list
+
+### [2026-08-26] Bug Fix: Org_List missing IsNonRegistered — overwritten by patch_org_category_name.sql
+- **Root cause**: `patch_org_category_name.sql` (Task #84) re-created both `Org_List` and `Org_ListRecommended` without `o.IsNonRegistered` — silently dropping the column that `patch_non_registered_orgs.sql` had added. This is the active SP on Railway. `Org_GetProfile` was unaffected (never touched by that patch), which is why the NGO profile screen showed the correct Non-Registered label while the All Orgs and Recommended tabs showed `✓ Reg` for every org.
+- **DB** (`NGOConnect_Complete_Setup_v5.0.sql`): `Org_List` was already correct in the setup SQL. Patch: `patch_fix_list_nonreg.sql` (SchemaVersion 5.1.11) — re-creates both `Org_List` + `Org_ListRecommended` with `IsNonRegistered` present. Supersedes `patch_fix_recommended_nonreg.sql` for `Org_ListRecommended` (run only this one patch to fix both).
+- **Database Documentation**: update `Org_List` SP — confirm `IsNonRegistered` in return columns list
+- **Action**: apply `patch_fix_list_nonreg.sql` to Railway staging. No API restart required (SP output shape change only, no param changes).

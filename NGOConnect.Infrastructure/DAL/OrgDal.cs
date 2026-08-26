@@ -271,19 +271,20 @@ namespace NGOConnect.Infrastructure.DAL
                 var rows = await ExecuteListAsync("Org_ListRecommended",
                     r => new RecommendedOrgModel
                     {
-                        OrgId       = Col<int>(r,      "OrgId"),
-                        OrgName     = Col<string>(r,   "OrgName")   ?? string.Empty,
-                        Category     = Col<string>(r,   "Category"),
-                        CategoryName = Col<string>(r,   "CategoryName"),
-                        LogoUrl      = Col<string>(r,   "LogoUrl"),
-                        City        = Col<string>(r,   "City"),
-                        State       = Col<string>(r,   "State"),
-                        MemberCount = Col<int>(r,      "MemberCount"),
-                        AvgRating   = Col<decimal>(r,  "AvgRating"),
+                        OrgId                  = Col<int>(r,      "OrgId"),
+                        OrgName                = Col<string>(r,   "OrgName")   ?? string.Empty,
+                        Category               = Col<string>(r,   "Category"),
+                        CategoryName           = Col<string>(r,   "CategoryName"),
+                        LogoUrl                = Col<string>(r,   "LogoUrl"),
+                        City                   = Col<string>(r,   "City"),
+                        State                  = Col<string>(r,   "State"),
+                        MemberCount            = Col<int>(r,      "MemberCount"),
+                        AvgRating              = Col<decimal>(r,  "AvgRating"),
                         Latitude               = ColNullable<decimal>(r, "Latitude"),
                         Longitude              = ColNullable<decimal>(r, "Longitude"),
-                        MatchScore             = Col<int>(r,     "MatchScore"),
-                        VerificationStatusCode = Col<string>(r,  "VerificationStatusCode"),
+                        IsNonRegistered        = Col<bool>(r,     "IsNonRegistered"),
+                        MatchScore             = Col<int>(r,      "MatchScore"),
+                        VerificationStatusCode = Col<string>(r,   "VerificationStatusCode"),
                     },
                     cmd => _db.AddParameter(cmd, "p_UserId", userId));
                 return ApiResponse<List<RecommendedOrgModel>>.Success(rows);
@@ -603,17 +604,18 @@ namespace NGOConnect.Infrastructure.DAL
 
         private OrgListItemModel MapOrgListItem(System.Data.DataRow r) => new()
         {
-            OrgId       = Col<int>(r,     "OrgId"),
-            OrgName     = Col<string>(r,  "OrgName")   ?? string.Empty,
-            Category     = Col<string>(r,  "Category"),
-            CategoryName = Col<string>(r,  "CategoryName"),
-            LogoUrl      = Col<string>(r,  "LogoUrl"),
-            City        = Col<string>(r,  "City"),
-            State       = Col<string>(r,  "State"),
-            MemberCount = Col<int>(r,     "MemberCount"),
-            AvgRating   = Col<decimal>(r, "AvgRating"),
-            Latitude    = ColNullable<decimal>(r, "Latitude"),
-            Longitude   = ColNullable<decimal>(r, "Longitude"),
+            OrgId           = Col<int>(r,     "OrgId"),
+            OrgName         = Col<string>(r,  "OrgName")   ?? string.Empty,
+            Category        = Col<string>(r,  "Category"),
+            CategoryName    = Col<string>(r,  "CategoryName"),
+            LogoUrl         = Col<string>(r,  "LogoUrl"),
+            City            = Col<string>(r,  "City"),
+            State           = Col<string>(r,  "State"),
+            MemberCount     = Col<int>(r,     "MemberCount"),
+            AvgRating       = Col<decimal>(r, "AvgRating"),
+            Latitude        = ColNullable<decimal>(r, "Latitude"),
+            Longitude       = ColNullable<decimal>(r, "Longitude"),
+            IsNonRegistered = Col<bool>(r,    "IsNonRegistered"),
         };
 
         public async Task<ApiResponse<List<DynamicRow>>> GetMembersAsync(int orgId)

@@ -81,7 +81,6 @@ BEGIN
             State          = p_State,
             Pincode        = p_Pincode,
             Country        = p_Country,
-            -- Allow founder to correct registration status on resubmit
             IsNonRegistered = IFNULL(p_IsNonRegistered, 0),
             RegNumber       = IF(IFNULL(p_IsNonRegistered, 0) = 1, NULL,
                                  NULLIF(TRIM(COALESCE(p_RegistrationNo, '')), '')),
@@ -95,19 +94,11 @@ BEGIN
         INSERT INTO OrgStatusHistory (OrgId, OldStatusLkpId, NewStatusLkpId, Reason, ChangedByType, ChangedBy)
         VALUES (p_OrgId, v_CurrentStatusId, v_PendingId, 'Resubmitted by founder after rejection', 'FOUNDER', p_UserId);
 
-        -- Notify Super Admins
-        INSERT INTO Notifications (UserId, NotifType, Title, Body, RefId, RefType)
-        SELECT u.UserId, 'ORG_RESUBMIT',
-               CONCAT('Organisation resubmitted: ', p_OrgName),
-               'A rejected organisation has been updated and resubmitted for review.',
-               p_OrgId, 'ORGANISATION'
-        FROM Users u WHERE u.Role = 'SUPER_ADMIN' AND u.IsDeleted = 0;
-
         SELECT 1 AS IsSuccess, 'Organisation resubmitted successfully.' AS Message;
     END IF;
 END //
 
 DELIMITER ;
 
-INSERT INTO SchemaVersions (Version, Description, AppliedAt)
+INSERT IGNORE INTO SchemaVersions (Version, Description, AppliedAt)
 VALUES ('5.1.9', 'Fix Org_Resubmit — add p_RegistrationNo + p_IsNonRegistered', NOW());

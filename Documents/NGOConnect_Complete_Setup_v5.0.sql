@@ -5196,6 +5196,7 @@ BEGIN
         o.OrgId, o.OrgName, o.Category,
         COALESCE(cv.ValueName, o.Category) AS CategoryName,
         o.LogoUrl, o.City, o.State,
+        o.IsNonRegistered,
         IFNULL((SELECT COUNT(*) FROM OrgMembers om2
                  JOIN LookupValues lv2 ON om2.StatusLkpId = lv2.LookupValueId
                  JOIN LookupTypes  lt2 ON lv2.LookupTypeId = lt2.LookupTypeId
