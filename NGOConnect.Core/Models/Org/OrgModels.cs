@@ -32,6 +32,9 @@ namespace NGOConnect.Core.Models.Org
         public bool Is12AEligible     { get; set; } = false;
         // Non-registered flag — true when org has no govt registration number
         public bool IsNonRegistered   { get; set; } = false;
+        // Govt registration date — NULL when IsNonRegistered = true
+        // Distinct from CreatedAt (RippleHub join date)
+        public DateTime? RegistrationDate { get; set; }
     }
 
     // ── Update Org (v4.1) ───────────────────────────────────────────────────────
@@ -82,6 +85,8 @@ namespace NGOConnect.Core.Models.Org
         // Registration — founder can correct non-registered status during resubmission
         [MaxLength(100)]            public string? RegistrationNumber { get; set; }
         public bool IsNonRegistered { get; set; } = false;
+        // Govt registration date — NULL when IsNonRegistered = true
+        public DateTime? RegistrationDate { get; set; }
         // Tax exemption flags — resubmission is a full re-declaration, so these are
         // included so the founder can correct them alongside a rejection.
         public bool Is80GEligible { get; set; } = false;

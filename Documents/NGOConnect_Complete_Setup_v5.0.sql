@@ -262,8 +262,9 @@ CREATE TABLE Organisations (
     OrgName         VARCHAR(200)    NOT NULL,
     ContactPerson   VARCHAR(100)    NULL,
     OrgTypeLkpId    INT UNSIGNED    NOT NULL,
-    RegNumber       VARCHAR(100)    NULL,                              -- NULL when IsNonRegistered = 1
-    IsNonRegistered TINYINT(1)      NOT NULL DEFAULT 0 COMMENT '1 = approved without govt registration number',
+    RegNumber           VARCHAR(100)    NULL,                              -- NULL when IsNonRegistered = 1
+    IsNonRegistered     TINYINT(1)      NOT NULL DEFAULT 0 COMMENT '1 = approved without govt registration number',
+    RegistrationDate    DATE            NULL COMMENT 'Date org was officially registered with govt — NULL when IsNonRegistered = 1',
     Category        VARCHAR(100)    NOT NULL,
     LogoUrl         VARCHAR(500)    NULL,
     About           TEXT            NULL,
@@ -2531,7 +2532,8 @@ CREATE PROCEDURE Org_Register(
     IN p_Pincode           VARCHAR(20),
     IN p_Country           VARCHAR(100),
     IN p_Is80GEligible     TINYINT(1),
-    IN p_Is12AEligible     TINYINT(1)
+    IN p_Is12AEligible     TINYINT(1),
+    IN p_RegistrationDate  DATE                                  -- NULL when IsNonRegistered = 1
 )
 BEGIN
     DECLARE v_Exists       INT DEFAULT 0;
@@ -2559,7 +2561,7 @@ BEGIN
             WHERE lt.TypeCode = 'MEMBER_STATUS' AND lv.ValueCode = 'APPROVED' LIMIT 1;
 
         INSERT INTO Organisations
-            (OrgName, ContactPerson, OrgTypeLkpId, RegNumber, IsNonRegistered, Category, About, Mission, Vision,
+            (OrgName, ContactPerson, OrgTypeLkpId, RegNumber, IsNonRegistered, RegistrationDate, Category, About, Mission, Vision,
              LogoUrl, ContactEmail, ContactPhone, Website,
              AddressLine1, AddressLine2, City, State, Pincode, Country,
              Is80GEligible, Is12AEligible, StatusLkpId, CreatedBy)
@@ -2567,6 +2569,7 @@ BEGIN
             (p_OrgName, p_ContactPerson, p_OrgTypeLkpId,
              NULLIF(TRIM(COALESCE(p_RegistrationNo, '')), ''),
              IFNULL(p_IsNonRegistered, 0),
+             IF(IFNULL(p_IsNonRegistered, 0) = 1, NULL, p_RegistrationDate),
              p_Category, p_About, p_Mission, p_Vision, p_LogoUrl,
              p_ContactEmail, p_ContactPhone, p_Website,
              p_AddressLine1, p_AddressLine2, p_City, p_State, p_Pincode,
@@ -8500,7 +8503,7 @@ CREATE PROCEDURE Org_GetProfile(
 )
 BEGIN
     SELECT
-        o.OrgId, o.OrgName, o.RegNumber, o.Category,
+        o.OrgId, o.OrgName, o.RegNumber, o.IsNonRegistered, o.RegistrationDate, o.Category,
         COALESCE(cv.ValueName, o.Category) AS CategoryName,
         o.ContactPerson,
         o.LogoUrl, o.About, o.Mission, o.Vision,
@@ -10001,9 +10004,10 @@ CREATE PROCEDURE Org_Resubmit(
     IN p_Pincode        VARCHAR(20),
     IN p_Country        VARCHAR(100),
     IN p_RegistrationNo VARCHAR(100),
-    IN p_IsNonRegistered TINYINT(1),
-    IN p_Is80GEligible  TINYINT(1),
-    IN p_Is12AEligible  TINYINT(1)
+    IN p_IsNonRegistered  TINYINT(1),
+    IN p_Is80GEligible    TINYINT(1),
+    IN p_Is12AEligible    TINYINT(1),
+    IN p_RegistrationDate DATE                                    -- NULL when IsNonRegistered = 1
 )
 BEGIN
     DECLARE v_CurrentStatusId INT UNSIGNED;
@@ -10037,9 +10041,10 @@ BEGIN
             AddressLine1 = p_AddressLine1, AddressLine2 = p_AddressLine2, City = p_City,
             State = p_State, Pincode = p_Pincode, Country = p_Country,
             -- Allow founder to correct registration status on resubmit
-            IsNonRegistered = IFNULL(p_IsNonRegistered, 0),
-            RegNumber       = IF(IFNULL(p_IsNonRegistered, 0) = 1, NULL,
-                                 NULLIF(TRIM(COALESCE(p_RegistrationNo, '')), '')),
+            IsNonRegistered  = IFNULL(p_IsNonRegistered, 0),
+            RegNumber        = IF(IFNULL(p_IsNonRegistered, 0) = 1, NULL,
+                                  NULLIF(TRIM(COALESCE(p_RegistrationNo, '')), '')),
+            RegistrationDate = IF(IFNULL(p_IsNonRegistered, 0) = 1, NULL, p_RegistrationDate),
             Is80GEligible = p_Is80GEligible, Is12AEligible = p_Is12AEligible,
             StatusLkpId = v_PendingId, StatusUpdatedAt = NOW(), StatusUpdatedBy = p_UserId
         WHERE OrgId = p_OrgId;

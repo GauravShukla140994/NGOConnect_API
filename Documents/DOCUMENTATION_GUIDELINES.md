@@ -198,6 +198,7 @@ When it is included in a Railway patch, update to `✅ Railway applied`.
 | `patch_fix_org_resubmit_nonreg.sql` | Org_Resubmit: add p_RegistrationNo + p_IsNonRegistered so founders can correct non-reg status on Fix & Resubmit | 🟡 Local only |
 | `patch_fix_recommended_nonreg.sql` | Org_ListRecommended: restore IsNonRegistered — dropped by patch_org_category_name.sql | ✅ Railway applied |
 | `patch_fix_list_nonreg.sql` | Org_List + Org_ListRecommended: restore IsNonRegistered in both SPs (supersedes patch_fix_recommended_nonreg.sql) | 🟡 Local only |
+| `patch_add_registration_date.sql` | Add RegistrationDate column to Organisations + update Org_Register, Org_GetProfile, Org_Resubmit (SchemaVersion 5.1.12) | 🟡 Local only |
 
 ### Other Individual Patches (absorbed into versioned patches or superseded)
 
@@ -2788,3 +2789,11 @@ Backend endpoints (`PUT /superadmin/orgs/approve` with new `isNonRegistered`/`re
 - **DB** (`NGOConnect_Complete_Setup_v5.0.sql`): `Org_List` was already correct in the setup SQL. Patch: `patch_fix_list_nonreg.sql` (SchemaVersion 5.1.11) — re-creates both `Org_List` + `Org_ListRecommended` with `IsNonRegistered` present. Supersedes `patch_fix_recommended_nonreg.sql` for `Org_ListRecommended` (run only this one patch to fix both).
 - **Database Documentation**: update `Org_List` SP — confirm `IsNonRegistered` in return columns list
 - **Action**: apply `patch_fix_list_nonreg.sql` to Railway staging. No API restart required (SP output shape change only, no param changes).
+
+### [2026-08-26] Feature: Organisation Registration Date
+- **What**: New `RegistrationDate DATE NULL` column on `Organisations` table — captures the govt-issued registration date, distinct from `CreatedAt` (RippleHub join date). Always `NULL` when `IsNonRegistered = 1`.
+- **DB** (`NGOConnect_Complete_Setup_v5.0.sql`): `Organisations` table — `RegistrationDate DATE NULL AFTER IsNonRegistered`. SPs updated: `Org_Register` (new `IN p_RegistrationDate DATE` param + INSERT), `Org_GetProfile` (SELECT includes `o.RegistrationDate`), `Org_Resubmit` (new `IN p_RegistrationDate DATE` param + UPDATE with `IF(IsNonRegistered=1, NULL, p_RegistrationDate)` guard). Patch: `patch_add_registration_date.sql` (SchemaVersion 5.1.12).
+- **API** (`NGOConnect.Core/Models/Org/OrgModels.cs`): `RegisterOrgRequest.RegistrationDate DateTime?` + `ResubmitOrgRequest.RegistrationDate DateTime?` added.
+- **DAL** (`NGOConnect.Infrastructure/DAL/OrgDal.cs`): `RegisterAsync` and `ResubmitAsync` — pass `p_RegistrationDate` (null when `IsNonRegistered`).
+- **Mobile** (`CreateOrgScreen.tsx`): `registrationDate` field in form state; date picker (`@react-native-community/datetimepicker`) shown in Step 1 only when `!isNonRegistered`. `org.api.ts` resubmit type + `api.types.ts` Organisation interface updated.
+- **Action**: apply `patch_add_registration_date.sql` to Railway staging + restart API.
