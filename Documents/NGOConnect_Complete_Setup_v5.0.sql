@@ -9979,27 +9979,30 @@ BEGIN
     END IF;
 END //
 
+-- v5.1 MODIFIED: +p_RegistrationNo, +p_IsNonRegistered so founder can correct registration status on resubmit
 CREATE PROCEDURE Org_Resubmit(
-    IN p_OrgId         INT UNSIGNED,
-    IN p_UserId        INT UNSIGNED,
-    IN p_OrgName       VARCHAR(200),
-    IN p_Category      VARCHAR(100),
-    IN p_ContactPerson VARCHAR(100),
-    IN p_About         TEXT,
-    IN p_Mission       TEXT,
-    IN p_Vision        TEXT,
-    IN p_LogoUrl       VARCHAR(500),
-    IN p_ContactEmail  VARCHAR(150),
-    IN p_ContactPhone  VARCHAR(20),
-    IN p_Website       VARCHAR(255),
-    IN p_AddressLine1  VARCHAR(200),
-    IN p_AddressLine2  VARCHAR(200),
-    IN p_City          VARCHAR(100),
-    IN p_State         VARCHAR(100),
-    IN p_Pincode       VARCHAR(20),
-    IN p_Country       VARCHAR(100),
-    IN p_Is80GEligible TINYINT(1),
-    IN p_Is12AEligible TINYINT(1)
+    IN p_OrgId          INT UNSIGNED,
+    IN p_UserId         INT UNSIGNED,
+    IN p_OrgName        VARCHAR(200),
+    IN p_Category       VARCHAR(100),
+    IN p_ContactPerson  VARCHAR(100),
+    IN p_About          TEXT,
+    IN p_Mission        TEXT,
+    IN p_Vision         TEXT,
+    IN p_LogoUrl        VARCHAR(500),
+    IN p_ContactEmail   VARCHAR(150),
+    IN p_ContactPhone   VARCHAR(20),
+    IN p_Website        VARCHAR(255),
+    IN p_AddressLine1   VARCHAR(200),
+    IN p_AddressLine2   VARCHAR(200),
+    IN p_City           VARCHAR(100),
+    IN p_State          VARCHAR(100),
+    IN p_Pincode        VARCHAR(20),
+    IN p_Country        VARCHAR(100),
+    IN p_RegistrationNo VARCHAR(100),
+    IN p_IsNonRegistered TINYINT(1),
+    IN p_Is80GEligible  TINYINT(1),
+    IN p_Is12AEligible  TINYINT(1)
 )
 BEGIN
     DECLARE v_CurrentStatusId INT UNSIGNED;
@@ -10032,6 +10035,10 @@ BEGIN
             ContactEmail = p_ContactEmail, ContactPhone = p_ContactPhone, Website = p_Website,
             AddressLine1 = p_AddressLine1, AddressLine2 = p_AddressLine2, City = p_City,
             State = p_State, Pincode = p_Pincode, Country = p_Country,
+            -- Allow founder to correct registration status on resubmit
+            IsNonRegistered = IFNULL(p_IsNonRegistered, 0),
+            RegNumber       = IF(IFNULL(p_IsNonRegistered, 0) = 1, NULL,
+                                 NULLIF(TRIM(COALESCE(p_RegistrationNo, '')), '')),
             Is80GEligible = p_Is80GEligible, Is12AEligible = p_Is12AEligible,
             StatusLkpId = v_PendingId, StatusUpdatedAt = NOW(), StatusUpdatedBy = p_UserId
         WHERE OrgId = p_OrgId;

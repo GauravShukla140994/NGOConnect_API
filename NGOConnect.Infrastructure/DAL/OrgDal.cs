@@ -194,8 +194,10 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_State",         request.State);
                     _db.AddParameter(cmd, "p_Pincode",       request.Pincode);
                     _db.AddParameter(cmd, "p_Country",       request.Country);
-                    _db.AddParameter(cmd, "p_Is80GEligible",  request.Is80GEligible ? 1 : 0);
-                    _db.AddParameter(cmd, "p_Is12AEligible",  request.Is12AEligible ? 1 : 0);
+                    _db.AddParameter(cmd, "p_RegistrationNo",  request.IsNonRegistered ? null : request.RegistrationNumber);
+                    _db.AddParameter(cmd, "p_IsNonRegistered", request.IsNonRegistered ? 1 : 0);
+                    _db.AddParameter(cmd, "p_Is80GEligible",   request.Is80GEligible ? 1 : 0);
+                    _db.AddParameter(cmd, "p_Is12AEligible",   request.Is12AEligible ? 1 : 0);
                 });
                 return result.ToApiResponse();
             }

@@ -78,6 +78,9 @@ namespace NGOConnect.Core.Models.Org
         [MaxLength(100)]            public string? City          { get; set; }
         [MaxLength(100)]            public string? State         { get; set; }
         [MaxLength(100)]            public string? Country       { get; set; }
+        // Registration — founder can correct non-registered status during resubmission
+        [MaxLength(100)]            public string? RegistrationNumber { get; set; }
+        public bool IsNonRegistered { get; set; } = false;
         // Tax exemption flags — resubmission is a full re-declaration, so these are
         // included so the founder can correct them alongside a rejection.
         public bool Is80GEligible { get; set; } = false;

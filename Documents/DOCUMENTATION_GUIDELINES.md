@@ -2664,6 +2664,34 @@ Modified (additive SELECT columns only):
 **Build verified:** not run in this session (no .NET SDK) — no C# changes in this fix, SQL/Website only; Website not rebuilt/tested in this session either, recommend `npm run build` before deploying.
 **Database Documentation**: add `RESUBMITTED` to the `PROFILE_VERIFICATION_STATUS` lookup description; update `User_UpdateProfile`/`User_UploadDocument` SP descriptions (status side-effect) at next "update documents" pass.
 
+
+**Website UI for org approval remarks + non-registered status (2026-08-25)**
+
+Backend endpoints (`PUT /superadmin/orgs/approve` with new `isNonRegistered`/`remarks` body fields, and new `PUT /superadmin/orgs/set-non-registered`) were already implemented server-side (SPs `SuperAdmin_Org_Approve` v5.1 modified, `SuperAdmin_Org_SetNonRegistered` new — both already in `NGOConnect_Complete_Setup_v5.0.sql`, `Organisations.IsNonRegistered` column already present). This entry covers only the Website UI built to use them; no backend changes in this pass.
+
+**Read-first (per instructions): confirmed no toast library exists anywhere in the repo** — the admin panel's only existing feedback pattern is `alert()` + inline red `<div className="xs">` error text (used throughout `OrgDrawer.jsx`/`MemberDrawer.jsx`). Matched that pattern rather than introducing a toast component.
+
+**Changes:**
+- `Website/src/admin/api/orgs.js` — `approveOrg(orgToken, isNonRegistered, remarks)` changed from `PUT /orgs/{orgToken}/approve` (path param) to body-based `PUT /orgs/approve` (matches the new controller contract exactly). New `setOrgNonRegistered(orgToken, isNonRegistered, remarks)` → `PUT /orgs/set-non-registered`.
+- `Website/src/admin/pages/OrgDrawer.jsx`:
+  - PENDING/UNDER_REVIEW "Decision" section — added a Remarks textarea (optional, 1000-char cap enforced client-side via `.slice(0,1000)` + `maxLength`, placeholder exactly as specified) and an "Approve as non-registered organisation" checkbox above the existing Approve/Reject buttons. `handleApprove` now passes both to `approveOrg`.
+  - New "Registration Status" section for APPROVED orgs — shows a `Registered`/`Non-Registered` pill (green `pg` / amber `py`, same pill classes as the existing 80G/12A badges) sourced from `org.isNonRegistered`, plus a "Change Registration Status" button that expands an inline form (checkbox pre-filled with the current value + optional remarks textarea) reusing the existing `.reject-box` expand/collapse styling. Submits via `setOrgNonRegistered`, re-fetches org detail on success, collapses the form, and calls `onChanged?.()` to refresh the parent list — success/error surfaced via `alert()` (matching existing pattern, no toast).
+- `Website/src/admin/pages/OrganisationsPage.jsx` — new "Registration" column in the org list table. Only rendered for `statusCode === 'APPROVED'` rows (shows `—` otherwise) — `IsNonRegistered` is just its unset DB default before an org is ever approved, so showing a "Registered" badge on a still-pending org would be misleading. Same green/amber pill styling as the drawer.
+
+**Patch file:** none — no SP/DB/C# changes, Website only.
+**Validator:** not applicable (no SP/DAL changes).
+**Build verified:** `npm run build` — 881 modules, no errors.
+
+
+**OrgDrawer: missing "Registration No." field in Quick facts (2026-08-25)**
+
+**User-reported:** `org.regNumber` was already returned by `SuperAdmin_Org_GetDetail` and used in the Edit form, but never actually displayed anywhere in the drawer's read-only view — Quick facts only showed Org type / Members / Registered on.
+
+**Fix:** `Website/src/admin/pages/OrgDrawer.jsx` — added a "Registration No." tile to the Quick facts row, showing `org.regNumber`, or "Non-registered" as a fallback when the org is flagged `isNonRegistered` and has no reg number on file.
+
+**Patch file:** none — Website only, no SP/DB change.
+**Build verified:** `npm run build` — 881 modules, no errors.
+
 ### [2026-08-24] Fix: Applicant name blank in Participants + generic notification body
 - **DB** (`Database_Documentation_v5.0.md`): `Application_GetByProject` — changed `CONCAT(FirstName, LastName)` to `CONCAT_WS` + `JOIN Users` fallback; added `ApplicantName` column note
 - **DB** (`Database_Documentation_v5.0.md`): `Application_Apply` — now returns `ApplicantName` column in success result rows
@@ -2731,3 +2759,13 @@ Modified (additive SELECT columns only):
 - **Mobile** (`CreateOrgScreen.tsx`): "Organisation is not registered" checkbox moved **above** the Registration Number field (was below)
 - **API Documentation**: add `PUT /api/v1/superadmin/orgs/set-non-registered` endpoint + updated `PUT /orgs/approve` request body (new `remarks` field) at next "update documents" pass
 - **Database Documentation**: update `SuperAdmin_Org_Approve` SP description; add `SuperAdmin_Org_SetNonRegistered` SP entry
+
+### [2026-08-26] Bug Fix: Org_Resubmit — missing IsNonRegistered + RegNumber params
+- **Root cause**: `Org_Resubmit` SP had no `p_RegistrationNo` or `p_IsNonRegistered` params, so the UPDATE never touched `RegNumber` or `IsNonRegistered`. Founders could not correct registration status during Fix & Resubmit. The pre-populate showed the old DB values (e.g. old `regNumber`) because that was the true DB state.
+- **DB** (`NGOConnect_Complete_Setup_v5.0.sql`): `Org_Resubmit` SP — added `p_RegistrationNo VARCHAR(100)` and `p_IsNonRegistered TINYINT(1)` params; UPDATE now sets `IsNonRegistered = IFNULL(p_IsNonRegistered, 0)` and `RegNumber = IF(p_IsNonRegistered=1, NULL, NULLIF(TRIM(...), ''))`. Patch: `patch_fix_org_resubmit_nonreg.sql` (SchemaVersion 5.1.9)
+- **Backend** (`NGOConnect.Core/Models/Org/OrgModels.cs`): `ResubmitOrgRequest` — added `RegistrationNumber?` and `IsNonRegistered` properties
+- **Backend** (`NGOConnect.Infrastructure/DAL/OrgDal.cs`): `ResubmitAsync` — added `p_RegistrationNo` and `p_IsNonRegistered` AddParameter calls; passes `null` for reg number when `IsNonRegistered=true`
+- **Mobile** (`CreateOrgScreen.tsx`): resubmit payload now sends `isNonRegistered` and `registrationNumber`; pre-populate clears `registrationNumber` when `isNonRegistered=true` (defensive guard for stale DB values)
+- **Mobile** (`org.api.ts`): `resubmit` inline type — added `registrationNumber?` and `isNonRegistered?` fields
+- **API Documentation**: update `PUT /api/v1/org/{orgId}/resubmit` request body — add `registrationNumber` and `isNonRegistered` fields
+- **Database Documentation**: update `Org_Resubmit` SP signature — add `p_RegistrationNo`, `p_IsNonRegistered` params
