@@ -21,7 +21,7 @@ namespace NGOConnect.Infrastructure.DAL
                 {
                     _db.AddParameter(cmd, "p_UserId",            userId);
                     _db.AddParameter(cmd, "p_OrgName",          request.OrgName);
-                    _db.AddParameter(cmd, "p_RegistrationNo",   request.RegistrationNumber);    // SP uses p_RegistrationNo
+                    _db.AddParameter(cmd, "p_RegistrationNo",   request.IsNonRegistered ? null : request.RegistrationNumber);
                     _db.AddParameter(cmd, "p_IsNonRegistered",  request.IsNonRegistered ? 1 : 0);
                     _db.AddParameter(cmd, "p_OrgTypeLkpId",     request.OrgTypeLkpId);
                     _db.AddParameter(cmd, "p_Category",       request.Category);

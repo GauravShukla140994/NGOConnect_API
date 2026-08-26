@@ -6,7 +6,8 @@ namespace NGOConnect.Core.Models.Org
     public class RegisterOrgRequest
     {
         [Required][MaxLength(200)] public string  OrgName            { get; set; } = string.Empty;
-        [Required][MaxLength(100)] public string  RegistrationNumber { get; set; } = string.Empty;
+        // Optional when IsNonRegistered = true — SP handles NULL via IFNULL
+        [MaxLength(100)]           public string? RegistrationNumber { get; set; }
         [Required]                 public int     OrgTypeLkpId       { get; set; }
         // Category: free-text tag shown on NGO card (e.g. "Education", "Environment")
         // Pass the ValueName from LookupType ORG_CATEGORY (stored as-is in DB)
