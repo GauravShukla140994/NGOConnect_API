@@ -65,11 +65,12 @@ namespace NGOConnect.Infrastructure.Services
             var from    = BuildFrom();
             var subject = $"{inviterName} invited you to join {orgName} on RippleHub";
 
+            var logoUrl = _config["Platform:LogoUrl"];
             return SendAsync(
                 from:    from,
                 to:      [toEmail],
                 subject: subject,
-                html:    SmtpEmailService.BuildInviteHtmlInternal(inviterName, orgName, inviteLink),
+                html:    SmtpEmailService.BuildInviteHtmlInternal(inviterName, orgName, inviteLink, logoUrl),
                 text:    $"{inviterName} invited you to join {orgName} on RippleHub.\n\nAccept: {inviteLink}",
                 context: $"Invite to {MaskEmail(toEmail)} for {orgName}");
         }

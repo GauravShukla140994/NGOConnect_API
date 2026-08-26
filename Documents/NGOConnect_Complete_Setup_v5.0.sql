@@ -9822,15 +9822,21 @@ CREATE PROCEDURE SuperAdmin_Org_SetNonRegistered(
 )
 BEGIN
     DECLARE v_CurrentStatusId INT UNSIGNED;
+    DECLARE v_RegNumber       VARCHAR(100);
     DECLARE v_Reason          VARCHAR(1100);
     DECLARE v_NotifTitle      VARCHAR(200);
     DECLARE v_NotifBody       VARCHAR(1200);
 
-    SELECT StatusLkpId INTO v_CurrentStatusId
+    SELECT StatusLkpId, RegNumber INTO v_CurrentStatusId, v_RegNumber
     FROM Organisations WHERE OrgId = p_OrgId AND IsDeleted = 0;
 
     IF v_CurrentStatusId IS NULL THEN
         SELECT 0 AS IsSuccess, 'Organisation not found.' AS Message;
+    -- v5.2: block flipping to Registered (IsNonRegistered=0) while RegNumber is
+    -- blank — previously the SP let this through since it only ever toggled the
+    -- flag, never checked the field it's supposed to represent.
+    ELSEIF IFNULL(p_IsNonRegistered, 0) = 0 AND (v_RegNumber IS NULL OR TRIM(v_RegNumber) = '') THEN
+        SELECT 0 AS IsSuccess, 'Cannot mark as registered — a Registration Number is required first. Add it via Edit Organisation, then try again.' AS Message;
     ELSE
         -- Build history reason
         SET v_Reason = IF(p_IsNonRegistered = 1, 'Marked as non-registered', 'Marked as registered');

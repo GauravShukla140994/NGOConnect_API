@@ -79,8 +79,9 @@ namespace NGOConnect.Infrastructure.Services
         internal static string BuildOtpHtmlInternal(string otpCode, int expiryMinutes, string purpose = "verification") =>
             BuildOtpHtml(otpCode, expiryMinutes, purpose);
 
-        internal static string BuildInviteHtmlInternal(string inviterName, string orgName, string inviteLink) =>
-            BuildInviteHtml(inviterName, orgName, inviteLink);
+        internal static string BuildInviteHtmlInternal(
+            string inviterName, string orgName, string inviteLink, string? logoUrl = null) =>
+            BuildInviteHtml(inviterName, orgName, inviteLink, logoUrl);
 
         internal static string BuildSupportHtmlInternal(
             string contactName, string categoryLabel, string subject,
@@ -179,9 +180,10 @@ namespace NGOConnect.Infrastructure.Services
                 message.To.Add(MailboxAddress.Parse(toEmail));
                 message.Subject = $"{inviterName} invited you to join {orgName} on RippleHub";
 
+                var logoUrl     = _config["Platform:LogoUrl"];
                 var bodyBuilder = new BodyBuilder
                 {
-                    HtmlBody = BuildInviteHtml(inviterName, orgName, inviteLink),
+                    HtmlBody = BuildInviteHtml(inviterName, orgName, inviteLink, logoUrl),
                     TextBody = $"{inviterName} has invited you to join {orgName} on RippleHub.\n\nAccept invitation: {inviteLink}\n\nThis link expires in 30 days."
                 };
                 message.Body = bodyBuilder.ToMessageBody();
@@ -204,54 +206,137 @@ namespace NGOConnect.Infrastructure.Services
             }
         }
 
-        private static string BuildInviteHtml(string inviterName, string orgName, string inviteLink) => $"""
+        private static string BuildInviteHtml(
+            string inviterName, string orgName, string inviteLink, string? logoUrl = null) => $"""
             <!DOCTYPE html>
             <html lang="en">
-            <head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-            <title>You're invited to {orgName}</title></head>
+            <head>
+              <meta charset="UTF-8"/>
+              <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+              <title>You're invited to join {orgName} on RippleHub</title>
+            </head>
             <body style="margin:0;padding:0;background:#f0f4f8;font-family:Arial,Helvetica,sans-serif;">
-              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f0f4f8;padding:40px 0;">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f0f4f8;padding:48px 16px;">
                 <tr><td align="center">
-                  <table width="560" cellpadding="0" cellspacing="0" border="0"
-                         style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+                  <table width="580" cellpadding="0" cellspacing="0" border="0"
+                         style="max-width:580px;background:#ffffff;border-radius:16px;overflow:hidden;
+                                box-shadow:0 4px 20px rgba(0,0,0,0.10);">
+
+                    <!-- Header -->
                     <tr>
-                      <td style="background:#1a56db;padding:32px 40px;text-align:center;">
-                        <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;">RippleHub</h1>
-                        <p style="margin:6px 0 0;color:#bfdbfe;font-size:13px;">Global Social Impact Platform</p>
+                      <td style="background:#6B4EFF;padding:36px 40px;text-align:center;">
+                        {(!string.IsNullOrWhiteSpace(logoUrl)
+                            ? $"""<img src="{logoUrl}" alt="RippleHub" height="56"
+                                       style="display:block;margin:0 auto 10px;height:56px;width:auto;border:0;"/>"""
+                            : """<h1 style="margin:0 0 8px;color:#ffffff;font-size:26px;font-weight:800;
+                                            letter-spacing:-0.5px;">🌊 RippleHub</h1>""")}
+                        <p style="margin:0;color:#c4b5fd;font-size:13px;font-weight:500;">
+                          Global Social Impact Platform
+                        </p>
                       </td>
                     </tr>
+
+                    <!-- Invitation badge -->
                     <tr>
-                      <td style="padding:40px;">
-                        <p style="margin:0 0 16px;color:#111827;font-size:16px;font-weight:600;">
-                          You've been invited to join {orgName}!
-                        </p>
-                        <p style="margin:0 0 28px;color:#4b5563;font-size:14px;line-height:1.6;">
-                          <strong>{inviterName}</strong> has invited you to become a member of <strong>{orgName}</strong> on RippleHub.
-                        </p>
+                      <td style="padding:0 40px;">
                         <table width="100%" cellpadding="0" cellspacing="0" border="0">
                           <tr>
-                            <td align="center" style="padding:8px 0 28px;">
+                            <td align="center" style="padding:32px 0 0;">
+                              <div style="display:inline-block;background:#f3f0ff;border:1px solid #ddd6fe;
+                                          border-radius:100px;padding:8px 20px;">
+                                <span style="color:#6B4EFF;font-size:13px;font-weight:700;">
+                                  🎉 You've been invited!
+                                </span>
+                              </div>
+                            </td>
+                          </tr>
+                        </table>
+                      </td>
+                    </tr>
+
+                    <!-- Body -->
+                    <tr>
+                      <td style="padding:24px 40px 0;">
+                        <h2 style="margin:0 0 12px;color:#111827;font-size:20px;font-weight:700;line-height:1.3;">
+                          Join <span style="color:#6B4EFF;">{orgName}</span> on RippleHub
+                        </h2>
+                        <p style="margin:0 0 20px;color:#4b5563;font-size:14px;line-height:1.7;">
+                          <strong style="color:#111827;">{inviterName}</strong> has personally invited you
+                          to become a member of <strong style="color:#111827;">{orgName}</strong>.
+                          As a member, you'll be part of a community creating real social impact.
+                        </p>
+
+                        <!-- What you get -->
+                        <table width="100%" cellpadding="0" cellspacing="0" border="0"
+                               style="background:#f9fafb;border-radius:10px;padding:4px 0;margin-bottom:28px;">
+                          <tr>
+                            <td style="padding:16px 20px 4px;">
+                              <p style="margin:0 0 10px;color:#374151;font-size:13px;font-weight:700;
+                                        text-transform:uppercase;letter-spacing:0.5px;">
+                                As a member you can:
+                              </p>
+                            </td>
+                          </tr>
+                          <tr>
+                            <td style="padding:0 20px 4px;">
+                              <p style="margin:0 0 8px;color:#4b5563;font-size:13px;">
+                                ✅ &nbsp;Volunteer for projects and track your hours
+                              </p>
+                              <p style="margin:0 0 8px;color:#4b5563;font-size:13px;">
+                                ✅ &nbsp;Access the members-only community feed
+                              </p>
+                              <p style="margin:0 0 16px;color:#4b5563;font-size:13px;">
+                                ✅ &nbsp;Earn badges and build your impact profile
+                              </p>
+                            </td>
+                          </tr>
+                        </table>
+
+                        <!-- CTA Button -->
+                        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                          <tr>
+                            <td align="center" style="padding:0 0 12px;">
                               <a href="{inviteLink}" target="_blank"
-                                 style="display:inline-block;background:#1a56db;color:#ffffff;text-decoration:none;
-                                        font-size:15px;font-weight:600;padding:14px 36px;border-radius:8px;">
-                                Accept Invitation
+                                 style="display:inline-block;background:#6B4EFF;color:#ffffff;
+                                        text-decoration:none;font-size:15px;font-weight:700;
+                                        padding:16px 48px;border-radius:10px;
+                                        letter-spacing:0.2px;">
+                                Accept Invitation →
                               </a>
                             </td>
                           </tr>
                         </table>
-                        <p style="margin:0;color:#6b7280;font-size:12px;">
-                          Or copy this link: <a href="{inviteLink}" style="color:#1a56db;">{inviteLink}</a>
+
+                        <p style="margin:16px 0 0;color:#9ca3af;font-size:12px;text-align:center;">
+                          ⏳ &nbsp;This invitation expires in <strong>30 days</strong>.
                         </p>
-                        <p style="margin:16px 0 0;color:#9ca3af;font-size:12px;">This invitation expires in 30 days.</p>
+
+                        <!-- Fallback link -->
+                        <div style="margin:20px 0 32px;padding:14px 16px;background:#f9fafb;
+                                    border-radius:8px;border:1px solid #e5e7eb;word-break:break-all;">
+                          <p style="margin:0 0 4px;color:#6b7280;font-size:11px;font-weight:600;
+                                    text-transform:uppercase;letter-spacing:0.4px;">
+                            If the button doesn't work, copy this link:
+                          </p>
+                          <a href="{inviteLink}" style="color:#6B4EFF;font-size:12px;word-break:break-all;">
+                            {inviteLink}
+                          </a>
+                        </div>
                       </td>
                     </tr>
+
+                    <!-- Footer -->
                     <tr>
                       <td style="background:#f9fafb;padding:20px 40px;border-top:1px solid #e5e7eb;text-align:center;">
-                        <p style="margin:0;color:#9ca3af;font-size:11px;">
-                          © {DateTime.UtcNow.Year} RippleHub — This is an automated message. Do not reply.
+                        <p style="margin:0 0 4px;color:#9ca3af;font-size:11px;line-height:1.6;">
+                          © {DateTime.UtcNow.Year} RippleHub — Global Social Impact Platform
+                        </p>
+                        <p style="margin:0;color:#d1d5db;font-size:11px;">
+                          This is an automated message. Please do not reply to this email.
                         </p>
                       </td>
                     </tr>
+
                   </table>
                 </td></tr>
               </table>
