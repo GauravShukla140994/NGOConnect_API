@@ -337,6 +337,32 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
+        public async Task<ApiResponse> RequestOrgUpdateAsync(int orgId, string reason, int superAdminUserId)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("SuperAdmin_Org_RequestUpdate", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_OrgId",            orgId);
+                    _db.AddParameter(cmd, "p_SuperAdminUserId", superAdminUserId);
+                    _db.AddParameter(cmd, "p_Reason",           reason);
+                });
+                if (result.Succeeded)
+                    // SP already inserts the canonical Notifications row (NotifType=
+                    // 'ORG_UPDATE_REQUIRED') — push-only here, matching the
+                    // RequestMemberUpdateAsync pattern, to avoid the duplicate-row
+                    // dual-write bug fixed earlier for the member flow.
+                    _ = PushOnlyOrgAdminAsync(orgId, "⚠️ Action Required: Update Your Organisation",
+                        reason, "ORG_UPDATE_REQUIRED", orgId, "ORG");
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "RequestOrgUpdateAsync failed OrgId={OrgId}", orgId);
+                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
         public async Task<ApiResponse> SuspendOrgAsync(int orgId, string? reason, int superAdminUserId)
         {
             try
@@ -980,6 +1006,7 @@ namespace NGOConnect.Infrastructure.DAL
                     _db.AddParameter(cmd, "p_OrgName",         request.OrgName);
                     _db.AddParameter(cmd, "p_OrgTypeLkpId",    request.OrgTypeLkpId);
                     _db.AddParameter(cmd, "p_RegNumber",       request.RegNumber);
+                    _db.AddParameter(cmd, "p_RegistrationDate", (object?)request.RegistrationDate ?? DBNull.Value);
                     _db.AddParameter(cmd, "p_Category",        request.Category);
                     _db.AddParameter(cmd, "p_ContactPerson",   request.ContactPerson);
                     _db.AddParameter(cmd, "p_About",           request.About);

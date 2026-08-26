@@ -2797,3 +2797,38 @@ Backend endpoints (`PUT /superadmin/orgs/approve` with new `isNonRegistered`/`re
 - **DAL** (`NGOConnect.Infrastructure/DAL/OrgDal.cs`): `RegisterAsync` and `ResubmitAsync` — pass `p_RegistrationDate` (null when `IsNonRegistered`).
 - **Mobile** (`CreateOrgScreen.tsx`): `registrationDate` field in form state; date picker (`@react-native-community/datetimepicker`) shown in Step 1 only when `!isNonRegistered`. `org.api.ts` resubmit type + `api.types.ts` Organisation interface updated.
 - **Action**: apply `patch_add_registration_date.sql` to Railway staging + restart API.
+
+### [2026-08-26] Feature: Organisation Registration Date — Super Admin visibility + edit
+- **What**: Extends the Registration Date feature above to the Super Admin side — the govt registration date was captured on founder-side org registration but was never surfaced or editable from the Super Admin org drawer.
+- **DB** (`NGOConnect_Complete_Setup_v5.0.sql`): `SuperAdmin_Org_GetDetail` SP — added `o.RegistrationDate` to SELECT. `SuperAdmin_Org_UpdateProfile` SP — added `IN p_RegistrationDate DATE` param (after `p_RegNumber`) + `RegistrationDate = p_RegistrationDate` SET clause. Patch: `patch_org_registration_date.sql`.
+- **Backend** (`NGOConnect.Core/Models/SuperAdmin/SuperAdminModels.cs`): `UpdateOrgProfileRequest` — added `RegistrationDate DateTime?` property.
+- **Backend** (`NGOConnect.Infrastructure/DAL/SuperAdminDal.cs`): `UpdateOrgProfileAsync` — passes `p_RegistrationDate` (DBNull when null).
+- **Website** (`src/admin/pages/OrgDrawer.jsx`): Quick facts — "Registered on" tile relabeled "Registered on Ripple Hub" (RippleHub signup date, `org.submittedAt`) to disambiguate from new "Registration date" tile (govt date, `org.registrationDate`, shown as `—` when null). Edit form — `blankOrgEditForm`/`handleSaveEdit` carry `registrationDate`; new `<input type="date">` added after the Registration number field.
+- **Verification**: `validate_sp_params.py` — all phases passed (Phases 1-4; 5-6 skip, App source not mounted in this sandbox). Website `npm run build` — clean, no errors.
+- **Action**: apply `patch_org_registration_date.sql` to Railway staging + production. No API restart strictly required for the GetDetail change alone, but restart anyway since `SuperAdmin_Org_UpdateProfile`'s param list changed (positional param order matters for the DAL call).
+- **API Documentation**: update `SuperAdmin_Org_GetDetail` response shape (add `registrationDate`) and `PUT /superadmin/orgs/{orgId}/profile` request body (add `registrationDate`) at next "update documents" pass.
+- **Database Documentation**: update `SuperAdmin_Org_GetDetail` and `SuperAdmin_Org_UpdateProfile` SP descriptions.
+
+### [2026-08-26] Feature: Super Admin — Reject / Request Update on an already-APPROVED org
+- **Design decisions** (confirmed with user before implementation): (1) Reject on an APPROVED org fully reverts `ORG_STATUS` to REJECTED, same as rejecting PENDING, and additionally cascade-cancels the org's live projects (DRAFT/ACTIVE/UPCOMING → CANCELLED) since a rejected org shouldn't keep running projects; mandatory reason, same as the existing PENDING-reject flow. (2) A new, softer "Request Update" action was added as an alternative to full Reject — org flips to a new `NEEDS_UPDATE` status (hidden from public listings, same visibility gating as REJECTED, since Organisations has no separate verification-status field the way Users does) but its projects/members are left untouched. Founder resubmits via the app, landing in a new `RESUBMITTED` status (not back through full PENDING review) so Super Admin can re-approve directly.
+- **DB** (`NGOConnect_Complete_Setup_v5.0.sql`):
+  - `ORG_STATUS` lookup: added `NEEDS_UPDATE` (OrderNo 6), `RESUBMITTED` (OrderNo 7) — org-level equivalent of the member `PROFILE_VERIFICATION_STATUS` NEEDS_UPDATE/RESUBMITTED pair.
+  - `SuperAdmin_Org_Approve`: now also allows approving from `RESUBMITTED` (previously PENDING/UNDER_REVIEW only); history reason distinguishes "Re-approved after resubmission".
+  - `SuperAdmin_Org_Reject`: now also allows rejecting from `APPROVED`, `NEEDS_UPDATE`, `RESUBMITTED` (previously PENDING/UNDER_REVIEW only); when the org was APPROVED, cascade-cancels its DRAFT/ACTIVE/UPCOMING projects (`CancelReason = 'Organisation rejected by Super Admin'`). Reason remains mandatory.
+  - NEW `SuperAdmin_Org_RequestUpdate` SP: only from `APPROVED` → `NEEDS_UPDATE`; records `OrgStatusHistory`; inserts `Notifications` row (`NotifType='ORG_UPDATE_REQUIRED'`) to founder. Mandatory reason.
+  - `Org_Resubmit`: now also allows resubmitting from `NEEDS_UPDATE` (in addition to existing `REJECTED`) — REJECTED still routes to PENDING (full re-review); NEEDS_UPDATE routes to the new RESUBMITTED status (light re-review, no full PENDING cycle).
+  - Patch: `patch_org_reject_request_update.sql`.
+- **Backend**:
+  - `SuperAdminModels.cs`: new `RequestOrgUpdateRequest` (`OrgToken`, `Reason` — mandatory, max 1000 chars).
+  - `ISuperAdminDal` / `SuperAdminDal`: new `RequestOrgUpdateAsync(int orgId, string reason, int superAdminUserId)` → calls `SuperAdmin_Org_RequestUpdate`; push-only notification via `PushOnlyOrgAdminAsync` (SP already inserts the canonical row — matches the dual-write-avoidance pattern established for `RequestMemberUpdateAsync`).
+  - `SuperAdminController`: new `PUT /superadmin/orgs/request-update` endpoint.
+  - No changes needed to `RejectOrgAsync`/`ApproveOrgAsync` C# — they already pass through generically; only the SP-side status guards changed.
+- **Website**:
+  - `orgs.js`: new `requestOrgUpdate(orgToken, reason)`; `getAllOrgsBucketed()` now also queries `NEEDS_UPDATE`/`RESUBMITTED` and groups them into the existing `pending` bucket (all four represent "awaiting Super Admin action").
+  - `OrgDrawer.jsx`: APPROVED-org section — new "Compliance" block with **Request Update** and **Reject** buttons (separate state/handlers from the existing PENDING-flow reject, since they live in a different part of the drawer). New `NEEDS_UPDATE`/`RESUBMITTED` status section — read-only explanation banner for NEEDS_UPDATE; for RESUBMITTED, reuses the existing Approve/Reject decision UI (remarks textarea, non-registered checkbox not applicable here, reject reason textarea) so Super Admin can re-approve or reject a resubmission.
+  - `StatusPill.jsx`: no change needed — `NEEDS_UPDATE`/`RESUBMITTED` pill entries already existed from the member feature and are reused as-is for org status.
+- **Verification**: `validate_sp_params.py` — all phases passed. Website `npm run build` — clean.
+- **Action**: apply `patch_org_reject_request_update.sql` to Railway staging + production, restart API (new endpoint + SP param/status-guard changes).
+- **API Documentation**: add `PUT /api/v1/superadmin/orgs/request-update` endpoint; update `PUT /orgs/reject` description (now valid from APPROVED/NEEDS_UPDATE/RESUBMITTED, cascades project cancellation from APPROVED); update `PUT /orgs/approve` description (now valid from RESUBMITTED too).
+- **Database Documentation**: update `ORG_STATUS` lookup values table (add NEEDS_UPDATE, RESUBMITTED); update `SuperAdmin_Org_Approve`, `SuperAdmin_Org_Reject`, `Org_Resubmit` SP descriptions; add `SuperAdmin_Org_RequestUpdate` SP entry.
+- **Not yet handled — flag for later**: mobile app (`CreateOrgScreen.tsx`/NGO profile screens) does not yet show a distinct banner for `NEEDS_UPDATE` (the org-level one) the way the Profile screen does for the member's `NEEDS_UPDATE`. Founder currently only learns via the push notification/in-app notification. Revisit if the user asks for an in-app "Action Required" banner on the org side too.

@@ -47,6 +47,15 @@ namespace NGOConnect.Core.Models.SuperAdmin
         [Required][MaxLength(1000)] public string Reason { get; set; } = string.Empty;
     }
 
+    /// <summary>Soft version of RejectOrgRequest for an already-APPROVED org — org
+    /// flips to NEEDS_UPDATE (hidden from public listings, but no cascading project
+    /// cancellation) instead of REJECTED. See SuperAdmin_Org_RequestUpdate.</summary>
+    public class RequestOrgUpdateRequest
+    {
+        [Required] public string OrgToken { get; set; } = string.Empty;
+        [Required][MaxLength(1000)] public string Reason { get; set; } = string.Empty;
+    }
+
     public class SuspendOrgRequest
     {
         [Required] public string OrgToken { get; set; } = string.Empty;
@@ -188,6 +197,8 @@ namespace NGOConnect.Core.Models.SuperAdmin
         [Required][MaxLength(200)] public string  OrgName      { get; set; } = string.Empty;
         [Required] public int      OrgTypeLkpId   { get; set; }
         [Required][MaxLength(100)] public string  RegNumber    { get; set; } = string.Empty;
+        /// <summary>Date the org was officially registered with the government. Optional.</summary>
+        public DateTime? RegistrationDate { get; set; }
         [MaxLength(100)] public string? Category      { get; set; }
         [MaxLength(100)] public string? ContactPerson { get; set; }
         public string?   About   { get; set; }

@@ -22,6 +22,7 @@ namespace NGOConnect.Core.Interfaces
         Task<ApiResponse>                          ApproveOrgAsync(int orgId, bool isNonRegistered, string? remarks, int superAdminUserId);
         Task<ApiResponse>                          SetOrgNonRegisteredAsync(int orgId, bool isNonRegistered, string? remarks, int superAdminUserId);
         Task<ApiResponse>                          RejectOrgAsync(int orgId, string reason, int superAdminUserId);
+        Task<ApiResponse>                          RequestOrgUpdateAsync(int orgId, string reason, int superAdminUserId);
         Task<ApiResponse>                          SuspendOrgAsync(int orgId, string? reason, int superAdminUserId);
         Task<ApiResponse>                          ReactivateOrgAsync(int orgId, int superAdminUserId);
         Task<ApiResponse<List<DynamicRow>>>        GetOrgStatusHistoryAsync(int orgId);

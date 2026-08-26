@@ -151,6 +151,14 @@ namespace NGOConnect.API.Controllers
             return await _superAdmin.RejectOrgAsync(orgId, request.Reason, GetSuperAdminUserId());
         }
 
+        [HttpPut("orgs/request-update")]
+        public async Task<ApiResponse> RequestOrgUpdate([FromBody] RequestOrgUpdateRequest request)
+        {
+            var err = TryResolveId("ORG", request.OrgToken, out var orgId);
+            if (err is not null) return err;
+            return await _superAdmin.RequestOrgUpdateAsync(orgId, request.Reason, GetSuperAdminUserId());
+        }
+
         [HttpPut("orgs/suspend")]
         public async Task<ApiResponse> SuspendOrg([FromBody] SuspendOrgRequest request)
         {
