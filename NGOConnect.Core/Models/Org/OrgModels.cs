@@ -27,8 +27,10 @@ namespace NGOConnect.Core.Models.Org
         [MaxLength(100)]           public string? State              { get; set; }
         [MaxLength(100)]           public string? Country            { get; set; }
         // Tax exemption flags — stored in Organisations.Is80GEligible / Is12AEligible
-        public bool Is80GEligible  { get; set; } = false;
-        public bool Is12AEligible  { get; set; } = false;
+        public bool Is80GEligible     { get; set; } = false;
+        public bool Is12AEligible     { get; set; } = false;
+        // Non-registered flag — true when org has no govt registration number
+        public bool IsNonRegistered   { get; set; } = false;
     }
 
     // ── Update Org (v4.1) ───────────────────────────────────────────────────────
