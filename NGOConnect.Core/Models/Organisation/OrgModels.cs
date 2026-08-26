@@ -39,9 +39,12 @@ namespace NGOConnect.Core.Models.Organisation
         [MaxLength(200)]
         public string  OrgName        { get; set; } = string.Empty;
 
-        /// <summary>Maps to DB column: RegNumber</summary>
+        /// <summary>Maps to DB column: RegNumber. NULL when IsNonRegistered = true.</summary>
         [MaxLength(100)]
-        public string? RegistrationNo { get; set; }
+        public string? RegistrationNo   { get; set; }
+
+        /// <summary>True = org has no government registration number (approved by Super Admin as non-registered).</summary>
+        public bool    IsNonRegistered  { get; set; } = false;
 
         [MaxLength(100)]
         public string? Category       { get; set; }   // Required by DB — Education, Healthcare, etc.

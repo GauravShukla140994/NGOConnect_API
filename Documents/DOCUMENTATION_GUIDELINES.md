@@ -2693,3 +2693,27 @@ Modified (additive SELECT columns only):
 - **DB** (`NGOConnect_Complete_Setup_v5.0.sql`): both SPs corrected.
 - **Patch**: `patch_fix_hangfire_sp_bugs.sql` — run on Railway staging + production
 - **Database Documentation**: update `Project_AutoCompleteSessions` + `Project_GetCheckoutReminderTargets` SP descriptions at next "update documents" pass
+
+### [2026-08-26] Feature: Non-Registered Organisation support
+- **DB** (`NGOConnect_Complete_Setup_v5.0.sql`):
+  - `Organisations` table: `RegNumber VARCHAR(100) NOT NULL` → `NULL`; added `IsNonRegistered TINYINT(1) NOT NULL DEFAULT 0` after `RegNumber`
+  - `Org_Register` SP: added `p_IsNonRegistered TINYINT(1)` param; skips reg-number uniqueness check when `IsNonRegistered = 1`; stores `NULLIF(TRIM(COALESCE(p_RegistrationNo,'')), '')` so blank reg becomes NULL; sets `IsNonRegistered` on INSERT
+  - `Org_GetProfile` SP: added `o.IsNonRegistered`, `sv.ValueCode AS OrgStatusCode`, `COALESCE(vv.ValueCode,'PENDING') AS VerificationStatusCode`, `o.FollowerCount`, `o.CanCreateRecurring`, `o.CanCreateFlexible`, `o.OrgMaxVolunteers` to SELECT; added `LEFT JOIN LookupValues vv ON o.VerificationStatusLkpId = vv.LookupValueId`
+  - `Org_List` SP: added `o.IsNonRegistered`, `COALESCE(vv.ValueCode,'PENDING') AS VerificationStatusCode`; added `LEFT JOIN LookupValues vv`
+  - `SuperAdmin_Org_GetList` SP: added `o.IsNonRegistered` to SELECT
+  - `SuperAdmin_Org_GetDetail` SP: added `o.IsNonRegistered` to SELECT
+  - `SuperAdmin_Org_Approve` SP: added `p_IsNonRegistered TINYINT(1)` param; sets `IsNonRegistered` on UPDATE; records reason in `OrgStatusHistory` when non-registered; sends contextual notification body
+- **Patch**: `patch_non_registered_orgs.sql` — run on Railway staging + production
+- **Backend**:
+  - `OrgModels.RegisterOrgRequest`: added `IsNonRegistered bool` property
+  - `OrgDal.RegisterAsync`: passes `p_IsNonRegistered` to `Org_Register` SP; field renamed from `request.RegistrationNumber` → `request.RegistrationNo` to match model
+  - `ISuperAdminDal.ApproveOrgAsync`: signature changed to `(int orgId, bool isNonRegistered, int superAdminUserId)`
+  - `SuperAdminDal.ApproveOrgAsync`: passes `p_IsNonRegistered` to SP
+  - `SuperAdminModels`: added `ApproveOrgRequest` class with `OrgToken` + `IsNonRegistered` properties
+  - `SuperAdminController.ApproveOrg`: route changed from `PUT /orgs/{orgToken}/approve` to `PUT /orgs/approve`; now accepts `[FromBody] ApproveOrgRequest`
+- **Mobile**:
+  - `api.types.ts`: `Organisation` type — added `isNonRegistered?: boolean`
+  - `CreateOrgScreen.tsx`: `FormData` + `INITIAL` — added `isNonRegistered: boolean`; registration-number field hidden when `isNonRegistered` is true; checkbox toggle added below reg-number field; validation skips reg-number when non-registered; register call passes `isNonRegistered` and clears `registrationNumber`; review step shows "Not Registered" label; edit-mode pre-populate from `o.isNonRegistered`
+  - `ExploreScreen.tsx`: `OrgRowCard` + `OrgGridCard` — show amber "Non-Reg" badge when `isNonRegistered`, green "✓ Reg" badge otherwise; added `nonRegBadge` + `nonRegBadgeText` styles
+  - `NgoProfileScreen.tsx`: hero section — show green "✓ Registered" or amber "Non-Registered" badge when `orgStatusCode === 'APPROVED'`; added `orgNonRegBadge` + `orgNonRegBadgeText` styles
+- **Database Documentation**: update `Organisations` table schema + 6 SP descriptions at next "update documents" pass

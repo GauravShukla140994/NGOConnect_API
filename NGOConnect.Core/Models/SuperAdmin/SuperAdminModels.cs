@@ -23,6 +23,13 @@ namespace NGOConnect.Core.Models.SuperAdmin
     // encrypted tokens (2026-08-24) — see SuperAdminController.TryResolveId.
     // Raw sequential IDs are decrypted server-side in the controller only; the
     // DAL/SP layer below still works with plain ints exactly as before.
+    public class ApproveOrgRequest
+    {
+        [Required] public string OrgToken        { get; set; } = string.Empty;
+        /// <summary>True = organisation has no government registration number.</summary>
+        public bool IsNonRegistered { get; set; } = false;
+    }
+
     public class RejectOrgRequest
     {
         [Required] public string OrgToken { get; set; } = string.Empty;

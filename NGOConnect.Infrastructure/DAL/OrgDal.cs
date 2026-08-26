@@ -19,10 +19,11 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 var result = await ExecuteWriteAsync("Org_Register", cmd =>
                 {
-                    _db.AddParameter(cmd, "p_UserId",         userId);
-                    _db.AddParameter(cmd, "p_OrgName",        request.OrgName);
-                    _db.AddParameter(cmd, "p_RegistrationNo", request.RegistrationNumber);   // SP uses p_RegistrationNo
-                    _db.AddParameter(cmd, "p_OrgTypeLkpId",   request.OrgTypeLkpId);
+                    _db.AddParameter(cmd, "p_UserId",            userId);
+                    _db.AddParameter(cmd, "p_OrgName",          request.OrgName);
+                    _db.AddParameter(cmd, "p_RegistrationNo",   request.RegistrationNo);        // SP uses p_RegistrationNo
+                    _db.AddParameter(cmd, "p_IsNonRegistered",  request.IsNonRegistered ? 1 : 0);
+                    _db.AddParameter(cmd, "p_OrgTypeLkpId",     request.OrgTypeLkpId);
                     _db.AddParameter(cmd, "p_Category",       request.Category);
                     _db.AddParameter(cmd, "p_ContactPerson",  request.ContactPerson);
                     _db.AddParameter(cmd, "p_About",          request.About);

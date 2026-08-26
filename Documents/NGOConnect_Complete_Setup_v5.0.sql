@@ -262,7 +262,8 @@ CREATE TABLE Organisations (
     OrgName         VARCHAR(200)    NOT NULL,
     ContactPerson   VARCHAR(100)    NULL,
     OrgTypeLkpId    INT UNSIGNED    NOT NULL,
-    RegNumber       VARCHAR(100)    NOT NULL,
+    RegNumber       VARCHAR(100)    NULL,                              -- NULL when IsNonRegistered = 1
+    IsNonRegistered TINYINT(1)      NOT NULL DEFAULT 0 COMMENT '1 = approved without govt registration number',
     Category        VARCHAR(100)    NOT NULL,
     LogoUrl         VARCHAR(500)    NULL,
     About           TEXT            NULL,
@@ -2507,11 +2508,12 @@ END //
 
 -- ── ORG SPs ──────────────────────────────────────────────────────
 
--- v4.0 MODIFIED: +LogoUrl, AddressLine1/2, Pincode, Mission, Vision
+-- v5.1 MODIFIED: +IsNonRegistered param; RegNumber is now nullable; reg-number uniqueness check skipped for non-registered orgs
 CREATE PROCEDURE Org_Register(
     IN p_UserId            INT UNSIGNED,
     IN p_OrgName           VARCHAR(200),
     IN p_RegistrationNo    VARCHAR(100),
+    IN p_IsNonRegistered   TINYINT(1),          -- 1 = no govt registration number
     IN p_OrgTypeLkpId      INT UNSIGNED,
     IN p_Category          VARCHAR(100),
     IN p_ContactPerson     VARCHAR(100),
@@ -2538,7 +2540,11 @@ BEGIN
     DECLARE v_MemStatLkpId INT UNSIGNED;
     DECLARE v_OrgId        INT UNSIGNED;
 
-    SELECT COUNT(*) INTO v_Exists FROM Organisations WHERE RegNumber = p_RegistrationNo AND IsDeleted = 0;
+    -- Uniqueness check only for registered orgs with a non-blank reg number
+    IF p_IsNonRegistered = 0 AND (p_RegistrationNo IS NOT NULL AND TRIM(p_RegistrationNo) != '') THEN
+        SELECT COUNT(*) INTO v_Exists FROM Organisations WHERE RegNumber = p_RegistrationNo AND IsDeleted = 0;
+    END IF;
+
     IF v_Exists > 0 THEN
         SELECT 0 AS IsSuccess, 'Registration number already exists.' AS Message, NULL AS OrgId;
     ELSE
@@ -2553,13 +2559,16 @@ BEGIN
             WHERE lt.TypeCode = 'MEMBER_STATUS' AND lv.ValueCode = 'APPROVED' LIMIT 1;
 
         INSERT INTO Organisations
-            (OrgName, ContactPerson, OrgTypeLkpId, RegNumber, Category, About, Mission, Vision,
+            (OrgName, ContactPerson, OrgTypeLkpId, RegNumber, IsNonRegistered, Category, About, Mission, Vision,
              LogoUrl, ContactEmail, ContactPhone, Website,
              AddressLine1, AddressLine2, City, State, Pincode, Country,
              Is80GEligible, Is12AEligible, StatusLkpId, CreatedBy)
         VALUES
-            (p_OrgName, p_ContactPerson, p_OrgTypeLkpId, p_RegistrationNo, p_Category,
-             p_About, p_Mission, p_Vision, p_LogoUrl, p_ContactEmail, p_ContactPhone, p_Website,
+            (p_OrgName, p_ContactPerson, p_OrgTypeLkpId,
+             NULLIF(TRIM(COALESCE(p_RegistrationNo, '')), ''),
+             IFNULL(p_IsNonRegistered, 0),
+             p_Category, p_About, p_Mission, p_Vision, p_LogoUrl,
+             p_ContactEmail, p_ContactPhone, p_Website,
              p_AddressLine1, p_AddressLine2, p_City, p_State, p_Pincode,
              COALESCE(p_Country, 'India'),
              IFNULL(p_Is80GEligible, 0), IFNULL(p_Is12AEligible, 0),
@@ -2580,25 +2589,30 @@ END //
 CREATE PROCEDURE Org_GetProfile(IN p_OrgId INT UNSIGNED)
 BEGIN
     SELECT
-        o.OrgId, o.OrgName, o.RegNumber, o.Category, o.ContactPerson,
+        o.OrgId, o.OrgName, o.RegNumber, o.IsNonRegistered, o.Category, o.ContactPerson,
         o.LogoUrl, o.About, o.Mission, o.Vision,
         o.ContactEmail, o.ContactPhone, o.Website,
         o.AddressLine1, o.AddressLine2, o.City, o.State, o.Pincode, o.Country,
         o.OrgTypeLkpId,
         tv.ValueName AS OrgType,
         o.StatusLkpId,
-        sv.ValueName AS OrgStatus,
+        sv.ValueName  AS OrgStatus,
+        sv.ValueCode  AS OrgStatusCode,
+        COALESCE(vv.ValueCode, 'PENDING') AS VerificationStatusCode,
         o.AvgRating, o.RatingCount,
         o.Latitude, o.Longitude,
         o.CreatedAt,
+        o.FollowerCount,
+        o.CanCreateRecurring, o.CanCreateFlexible, o.OrgMaxVolunteers,
         (SELECT COUNT(*) FROM OrgMembers om
             JOIN LookupValues lv ON om.StatusLkpId = lv.LookupValueId
             JOIN LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
             WHERE om.OrgId = o.OrgId AND om.IsDeleted = 0
               AND lt.TypeCode = 'MEMBER_STATUS' AND lv.ValueCode = 'APPROVED') AS MemberCount
     FROM Organisations o
-    LEFT JOIN LookupValues tv ON o.OrgTypeLkpId = tv.LookupValueId
-    LEFT JOIN LookupValues sv ON o.StatusLkpId  = sv.LookupValueId
+    LEFT JOIN LookupValues tv ON o.OrgTypeLkpId            = tv.LookupValueId
+    LEFT JOIN LookupValues sv ON o.StatusLkpId             = sv.LookupValueId
+    LEFT JOIN LookupValues vv ON o.VerificationStatusLkpId = vv.LookupValueId
     WHERE o.OrgId = p_OrgId AND o.IsDeleted = 0;
 END //
 
@@ -2704,6 +2718,8 @@ BEGIN
         o.LogoUrl,
         o.City,
         o.State,
+        o.IsNonRegistered,
+        COALESCE(vv.ValueCode, 'PENDING') AS VerificationStatusCode,
         o.FollowerCount,
         IFNULL((SELECT COUNT(*) FROM OrgMembers om2
                  JOIN LookupValues lv2 ON om2.StatusLkpId = lv2.LookupValueId
@@ -2714,6 +2730,7 @@ BEGIN
         o.Latitude,
         o.Longitude
     FROM Organisations o
+    LEFT JOIN LookupValues vv ON o.VerificationStatusLkpId = vv.LookupValueId
     LEFT JOIN LookupValues cv ON cv.ValueCode = o.Category AND cv.LookupTypeId = v_OrgCatTypeId
     WHERE o.IsDeleted = 0
       AND o.StatusLkpId = v_ApprovedId
@@ -9624,7 +9641,7 @@ BEGIN
     DECLARE v_Offset INT DEFAULT (p_PageNumber - 1) * p_PageSize;
 
     SELECT
-        o.OrgId, o.OrgName, o.RegNumber, o.Category, o.City, o.State, o.LogoUrl,
+        o.OrgId, o.OrgName, o.RegNumber, o.IsNonRegistered, o.Category, o.City, o.State, o.LogoUrl,
         tv.ValueName AS OrgType,
         sv.ValueCode AS StatusCode, sv.ValueName AS StatusName,
         o.CreatedAt AS SubmittedAt, o.StatusUpdatedAt,
@@ -9649,16 +9666,11 @@ END //
 CREATE PROCEDURE SuperAdmin_Org_GetDetail(IN p_OrgId INT UNSIGNED)
 BEGIN
     SELECT
-        o.OrgId, o.OrgName, o.RegNumber, o.Category, o.ContactPerson,
+        o.OrgId, o.OrgName, o.RegNumber, o.IsNonRegistered, o.Category, o.ContactPerson,
         o.LogoUrl, o.About, o.Mission, o.Vision,
         o.ContactEmail, o.ContactPhone, o.Website,
         o.AddressLine1, o.AddressLine2, o.City, o.State, o.Pincode, o.Country,
         o.Is80GEligible, o.Is12AEligible,
-        -- v5.1-org-perms: needed by the Super Admin website's Project Permissions
-        -- section — was only ever added to Org_GetProfile (mobile-facing), not
-        -- here, so the Super Admin org detail response never carried these.
-        -- Same gap repeated with OrgMaxVolunteers when that field was added —
-        -- fixing both here together.
         o.CanCreateRecurring, o.CanCreateFlexible, o.OrgMaxVolunteers,
         -- v5.5: OrgTypeLkpId added — needed so the Super Admin website can
         -- pre-select the org type dropdown when editing an org's profile
@@ -9720,9 +9732,11 @@ BEGIN
     END IF;
 END //
 
+-- v5.1 MODIFIED: +p_IsNonRegistered param; sets IsNonRegistered on Organisations on approval
 CREATE PROCEDURE SuperAdmin_Org_Approve(
     IN p_OrgId            INT UNSIGNED,
-    IN p_SuperAdminUserId INT UNSIGNED
+    IN p_SuperAdminUserId INT UNSIGNED,
+    IN p_IsNonRegistered  TINYINT(1)      -- 0 = registered, 1 = non-registered
 )
 BEGIN
     DECLARE v_CurrentStatusId INT UNSIGNED;
@@ -9744,11 +9758,16 @@ BEGIN
             WHERE lt.TypeCode = 'ORG_STATUS' AND lv.ValueCode = 'APPROVED' LIMIT 1;
 
         UPDATE Organisations
-        SET StatusLkpId = v_ApprovedId, StatusUpdatedAt = NOW(), StatusUpdatedBy = p_SuperAdminUserId
+        SET StatusLkpId     = v_ApprovedId,
+            IsNonRegistered = IFNULL(p_IsNonRegistered, 0),
+            StatusUpdatedAt = NOW(),
+            StatusUpdatedBy = p_SuperAdminUserId
         WHERE OrgId = p_OrgId;
 
         INSERT INTO OrgStatusHistory (OrgId, OldStatusLkpId, NewStatusLkpId, Reason, ChangedByType, ChangedBy)
-        VALUES (p_OrgId, v_CurrentStatusId, v_ApprovedId, NULL, 'SUPER_ADMIN', p_SuperAdminUserId);
+        VALUES (p_OrgId, v_CurrentStatusId, v_ApprovedId,
+                IF(p_IsNonRegistered = 1, 'Approved as non-registered organisation', NULL),
+                'SUPER_ADMIN', p_SuperAdminUserId);
 
         SELECT UserId INTO v_FounderUserId FROM OrgMembers
             WHERE OrgId = p_OrgId AND IsDeleted = 0

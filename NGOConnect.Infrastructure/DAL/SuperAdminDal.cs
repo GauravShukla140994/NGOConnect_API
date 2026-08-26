@@ -249,7 +249,7 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
-        public async Task<ApiResponse> ApproveOrgAsync(int orgId, int superAdminUserId)
+        public async Task<ApiResponse> ApproveOrgAsync(int orgId, bool isNonRegistered, int superAdminUserId)
         {
             try
             {
@@ -257,6 +257,7 @@ namespace NGOConnect.Infrastructure.DAL
                 {
                     _db.AddParameter(cmd, "p_OrgId",            orgId);
                     _db.AddParameter(cmd, "p_SuperAdminUserId", superAdminUserId);
+                    _db.AddParameter(cmd, "p_IsNonRegistered",  isNonRegistered ? 1 : 0);
                 });
                 if (result.Succeeded)
                     // SP already inserts the canonical Notifications row (founder only,

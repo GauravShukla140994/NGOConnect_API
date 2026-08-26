@@ -127,12 +127,12 @@ namespace NGOConnect.API.Controllers
             return await _superAdmin.VerifyOrgProfileAsync(orgId, statusCode, GetSuperAdminUserId());
         }
 
-        [HttpPut("orgs/{orgToken}/approve")]
-        public async Task<ApiResponse> ApproveOrg(string orgToken)
+        [HttpPut("orgs/approve")]
+        public async Task<ApiResponse> ApproveOrg([FromBody] ApproveOrgRequest request)
         {
-            var err = TryResolveId("ORG", orgToken, out var orgId);
+            var err = TryResolveId("ORG", request.OrgToken, out var orgId);
             if (err is not null) return err;
-            return await _superAdmin.ApproveOrgAsync(orgId, GetSuperAdminUserId());
+            return await _superAdmin.ApproveOrgAsync(orgId, request.IsNonRegistered, GetSuperAdminUserId());
         }
 
         [HttpPut("orgs/reject")]
