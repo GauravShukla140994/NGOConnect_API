@@ -2885,3 +2885,14 @@ Backend endpoints (`PUT /superadmin/orgs/approve` with new `isNonRegistered`/`re
 - **SP fix** (`NGOConnect_Complete_Setup_v5.0.sql` + `patch_org_public_profile_stats.sql`): Added `TotalProjectCount` (all projects excl. CANCELLED) and `TotalVolunteerHours` (SUM HoursLogged for ATTENDED records across all org projects).
 - **Mobile fix** (`NgoProfileScreen.tsx`): Changed Projects stat to `org.totalProjectCount ?? (activeProjects.length + completedProjects.length)`.
 - **Action**: Apply `patch_org_public_profile_stats.sql` to Railway staging + production. Rebuild mobile app.
+
+### [2026-08-27] Feature: Organisation public profile — project card expand + pagination
+- **Context**: Investigated user report of wrong Active/Completed project counts on `/organisation/{token}`. Live staging data confirmed the counts (`activeProjectCount`/`completedProjectCount` from `Org_GetPublicProfile`) are internally consistent (Active + Completed = Total) and matched the actual status/date of the sampled projects — no SP bug found, no code changed for that report. Instead, the user asked for two related UI improvements to the Projects section.
+- **Backend** (`NGOConnect.API/Controllers/PublicController.cs`):
+  - NEW `GET /api/v1/public/org/{token}/projects` endpoint — paginated (`pageNumber`/`pageSize`, capped at 24) ACTIVE/UPCOMING/COMPLETED public projects for an org, mirroring the existing `/reviews` "Load more" pattern. Filters `Project_List` results in C# (same public-safe filtering already used by `/full`, since `Project_List`'s built-in whitelist is skipped when `p_OrgId` is supplied) rather than touching the shared SP.
+  - Both `/full` and the new `/projects` endpoint now mint a `projectToken` (`IUrlTokenService.Encrypt("OPP", projectId)`) on each project row, so the website can fetch full project detail via the existing `GET /public/opportunity/{token}` endpoint without exposing raw `ProjectId`.
+  - No SP/DB changes — C# controller only.
+- **Website** (`src/pages/OrganisationProfilePage.jsx`): Projects section now fetches from the new paginated endpoint (mirrors the reviews "Load more" button) instead of relying solely on `/full`'s capped first-page list. Added a per-card "Expand details" toggle that lazy-fetches and caches full project detail (description, schedule, location, volunteer/hours requirements, join type, impact summary, Google Maps link) via `/public/opportunity/{projectToken}` on first expand.
+- **Verification**: `validate_sp_params.py` — all phases passed (no SP changes). Website `npm run build` — clean. C# controller changes read-through verified manually (no `dotnet` SDK in this sandbox to compile).
+- **Action**: deploy the updated API (no DB patch needed — controller-only change) + Website build.
+- **API Documentation**: add `GET /api/v1/public/org/{orgToken}/projects` endpoint (query: `pageNumber`, `pageSize`; response: `PagedResult<project>` with `projectToken` per item) at next "update documents" pass.

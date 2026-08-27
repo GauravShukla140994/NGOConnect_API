@@ -8559,7 +8559,23 @@ BEGIN
              JOIN LookupValues lv4 ON mr4.StatusLkpId = lv4.LookupValueId
              WHERE mr4.OrgId = o.OrgId AND mr4.UserId = p_UserId AND mr4.IsDeleted = 0
                AND lv4.ValueCode = 'PENDING' LIMIT 1)
-        ) AS MemberStatusCode
+        ) AS MemberStatusCode,
+        -- Total projects (excl. CANCELLED) — used for the "Projects" stat on the profile header
+        (SELECT COUNT(*) FROM Projects p
+             JOIN LookupValues sv4 ON p.StatusLkpId = sv4.LookupValueId
+             WHERE p.OrgId = o.OrgId AND p.IsDeleted = 0
+               AND sv4.ValueCode NOT IN ('CANCELLED')) AS TotalProjectCount,
+        -- Total volunteer hours logged (ATTENDED only) across all org projects
+        COALESCE((SELECT SUM(pa.HoursLogged)
+             FROM ProjectAttendance pa
+             JOIN ProjectSessions   ps ON pa.SessionId  = ps.SessionId
+             JOIN Projects          pr ON ps.ProjectId  = pr.ProjectId
+             JOIN LookupValues      lv ON pa.AttendStatusLkpId = lv.LookupValueId
+             JOIN LookupTypes       lt ON lv.LookupTypeId      = lt.LookupTypeId
+             WHERE pr.OrgId = o.OrgId
+               AND lt.TypeCode = 'ATTENDANCE_STATUS'
+               AND lv.ValueCode = 'ATTENDED'
+             ), 0) AS TotalVolunteerHours
     FROM Organisations o
     LEFT JOIN OrgDonationSettings ods ON ods.OrgId = o.OrgId
     LEFT JOIN LookupValues tv ON o.OrgTypeLkpId            = tv.LookupValueId
