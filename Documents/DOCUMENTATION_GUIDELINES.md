@@ -2841,3 +2841,47 @@ Backend endpoints (`PUT /superadmin/orgs/approve` with new `isNonRegistered`/`re
 - **Action**: apply `patch_fix_setnonregistered_regnumber_guard.sql` to Railway staging + production. No API restart required (SP body-only change, no param/output shape change).
 - **Database Documentation**: update `SuperAdmin_Org_SetNonRegistered` SP description — note the new RegNumber guard.
 - **Related issue found but NOT fixed (flagging, not silently changing)**: `SuperAdmin_Org_Approve` has the same gap — approving with the "non-registered" checkbox unchecked also sets `IsNonRegistered = 0` directly, with no RegNumber check. This only matters if a founder registered as non-registered (blank RegNumber) and Super Admin unchecks that box during approval. Same fix pattern would apply if the user wants it closed too.
+
+### [2026-08-26] Fix: All Website admin datetime displays showed raw UTC, not local time
+- **Root cause**: DateTime columns come back from the API as bare ISO strings with no timezone designator (e.g. `"2026-07-19T06:02:53"`) — System.Text.Json serializes MySqlConnector's `DateTimeKind.Unspecified` values without a trailing `Z`/offset (Railway's MySQL server runs UTC, so this is the UTC wall-clock value). Every admin page rendered that raw string directly (`{org.submittedAt}`, `{c.createdAt}`, etc.) with no conversion at all — admins were reading UTC as plain text.
+- **Website** (new `src/admin/utils/date.js`):
+  - `formatDateTime(value, fallback='—')` — force-appends `Z` when no timezone designator is present (so the UTC value parses correctly), converts to the viewer's local timezone via the browser's `Date`, formats as `DD-MMM-YYYY hh:mm tt` (12-hour, AM/PM).
+  - `formatDate(value, fallback='—')` — for pure `DATE` columns only (`RegistrationDate`); reformats the `YYYY-MM-DD` string directly with no `Date` object/timezone conversion, since a calendar date has no time-of-day to shift.
+  - Applied `formatDateTime` to every raw datetime display found across the admin panel: `MembersPage.jsx` (`joinedAt`), `OrgDrawer.jsx` (`submittedAt`, status history `createdAt`), `OrganisationsPage.jsx` + `OverviewPage.jsx` (`submittedAt`), `CampaignRecipientsPage.jsx` (`sentAt`, `deliveredAt`), `CampaignsPage.jsx` + `CommunicationDashboardPage.jsx` (`createdAt`).
+  - Applied `formatDate` to `OrgDrawer.jsx`'s "Registration date" Quick facts tile (previously `String(org.registrationDate).slice(0,10)`, raw ISO, no reformatting).
+  - Not touched: `CampaignWizardPage.jsx`'s `scheduledAt` — that's a `datetime-local` form input value (`slice(0,16)`), not a display field; out of scope for this fix and changing it risks the scheduling flow, which already round-trips through `new Date(scheduledAt).toISOString()` with an explicit timezone param.
+  - Not touched: `dateOfBirth` fields (`CreateMemberPage.jsx`, `MemberDrawer.jsx`) — `type="date"` form inputs, not display renders.
+- **Verification**: `npm run build` — clean. Manually verified `formatDateTime` logic in isolation: `2026-07-19T06:02:53` (UTC) → `19-Jul-2026 11:32 AM` under `Asia/Kolkata` (UTC+5:30) — correct.
+- **No DB/backend changes** — display-only fix, nothing to patch or deploy on Railway.
+
+### [2026-08-26] Fix: Hours not showing on Impact screen completed project cards
+- **Root cause**: `CompletedCard` in `ImpactScreen.tsx` read `app.myHoursLogged` for the "Hours Volunteered" display and the FLEXIBLE attendance chip, but RS2 (Completed) returns the hours column as `HoursLogged` → `hoursLogged` in JSON. `myHoursLogged` is only present in RS1 (Upcoming). So completed cards always showed `—` for hours even when attendance was logged.
+- **Fix** (`App/NGOConnectApp/src/screens/profile/ImpactScreen.tsx`):
+  - Line 409 "Hours Volunteered" display: changed to `app.hoursLogged ?? app.myHoursLogged`
+  - `completedAttendanceChip()` FLEXIBLE branch: changed `logged` variable to `(app.hoursLogged ?? app.myHoursLogged) ?? 0`
+- **No SP/DAL/API changes** — display-only fix. RS2 already returns `HoursLogged`; the screen just wasn't reading it.
+- **Why View All worked**: `MyProjects` screen uses a separate endpoint (`User_GetMyProjects` or similar) which returns `hoursLogged` and the screen reads it correctly.
+
+### [2026-08-26] Fix: Impact screen header "Projects" count shows 1 instead of 2
+- **Root cause**: RS6 `v_ProjCompleted` used `apv.ValueCode = 'APPROVED'` to count completed projects, but RS5 `TotalCompleted` and RS2 (Completed tab rows) use `NOT IN (REJECTED, WITHDRAWN)`. A project that expired while the user's application was still PENDING was counted in RS5/RS2 (shows 2 in Completed tab) but excluded from RS6 (shows 1 in header stat).
+- **Fix** (`patch_restore_impact_summary.sql` + `NGOConnect_Complete_Setup_v5.0.sql`): Changed `v_ProjCompleted` filter from `apv.ValueCode = 'APPROVED'` to `apv.ValueCode NOT IN ('REJECTED', 'WITHDRAWN')` — now consistent with RS5 and RS2. Two occurrences fixed in setup SQL (User_GetImpactSummary RS6 block appears twice in the file).
+- **Action**: `patch_restore_impact_summary.sql` already contains this fix — apply it to Railway staging.
+
+### [2026-08-26] Fix: Certificate TotalHours sometimes incorrect
+- **Root cause**: `Certificate_GetData` and `Certificate_GetDataById` read `vc.TotalHours` — a value stamped at issuance time by `Certificate_Issue`. If attendance was marked or hours were backfilled after the cert was issued, the stored value is stale.
+- **Fix** (`NGOConnect_Complete_Setup_v5.0.sql` + `patch_fix_cert_hours.sql`): Replaced `vc.TotalHours` in both SPs with a live subquery: `COALESCE(SUM(pa.HoursLogged) WHERE ATTENDED, 0)`. Alias remains `TotalHours` — no DAL or frontend changes needed.
+- **Action**: Apply `patch_fix_cert_hours.sql` to Railway staging + production. No API restart required (SP body-only change, no param/output shape change).
+
+### [2026-08-26] Policy change: org post comments open to all by default
+- **Change**: `Post_AddComment` SP — previously only APPROVED org members could comment on org posts. Now anyone can comment unless admin has explicitly set `OrgMembers.CanComment = 0` for that user.
+- **Logic**: `SELECT COALESCE(om.CanComment, 1)` from OrgMembers for that org+user. If no row (non-member), COALESCE returns 1 → allowed. If row exists with `CanComment = 0` → blocked. APPROVED membership no longer required.
+- **Error message changed**: "You do not have permission to comment in this organisation." → "You have been restricted from commenting in this organisation."
+- **Files**: `NGOConnect_Complete_Setup_v5.0.sql` + `patch_allow_nonmember_comments.sql`
+- **Action**: Apply `patch_allow_nonmember_comments.sql` to Railway staging + production. No API restart required.
+
+### [2026-08-26] Fix: Org public profile — Projects count 0, Hours 0h
+- **Root cause 1**: Mobile read `org.activeProjects` but SP returns `activeProjectCount` (camelCase mismatch) → fell back to `activeProjects.length` = 0 (no active/upcoming projects). "Projects" stat should show total projects, not active-only.
+- **Root cause 2**: SP had no `TotalVolunteerHours` field → mobile always showed 0h.
+- **SP fix** (`NGOConnect_Complete_Setup_v5.0.sql` + `patch_org_public_profile_stats.sql`): Added `TotalProjectCount` (all projects excl. CANCELLED) and `TotalVolunteerHours` (SUM HoursLogged for ATTENDED records across all org projects).
+- **Mobile fix** (`NgoProfileScreen.tsx`): Changed Projects stat to `org.totalProjectCount ?? (activeProjects.length + completedProjects.length)`.
+- **Action**: Apply `patch_org_public_profile_stats.sql` to Railway staging + production. Rebuild mobile app.

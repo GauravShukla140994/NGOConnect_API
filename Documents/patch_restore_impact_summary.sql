@@ -1,15 +1,9 @@
 -- ─────────────────────────────────────────────────────────────────────────────
--- patch_fix_impact_summary_progress.sql
--- Adds progress tracking fields to User_GetImpactSummary RS1 (Upcoming).
---
--- Changes:
---   RS1 now includes: MyAttendedSessions, MyEligibleSessions, MyHoursLogged,
---   MyRequiredHours, MinAttendPct, ActiveCheckInId, MyCertCode
---   RS1 now includes CLOSING projects (was only UPCOMING + ACTIVE)
---
--- Impact: ImpactScreen UpcomingCard progress bars now show real data for
---         RECURRING (session %) and FLEXIBLE (hours %) projects.
--- ONE_TIME: RS0/RS2/RS3 completely unchanged.
+-- patch_restore_impact_summary.sql
+-- Restores User_GetImpactSummary to the correct version from setup SQL v5.0.
+-- Fixes: ReliabilityScore (wrong), BadgeId (wrong), lv.Icon (wrong),
+--        EarnedAt (wrong) — all introduced by patch_fix_impact_summary_progress.
+-- Apply to: Railway staging
 -- ─────────────────────────────────────────────────────────────────────────────
 
 DELIMITER //
@@ -34,10 +28,10 @@ BEGIN
     DECLARE v_AttendedLkpId   INT UNSIGNED DEFAULT 0;
     DECLARE v_CheckedInLkpId  INT UNSIGNED DEFAULT 0;
 
-    SELECT LookupValueId INTO v_PendingLkpId   FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId WHERE lt.TypeCode = 'APPLICATION_STATUS' AND lv.ValueCode = 'PENDING'    LIMIT 1;
-    SELECT LookupValueId INTO v_ApprovedLkpId  FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId WHERE lt.TypeCode = 'APPLICATION_STATUS' AND lv.ValueCode = 'APPROVED'   LIMIT 1;
-    SELECT LookupValueId INTO v_RejectedLkpId  FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId WHERE lt.TypeCode = 'APPLICATION_STATUS' AND lv.ValueCode = 'REJECTED'   LIMIT 1;
-    SELECT LookupValueId INTO v_WithdrawnLkpId FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId WHERE lt.TypeCode = 'APPLICATION_STATUS' AND lv.ValueCode = 'WITHDRAWN'  LIMIT 1;
+    SELECT LookupValueId INTO v_PendingLkpId   FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId WHERE lt.TypeCode = 'APPLICATION_STATUS' AND lv.ValueCode = 'PENDING'   LIMIT 1;
+    SELECT LookupValueId INTO v_ApprovedLkpId  FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId WHERE lt.TypeCode = 'APPLICATION_STATUS' AND lv.ValueCode = 'APPROVED'  LIMIT 1;
+    SELECT LookupValueId INTO v_RejectedLkpId  FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId WHERE lt.TypeCode = 'APPLICATION_STATUS' AND lv.ValueCode = 'REJECTED'  LIMIT 1;
+    SELECT LookupValueId INTO v_WithdrawnLkpId FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId WHERE lt.TypeCode = 'APPLICATION_STATUS' AND lv.ValueCode = 'WITHDRAWN' LIMIT 1;
     SELECT LookupValueId INTO v_UpcomingProjId  FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId WHERE lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'UPCOMING'   LIMIT 1;
     SELECT LookupValueId INTO v_ActiveProjId    FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId WHERE lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'ACTIVE'     LIMIT 1;
     SELECT LookupValueId INTO v_ClosingProjId   FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId WHERE lt.TypeCode = 'PROJECT_STATUS' AND lv.ValueCode = 'CLOSING'    LIMIT 1;
@@ -47,7 +41,7 @@ BEGIN
     SELECT LookupValueId INTO v_AttendedLkpId   FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId WHERE lt.TypeCode = 'ATTENDANCE_STATUS' AND lv.ValueCode = 'ATTENDED'   LIMIT 1;
     SELECT LookupValueId INTO v_CheckedInLkpId  FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId WHERE lt.TypeCode = 'ATTENDANCE_STATUS' AND lv.ValueCode = 'CHECKED_IN' LIMIT 1;
 
-    -- RS0: Applied — PENDING (unchanged)
+    -- RS0: Applied — PENDING
     SELECT
         pa.ApplicationId, pa.ProjectId, p.ProjectName, o.OrgName, o.LogoUrl AS OrgLogoUrl,
         appSv.ValueCode AS StatusCode, appSv.ValueName AS Status,
@@ -70,7 +64,7 @@ BEGIN
     WHERE pa.UserId = p_UserId AND pa.IsDeleted = 0 AND pa.StatusLkpId = v_PendingLkpId
     ORDER BY pa.CreatedAt DESC LIMIT p_AppLimit;
 
-    -- RS1: Upcoming — APPROVED + UPCOMING/ACTIVE/CLOSING + progress fields
+    -- RS1: Upcoming — APPROVED + project UPCOMING/ACTIVE/CLOSING
     SELECT
         pa.ApplicationId, pa.ProjectId, p.ProjectName, o.OrgName, o.LogoUrl AS OrgLogoUrl,
         appSv.ValueCode AS StatusCode, appSv.ValueName AS Status,
@@ -83,27 +77,21 @@ BEGIN
         projSv.ValueCode AS ProjectStatusCode, projSv.ValueName AS ProjectStatus,
         IF(jtv.ValueCode = 'APPROVE_REQ', 1, 0) AS RequiresApproval,
         IF(EXISTS(SELECT 1 FROM ProjectAttendance ata JOIN ProjectSessions pss ON ata.SessionId = pss.SessionId WHERE pss.ProjectId = p.ProjectId AND ata.UserId = p_UserId), 1, 0) AS IsCheckedIn,
-        -- RECURRING: sessions attended
         (SELECT COUNT(*) FROM ProjectAttendance ata2 JOIN ProjectSessions pss2 ON ata2.SessionId = pss2.SessionId
          WHERE pss2.ProjectId = p.ProjectId AND ata2.UserId = p_UserId AND ata2.AttendStatusLkpId = v_AttendedLkpId
         ) AS MyAttendedSessions,
-        -- RECURRING: eligible sessions from volunteer's approval date
         (SELECT COUNT(*) FROM ProjectSessions ps3
          WHERE ps3.ProjectId = p.ProjectId AND ps3.SessionDate >= DATE(pa.StatusUpdatedAt) AND ps3.IsDeleted = 0
         ) AS MyEligibleSessions,
-        -- FLEXIBLE: hours logged
         COALESCE((SELECT SUM(ata4.HoursLogged) FROM ProjectAttendance ata4 JOIN ProjectSessions pss4 ON ata4.SessionId = pss4.SessionId
          WHERE pss4.ProjectId = p.ProjectId AND ata4.UserId = p_UserId AND ata4.AttendStatusLkpId = v_AttendedLkpId
         ), 0) AS MyHoursLogged,
-        -- FLEXIBLE: required hours (date range × daily window × minAttendPct%)
         ROUND(DATEDIFF(p.FlexToDate, p.FlexFromDate) * (TIMESTAMPDIFF(MINUTE, p.SessionStartTime, p.SessionEndTime) / 60.0) * COALESCE(p.MinAttendPct, 70) / 100.0, 2) AS MyRequiredHours,
         p.MinAttendPct,
-        -- FLEXIBLE: active CHECKED_IN record (not yet checked out)
         (SELECT ata5.AttendanceId FROM ProjectAttendance ata5 JOIN ProjectSessions pss5 ON ata5.SessionId = pss5.SessionId
          WHERE pss5.ProjectId = p.ProjectId AND ata5.UserId = p_UserId AND ata5.AttendStatusLkpId = v_CheckedInLkpId
          ORDER BY ata5.CreatedAt DESC LIMIT 1
         ) AS ActiveCheckInId,
-        -- Certificate (if already issued)
         (SELECT vc.CertCode FROM VolunteerCertificates vc
          WHERE vc.ProjectId = p.ProjectId AND vc.UserId = p_UserId AND vc.IsDeleted = 0 LIMIT 1
         ) AS MyCertCode
@@ -119,7 +107,7 @@ BEGIN
       AND p.StatusLkpId IN (v_UpcomingProjId, v_ActiveProjId, v_ClosingProjId)
     ORDER BY p.RecurStart ASC LIMIT p_AppLimit;
 
-    -- RS2: Completed (unchanged)
+    -- RS2: Completed — COMPLETED or EXPIRED projects (expired = done from volunteer perspective)
     SELECT
         pa.ApplicationId, pa.ProjectId, p.ProjectName, o.OrgName, o.LogoUrl AS OrgLogoUrl,
         appSv.ValueCode AS StatusCode, appSv.ValueName AS Status,
@@ -132,7 +120,12 @@ BEGIN
         projSv.ValueCode AS ProjectStatusCode, projSv.ValueName AS ProjectStatus,
         IF(jtv.ValueCode = 'APPROVE_REQ', 1, 0) AS RequiresApproval,
         IF(EXISTS(SELECT 1 FROM ProjectAttendance ata JOIN ProjectSessions pss ON ata.SessionId = pss.SessionId WHERE pss.ProjectId = p.ProjectId AND ata.UserId = p_UserId), 1, 0) AS IsCheckedIn,
-        COALESCE((SELECT SUM(ata2.HoursLogged) FROM ProjectAttendance ata2 JOIN ProjectSessions pss2 ON ata2.SessionId = pss2.SessionId WHERE pss2.ProjectId = p.ProjectId AND ata2.UserId = p_UserId), 0) AS HoursLogged,
+        COALESCE((
+            SELECT SUM(ata2.HoursLogged)
+            FROM ProjectAttendance ata2
+            JOIN ProjectSessions pss2 ON ata2.SessionId = pss2.SessionId
+            WHERE pss2.ProjectId = p.ProjectId AND ata2.UserId = p_UserId
+        ), 0) AS HoursLogged,
         IF(EXISTS(SELECT 1 FROM VolunteerCertificates vc WHERE vc.ProjectId = pa.ProjectId AND vc.UserId = pa.UserId AND vc.IsDeleted = 0), 1, 0) AS HasCertificate
     FROM ProjectApplications pa
     JOIN Projects p ON pa.ProjectId = p.ProjectId
@@ -143,10 +136,10 @@ BEGIN
     LEFT JOIN LookupValues jtv    ON p.JoinTypeLkpId    = jtv.LookupValueId
     WHERE pa.UserId = p_UserId AND pa.IsDeleted = 0
       AND pa.StatusLkpId NOT IN (v_RejectedLkpId, v_WithdrawnLkpId)
-      AND p.StatusLkpId = v_CompletedProjId
+      AND p.StatusLkpId IN (v_CompletedProjId, v_ExpiredProjId)
     ORDER BY pa.StatusUpdatedAt DESC LIMIT p_AppLimit;
 
-    -- RS3: Cancelled (unchanged)
+    -- RS3: Cancelled
     SELECT
         pa.ApplicationId, pa.ProjectId, p.ProjectName, o.OrgName, o.LogoUrl AS OrgLogoUrl,
         appSv.ValueCode AS StatusCode, appSv.ValueName AS Status,
@@ -159,7 +152,7 @@ BEGIN
         projSv.ValueCode AS ProjectStatusCode, projSv.ValueName AS ProjectStatus,
         IF(jtv.ValueCode = 'APPROVE_REQ', 1, 0) AS RequiresApproval,
         IF(EXISTS(SELECT 1 FROM ProjectAttendance ata JOIN ProjectSessions pss ON ata.SessionId = pss.SessionId WHERE pss.ProjectId = p.ProjectId AND ata.UserId = p_UserId), 1, 0) AS IsCheckedIn,
-        IF(pa.StatusLkpId = v_WithdrawnLkpId AND pa.StatusUpdatedBy != p_UserId, 1, 0) AS IsAdminRemoved
+        IF(pa.StatusUpdatedBy IS NOT NULL AND pa.StatusUpdatedBy != p_UserId, 1, 0) AS WasRemovedByAdmin
     FROM ProjectApplications pa
     JOIN Projects p ON pa.ProjectId = p.ProjectId
     JOIN Organisations o ON p.OrgId = o.OrgId
@@ -168,23 +161,119 @@ BEGIN
     LEFT JOIN LookupValues ptv    ON p.ProjectTypeLkpId = ptv.LookupValueId
     LEFT JOIN LookupValues jtv    ON p.JoinTypeLkpId    = jtv.LookupValueId
     WHERE pa.UserId = p_UserId AND pa.IsDeleted = 0
-      AND (pa.StatusLkpId IN (v_RejectedLkpId, v_WithdrawnLkpId)
-           OR p.StatusLkpId IN (v_ExpiredProjId, v_CancelledProjId))
-    ORDER BY pa.StatusUpdatedAt DESC LIMIT p_AppLimit;
+      AND (pa.StatusLkpId IN (v_RejectedLkpId, v_WithdrawnLkpId) OR p.StatusLkpId = v_CancelledProjId)
+    ORDER BY pa.CreatedAt DESC LIMIT p_AppLimit;
 
-    -- RS4: Impact score + reliability (unchanged)
-    SELECT up.ImpactScore, up.ReliabilityPct
-    FROM UserProfiles up WHERE up.UserId = p_UserId LIMIT 1;
-
-    SELECT ub.UserBadgeId, lv.ValueCode AS BadgeCode, lv.ValueName AS BadgeName,
-           ub.CreatedAt AS AwardedAt
-    FROM UserBadges ub
-    JOIN LookupValues lv ON ub.BadgeLkpId = lv.LookupValueId
-    WHERE ub.UserId = p_UserId AND ub.IsDeleted = 0
+    -- RS4: Badges — latest N
+    SELECT ub.UserBadgeId, ub.BadgeLkpId, lv.ValueName AS BadgeName, lv.ValueCode AS BadgeCode,
+           o.OrgName, p.ProjectName, ub.CreatedAt AS AwardedAt
+    FROM   UserBadges ub
+    JOIN   LookupValues lv   ON ub.BadgeLkpId      = lv.LookupValueId
+    LEFT JOIN Organisations o ON ub.AwardedByOrgId = o.OrgId
+    LEFT JOIN Projects p      ON ub.ProjectId       = p.ProjectId
+    WHERE  ub.UserId = p_UserId AND ub.IsDeleted = 0
     ORDER BY ub.CreatedAt DESC LIMIT p_BadgeLimit;
 
+    -- RS5: Counts
+    SELECT
+        (SELECT COUNT(*) FROM ProjectApplications pa WHERE pa.UserId = p_UserId AND pa.IsDeleted = 0 AND pa.StatusLkpId = v_PendingLkpId) AS TotalApplied,
+        (SELECT COUNT(*) FROM ProjectApplications pa JOIN Projects p2 ON pa.ProjectId = p2.ProjectId WHERE pa.UserId = p_UserId AND pa.IsDeleted = 0 AND pa.StatusLkpId = v_ApprovedLkpId AND p2.StatusLkpId IN (v_UpcomingProjId, v_ActiveProjId)) AS TotalUpcoming,
+        (SELECT COUNT(*) FROM ProjectApplications pa JOIN Projects p2 ON pa.ProjectId = p2.ProjectId WHERE pa.UserId = p_UserId AND pa.IsDeleted = 0 AND pa.StatusLkpId NOT IN (v_RejectedLkpId, v_WithdrawnLkpId) AND p2.StatusLkpId IN (v_CompletedProjId, v_ExpiredProjId)) AS TotalCompleted,
+        (SELECT COUNT(*) FROM ProjectApplications pa JOIN Projects p2 ON pa.ProjectId = p2.ProjectId WHERE pa.UserId = p_UserId AND pa.IsDeleted = 0 AND (pa.StatusLkpId IN (v_RejectedLkpId, v_WithdrawnLkpId) OR p2.StatusLkpId = v_CancelledProjId)) AS TotalCancelled,
+        (SELECT COUNT(*) FROM UserBadges WHERE UserId = p_UserId AND IsDeleted = 0) AS TotalBadges;
+
+    -- RS6: Impact stats
+    BEGIN
+        DECLARE v_TotalHours        DECIMAL(8,2)  DEFAULT 0;
+        DECLARE v_ProjCompleted     INT           DEFAULT 0;
+        DECLARE v_NgosJoined        INT           DEFAULT 0;
+        DECLARE v_CertCount         INT           DEFAULT 0;
+        DECLARE v_BadgeCount        INT           DEFAULT 0;
+        DECLARE v_SkillCount        INT           DEFAULT 0;
+        DECLARE v_NoShows           INT           DEFAULT 0;
+        DECLARE v_Withdrawals       INT           DEFAULT 0;
+        DECLARE v_ImpactScore       INT           DEFAULT 0;
+        DECLARE v_Attended          INT           DEFAULT 0;
+        DECLARE v_TotalSessions     INT           DEFAULT 0;
+        DECLARE v_ReliabilityPct    DECIMAL(5,2)  DEFAULT 0;
+        DECLARE v_ProjApplied       INT           DEFAULT 0;
+        DECLARE v_PendingApps       INT           DEFAULT 0;
+        DECLARE v_ApprovedApps      INT           DEFAULT 0;
+        DECLARE v_RankNumber        INT           DEFAULT 1;
+        DECLARE v_TotalRanked       INT           DEFAULT 0;
+        DECLARE v_AttStatusAttended INT UNSIGNED  DEFAULT 0;
+        DECLARE v_AttStatusNoShow   INT UNSIGNED  DEFAULT 0;
+
+        SELECT LookupValueId INTO v_AttStatusAttended FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId WHERE lt.TypeCode = 'ATTENDANCE_STATUS' AND lv.ValueCode = 'ATTENDED' LIMIT 1;
+        SELECT LookupValueId INTO v_AttStatusNoShow   FROM LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId WHERE lt.TypeCode = 'ATTENDANCE_STATUS' AND lv.ValueCode = 'NO_SHOW'   LIMIT 1;
+
+        SELECT ROUND(COALESCE(SUM(pa.HoursLogged), 0), 1)
+        INTO   v_TotalHours
+        FROM   ProjectAttendance pa
+        WHERE  pa.UserId = p_UserId AND pa.AttendStatusLkpId = v_AttStatusAttended;
+
+        SELECT COUNT(DISTINCT pa.ProjectId) INTO v_ProjCompleted
+        FROM ProjectApplications pa JOIN Projects p ON pa.ProjectId = p.ProjectId
+        JOIN LookupValues apv ON pa.StatusLkpId = apv.LookupValueId
+        JOIN LookupValues prv ON p.StatusLkpId  = prv.LookupValueId
+        WHERE pa.UserId = p_UserId AND pa.IsDeleted = 0
+          AND apv.ValueCode NOT IN ('REJECTED', 'WITHDRAWN')
+          AND prv.ValueCode IN ('COMPLETED', 'EXPIRED');
+
+        SELECT COUNT(*) INTO v_NgosJoined FROM OrgMembers om JOIN LookupValues lv ON om.StatusLkpId = lv.LookupValueId WHERE om.UserId = p_UserId AND om.IsDeleted = 0 AND lv.ValueCode = 'APPROVED';
+        SELECT COUNT(*) INTO v_CertCount  FROM VolunteerCertificates WHERE UserId = p_UserId;
+        SELECT COUNT(*) INTO v_BadgeCount FROM UserBadges WHERE UserId = p_UserId AND IsDeleted = 0;
+        SELECT COUNT(*) INTO v_SkillCount FROM UserSkills WHERE UserId = p_UserId AND IsDeleted = 0;
+        SELECT COUNT(*) INTO v_NoShows    FROM ProjectAttendance WHERE UserId = p_UserId AND AttendStatusLkpId = v_AttStatusNoShow AND IsNoShowExcused = 0;
+        SELECT COUNT(*) INTO v_Withdrawals FROM ProjectApplications pa JOIN LookupValues lv ON pa.StatusLkpId = lv.LookupValueId WHERE pa.UserId = p_UserId AND pa.IsDeleted = 0 AND lv.ValueCode IN ('REJECTED', 'WITHDRAWN');
+
+        SET v_ImpactScore = GREATEST(0, ROUND(
+            (v_TotalHours * 10 + v_ProjCompleted * 50 + v_NgosJoined * 30 + v_CertCount * 25 + v_BadgeCount * 15 + v_SkillCount * 5)
+            - (v_NoShows * 20 + v_Withdrawals * 15)
+        ));
+
+        UPDATE UserProfiles SET ImpactScore = v_ImpactScore WHERE UserId = p_UserId AND IsDeleted = 0;
+
+        SELECT
+            SUM(CASE WHEN AttendStatusLkpId = v_AttStatusAttended THEN 1 ELSE 0 END),
+            SUM(CASE WHEN AttendStatusLkpId IN (v_AttStatusAttended, v_AttStatusNoShow) THEN 1 ELSE 0 END)
+        INTO v_Attended, v_TotalSessions FROM ProjectAttendance WHERE UserId = p_UserId;
+
+        IF COALESCE(v_TotalSessions, 0) > 0 THEN
+            SET v_ReliabilityPct = ROUND(COALESCE(v_Attended, 0) * 100.0 / v_TotalSessions, 1);
+        END IF;
+
+        SELECT COUNT(*) INTO v_ProjApplied  FROM ProjectApplications WHERE UserId = p_UserId AND IsDeleted = 0;
+        SELECT COUNT(*) INTO v_PendingApps  FROM ProjectApplications pa JOIN LookupValues lv ON pa.StatusLkpId = lv.LookupValueId WHERE pa.UserId = p_UserId AND pa.IsDeleted = 0 AND lv.ValueCode = 'PENDING';
+        SELECT COUNT(*) INTO v_ApprovedApps FROM ProjectApplications pa JOIN LookupValues lv ON pa.StatusLkpId = lv.LookupValueId WHERE pa.UserId = p_UserId AND pa.IsDeleted = 0 AND lv.ValueCode = 'APPROVED';
+        SELECT COUNT(*) + 1 INTO v_RankNumber FROM UserProfiles up2 JOIN Users u2 ON up2.UserId = u2.UserId WHERE up2.ImpactScore > v_ImpactScore AND u2.IsDeleted = 0 AND up2.IsDeleted = 0;
+        SELECT COUNT(*) INTO v_TotalRanked FROM UserProfiles up2 JOIN Users u2 ON up2.UserId = u2.UserId WHERE u2.IsDeleted = 0 AND up2.IsDeleted = 0;
+
+        SELECT
+            v_ImpactScore AS ImpactScore, v_ReliabilityPct AS ReliabilityPct,
+            v_ProjCompleted AS ProjectsCompleted, v_TotalHours AS TotalHours,
+            v_BadgeCount AS BadgeCount, v_SkillCount AS SkillCount,
+            v_ProjApplied AS ProjectsApplied, v_CertCount AS CertificateCount,
+            COALESCE(up.CreatedAt, u.CreatedAt) AS MemberSince,
+            v_NgosJoined AS NgosJoined, v_PendingApps AS PendingApplications,
+            v_ApprovedApps AS ApprovedApplications, v_RankNumber AS RankNumber,
+            v_TotalRanked AS TotalRanked,
+            CASE WHEN v_ImpactScore >= 20000 THEN 'Elite'
+                 WHEN v_ImpactScore >= 10000 THEN 'Diamond'
+                 WHEN v_ImpactScore >= 5000  THEN 'Platinum'
+                 WHEN v_ImpactScore >= 2500  THEN 'Gold'
+                 WHEN v_ImpactScore >= 1500  THEN 'Committed Volunteer'
+                 WHEN v_ImpactScore >= 500   THEN 'Active Volunteer'
+                 WHEN v_ImpactScore >= 100   THEN 'Helper'
+                 ELSE                             'Newcomer'
+            END AS RankName,
+            up.FirstName, up.LastName, up.ProfilePhoto, up.Bio
+        FROM  Users u
+        LEFT  JOIN UserProfiles up ON up.UserId = u.UserId AND up.IsDeleted = 0
+        WHERE u.UserId = p_UserId AND u.IsDeleted = 0;
+    END;
 END //
 
 DELIMITER ;
 
-SELECT 'patch_fix_impact_summary_progress applied successfully.' AS Status;
+SELECT 'patch_restore_impact_summary applied successfully.' AS Status;

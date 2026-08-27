@@ -3952,33 +3952,25 @@ CREATE PROCEDURE Post_AddComment(IN p_PostId INT UNSIGNED, IN p_UserId INT UNSIG
 BEGIN
     DECLARE v_OrgId         INT UNSIGNED DEFAULT 0;
     DECLARE v_AuthorUserId  INT UNSIGNED DEFAULT 0;
-    DECLARE v_ApprovedLkpId INT UNSIGNED DEFAULT 0;
-    DECLARE v_IsMember      TINYINT(1)  DEFAULT 0;
-    DECLARE v_CanComment    TINYINT(1)  DEFAULT 1;  -- default allow (no OrgId = public post)
+    DECLARE v_CanComment    TINYINT(1)  DEFAULT 1;  -- default allow for everyone
 
     -- Look up the post's OrgId and author
     SELECT OrgId, UserId INTO v_OrgId, v_AuthorUserId
     FROM   Posts WHERE PostId = p_PostId AND IsDeleted = 0 LIMIT 1;
 
-    -- Enforce CanComment only for org-scoped posts
+    -- For org posts: block only if admin has explicitly set CanComment = 0 for this member.
+    -- Non-members (no row in OrgMembers) are allowed by default.
     IF v_OrgId > 0 THEN
-        SELECT lv.LookupValueId INTO v_ApprovedLkpId
-        FROM   LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
-        WHERE  lt.TypeCode = 'MEMBER_STATUS' AND lv.ValueCode = 'APPROVED' LIMIT 1;
-
-        SELECT 1, om.CanComment INTO v_IsMember, v_CanComment
+        SELECT COALESCE(om.CanComment, 1) INTO v_CanComment
         FROM   OrgMembers om
-        WHERE  om.OrgId = v_OrgId AND om.UserId = p_UserId
-          AND  om.StatusLkpId = v_ApprovedLkpId AND om.IsDeleted = 0
-        LIMIT 1;
-
-        -- Non-members cannot comment on org posts
-        IF v_IsMember = 0 THEN SET v_CanComment = 0; END IF;
+        WHERE  om.OrgId = v_OrgId AND om.UserId = p_UserId AND om.IsDeleted = 0
+        LIMIT  1;
+        -- If no membership row found, COALESCE returns 1 → allowed
     END IF;
 
     IF v_CanComment = 0 THEN
         SELECT 0    AS IsSuccess,
-               'You do not have permission to comment in this organisation.' AS Message,
+               'You have been restricted from commenting in this organisation.' AS Message,
                NULL AS CommentId,
                NULL AS PostAuthorUserId,
                NULL AS ActorName;
@@ -4610,7 +4602,16 @@ END //
 CREATE PROCEDURE Certificate_GetData(IN p_CertCode VARCHAR(20))
 BEGIN
     SELECT
-        vc.CertificateId, vc.CertCode, vc.IssuedAt, vc.TotalHours,
+        vc.CertificateId, vc.CertCode, vc.IssuedAt,
+        -- Live-computed so late attendance marks are reflected accurately
+        COALESCE((SELECT SUM(pa.HoursLogged)
+                  FROM ProjectAttendance pa
+                  JOIN ProjectSessions   ps ON pa.SessionId = ps.SessionId
+                  JOIN LookupValues      lv ON pa.AttendStatusLkpId = lv.LookupValueId
+                  JOIN LookupTypes       lt ON lv.LookupTypeId = lt.LookupTypeId
+                  WHERE ps.ProjectId = vc.ProjectId AND pa.UserId = vc.UserId
+                    AND lt.TypeCode = 'ATTENDANCE_STATUS' AND lv.ValueCode = 'ATTENDED'
+                 ), 0) AS TotalHours,
         -- Volunteer
         u.UserId,
         CONCAT(up.FirstName, ' ', up.LastName) AS VolunteerName,
@@ -4654,7 +4655,16 @@ END //
 CREATE PROCEDURE Certificate_GetDataById(IN p_CertificateId INT UNSIGNED)
 BEGIN
     SELECT
-        vc.CertificateId, vc.CertCode, vc.IssuedAt, vc.TotalHours,
+        vc.CertificateId, vc.CertCode, vc.IssuedAt,
+        -- Live-computed so late attendance marks are reflected accurately
+        COALESCE((SELECT SUM(pa.HoursLogged)
+                  FROM ProjectAttendance pa
+                  JOIN ProjectSessions   ps ON pa.SessionId = ps.SessionId
+                  JOIN LookupValues      lv ON pa.AttendStatusLkpId = lv.LookupValueId
+                  JOIN LookupTypes       lt ON lv.LookupTypeId = lt.LookupTypeId
+                  WHERE ps.ProjectId = vc.ProjectId AND pa.UserId = vc.UserId
+                    AND lt.TypeCode = 'ATTENDANCE_STATUS' AND lv.ValueCode = 'ATTENDED'
+                 ), 0) AS TotalHours,
         -- Volunteer
         u.UserId,
         CONCAT(up.FirstName, ' ', up.LastName) AS VolunteerName,
@@ -7194,7 +7204,7 @@ BEGIN
     JOIN   LookupValues    prv ON p.StatusLkpId  = prv.LookupValueId
     WHERE  pa.UserId    = p_UserId
       AND  pa.IsDeleted = 0
-      AND  apv.ValueCode  = 'APPROVED'
+      AND  apv.ValueCode NOT IN ('REJECTED', 'WITHDRAWN')
       AND  prv.ValueCode IN ('COMPLETED', 'EXPIRED');
 
     SELECT COUNT(*) INTO v_NgosJoined
@@ -7434,7 +7444,8 @@ BEGIN
     LEFT JOIN LookupValues ptv    ON p.ProjectTypeLkpId = ptv.LookupValueId
     LEFT JOIN LookupValues jtv    ON p.JoinTypeLkpId    = jtv.LookupValueId
     WHERE pa.UserId = p_UserId AND pa.IsDeleted = 0
-      AND pa.StatusLkpId NOT IN (v_RejectedLkpId, v_WithdrawnLkpId) AND p.StatusLkpId = v_CompletedProjId
+      AND pa.StatusLkpId NOT IN (v_RejectedLkpId, v_WithdrawnLkpId)
+      AND p.StatusLkpId IN (v_CompletedProjId, v_ExpiredProjId)
     ORDER BY pa.StatusUpdatedAt DESC LIMIT p_AppLimit;
 
     -- RS3: Cancelled — REJECTED/WITHDRAWN OR project EXPIRED/CANCELLED
@@ -7460,7 +7471,7 @@ BEGIN
     LEFT JOIN LookupValues ptv    ON p.ProjectTypeLkpId = ptv.LookupValueId
     LEFT JOIN LookupValues jtv    ON p.JoinTypeLkpId    = jtv.LookupValueId
     WHERE pa.UserId = p_UserId AND pa.IsDeleted = 0
-      AND (pa.StatusLkpId IN (v_RejectedLkpId, v_WithdrawnLkpId) OR p.StatusLkpId IN (v_ExpiredProjId, v_CancelledProjId))
+      AND (pa.StatusLkpId IN (v_RejectedLkpId, v_WithdrawnLkpId) OR p.StatusLkpId = v_CancelledProjId)
     ORDER BY pa.CreatedAt DESC LIMIT p_AppLimit;
 
     -- RS4: Badges — latest N
@@ -7477,8 +7488,8 @@ BEGIN
     SELECT
         (SELECT COUNT(*) FROM ProjectApplications pa WHERE pa.UserId = p_UserId AND pa.IsDeleted = 0 AND pa.StatusLkpId = v_PendingLkpId) AS TotalApplied,
         (SELECT COUNT(*) FROM ProjectApplications pa JOIN Projects p2 ON pa.ProjectId = p2.ProjectId WHERE pa.UserId = p_UserId AND pa.IsDeleted = 0 AND pa.StatusLkpId = v_ApprovedLkpId AND p2.StatusLkpId IN (v_UpcomingProjId, v_ActiveProjId)) AS TotalUpcoming,
-        (SELECT COUNT(*) FROM ProjectApplications pa JOIN Projects p2 ON pa.ProjectId = p2.ProjectId WHERE pa.UserId = p_UserId AND pa.IsDeleted = 0 AND pa.StatusLkpId NOT IN (v_RejectedLkpId, v_WithdrawnLkpId) AND p2.StatusLkpId = v_CompletedProjId) AS TotalCompleted,
-        (SELECT COUNT(*) FROM ProjectApplications pa JOIN Projects p2 ON pa.ProjectId = p2.ProjectId WHERE pa.UserId = p_UserId AND pa.IsDeleted = 0 AND (pa.StatusLkpId IN (v_RejectedLkpId, v_WithdrawnLkpId) OR p2.StatusLkpId IN (v_ExpiredProjId, v_CancelledProjId))) AS TotalCancelled,
+        (SELECT COUNT(*) FROM ProjectApplications pa JOIN Projects p2 ON pa.ProjectId = p2.ProjectId WHERE pa.UserId = p_UserId AND pa.IsDeleted = 0 AND pa.StatusLkpId NOT IN (v_RejectedLkpId, v_WithdrawnLkpId) AND p2.StatusLkpId IN (v_CompletedProjId, v_ExpiredProjId)) AS TotalCompleted,
+        (SELECT COUNT(*) FROM ProjectApplications pa JOIN Projects p2 ON pa.ProjectId = p2.ProjectId WHERE pa.UserId = p_UserId AND pa.IsDeleted = 0 AND (pa.StatusLkpId IN (v_RejectedLkpId, v_WithdrawnLkpId) OR p2.StatusLkpId = v_CancelledProjId)) AS TotalCancelled,
         (SELECT COUNT(*) FROM UserBadges WHERE UserId = p_UserId AND IsDeleted = 0) AS TotalBadges;
 
     -- RS6: Impact stats (same logic as User_GetImpact)
@@ -7516,7 +7527,9 @@ BEGIN
         FROM ProjectApplications pa JOIN Projects p ON pa.ProjectId = p.ProjectId
         JOIN LookupValues apv ON pa.StatusLkpId = apv.LookupValueId
         JOIN LookupValues prv ON p.StatusLkpId  = prv.LookupValueId
-        WHERE pa.UserId = p_UserId AND pa.IsDeleted = 0 AND apv.ValueCode = 'APPROVED' AND prv.ValueCode IN ('COMPLETED', 'EXPIRED');
+        WHERE pa.UserId = p_UserId AND pa.IsDeleted = 0
+          AND apv.ValueCode NOT IN ('REJECTED', 'WITHDRAWN')
+          AND prv.ValueCode IN ('COMPLETED', 'EXPIRED');
 
         SELECT COUNT(*) INTO v_NgosJoined FROM OrgMembers om JOIN LookupValues lv ON om.StatusLkpId = lv.LookupValueId WHERE om.UserId = p_UserId AND om.IsDeleted = 0 AND lv.ValueCode = 'APPROVED';
         SELECT COUNT(*) INTO v_CertCount  FROM VolunteerCertificates WHERE UserId = p_UserId;
@@ -15382,7 +15395,20 @@ BEGIN
             (SELECT COUNT(*) FROM Projects p
                  JOIN LookupValues sv3 ON p.StatusLkpId = sv3.LookupValueId
                  WHERE p.OrgId = o.OrgId AND p.IsDeleted = 0
-                   AND sv3.ValueCode = 'COMPLETED') AS CompletedProjectCount
+                   AND sv3.ValueCode = 'COMPLETED') AS CompletedProjectCount,
+            (SELECT COUNT(*) FROM Projects p
+                 JOIN LookupValues sv4 ON p.StatusLkpId = sv4.LookupValueId
+                 WHERE p.OrgId = o.OrgId AND p.IsDeleted = 0
+                   AND sv4.ValueCode NOT IN ('CANCELLED')) AS TotalProjectCount,
+            COALESCE((SELECT SUM(pa.HoursLogged)
+                 FROM ProjectAttendance pa
+                 JOIN ProjectSessions   ps ON pa.SessionId = ps.SessionId
+                 JOIN Projects          pr ON ps.ProjectId = pr.ProjectId
+                 JOIN LookupValues      lv ON pa.AttendStatusLkpId = lv.LookupValueId
+                 JOIN LookupTypes       lt ON lv.LookupTypeId = lt.LookupTypeId
+                 WHERE pr.OrgId = o.OrgId
+                   AND lt.TypeCode = 'ATTENDANCE_STATUS' AND lv.ValueCode = 'ATTENDED'
+                 ), 0) AS TotalVolunteerHours
         FROM Organisations o
         LEFT JOIN OrgDonationSettings ods ON ods.OrgId = o.OrgId
         LEFT JOIN LookupValues tv ON o.OrgTypeLkpId = tv.LookupValueId
