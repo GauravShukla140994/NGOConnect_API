@@ -113,6 +113,15 @@ namespace NGOConnect.API.Controllers
             return await _userDal.VerifyContactOtpAsync(GetUserId(), request, ip);
         }
 
+        // ── Account Deletion (Google Play + App Store compliance) ───────────────
+        /// <summary>
+        /// Soft-deletes the authenticated user's account and revokes all refresh tokens.
+        /// Blocked if the user is the sole Founder of any active (APPROVED) organisation.
+        /// </summary>
+        [HttpDelete("account")] [Authorize]
+        public async Task<ApiResponse> DeleteAccount()
+            => await _userDal.RequestAccountDeletionAsync(GetUserId());
+
         private int GetUserId()
         {
             var claim = User.FindFirst("uid") ?? User.FindFirst(ClaimTypes.NameIdentifier);

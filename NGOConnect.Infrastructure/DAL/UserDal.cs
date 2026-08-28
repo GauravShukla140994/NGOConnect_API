@@ -527,6 +527,23 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
+        // ── Account Deletion ─────────────────────────────────────────────────────
+
+        public async Task<ApiResponse> RequestAccountDeletionAsync(int userId)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("User_RequestAccountDeletion",
+                    cmd => _db.AddParameter(cmd, "p_UserId", userId));
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "RequestAccountDeletionAsync failed UserId={UserId}", userId);
+                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
         private static string GenerateOtp()
         {
             var bytes = System.Security.Cryptography.RandomNumberGenerator.GetBytes(4);

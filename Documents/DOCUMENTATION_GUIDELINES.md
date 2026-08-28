@@ -199,6 +199,7 @@ When it is included in a Railway patch, update to `✅ Railway applied`.
 | `patch_fix_recommended_nonreg.sql` | Org_ListRecommended: restore IsNonRegistered — dropped by patch_org_category_name.sql | ✅ Railway applied |
 | `patch_fix_list_nonreg.sql` | Org_List + Org_ListRecommended: restore IsNonRegistered in both SPs (supersedes patch_fix_recommended_nonreg.sql) | 🟡 Local only |
 | `patch_add_registration_date.sql` | Add RegistrationDate column to Organisations + update Org_Register, Org_GetProfile, Org_Resubmit (SchemaVersion 5.1.12) | 🟡 Local only |
+| `patch_account_deletion.sql` | New SP `User_RequestAccountDeletion` — sole-founder guard + soft-delete Users + revoke RefreshTokens | 🟡 Local only |
 
 ### Other Individual Patches (absorbed into versioned patches or superseded)
 
@@ -2920,3 +2921,20 @@ Backend endpoints (`PUT /superadmin/orgs/approve` with new `isNonRegistered`/`re
   - `NGOConnect.API/appsettings.Staging.json`: added `"InviteTemplateId": "223944"`.
 - **Action**: no DB patch needed. Rebuild + redeploy API to Railway staging. To activate DLT template sending: set Railway env var `Sms__Route=dlt` (or change `Route` in Staging config) after confirming template 223944 is Approved in Fast2SMS dashboard.
 - **No document update needed**: no endpoint, model, SP, or DB table changed.
+
+### [2026-08-28] Feature: Account deletion — Google Play + App Store compliance
+- **Context**: Both stores mandate in-app account deletion. Soft-delete pattern used (no rows hard-deleted). Sole-founder guard blocks deletion if user is the only active FOUNDER of any APPROVED org.
+- **SP**: `User_RequestAccountDeletion(IN p_UserId INT UNSIGNED)` — new SP.
+  - Checks `OrgMembers` → `FOUNDER` role → `APPROVED` org → no co-founder exists; if sole founder, returns `IsSuccess=0` + descriptive message + `ErrorCode='SOLE_FOUNDER'`.
+  - Otherwise: `UPDATE Users SET IsDeleted=1, DeletedAt=NOW(), DeletedBy=p_UserId`; `UPDATE RefreshTokens SET IsRevoked=1, RevokedAt=NOW()` for all active tokens. Returns `IsSuccess=1`.
+  - No table/column changes — uses existing `IsDeleted/DeletedAt/DeletedBy` on Users, `IsRevoked/RevokedAt` on RefreshTokens.
+- **Patch file**: `Documents/patch_account_deletion.sql` — 🟡 Local only. Run on local → Railway staging → Railway production.
+- **Files changed**:
+  - `NGOConnect.Core/Interfaces/IUserDal.cs`: added `RequestAccountDeletionAsync(int userId)`.
+  - `NGOConnect.Infrastructure/DAL/UserDal.cs`: implemented `RequestAccountDeletionAsync` — calls `User_RequestAccountDeletion` via `ExecuteWriteAsync`, returns `result.ToApiResponse()`.
+  - `NGOConnect.API/Controllers/UserController.cs`: added `[HttpDelete("account")] [Authorize] DELETE /api/v1/user/account`.
+  - `App/NGOConnectApp/src/api/user.api.ts`: added `deleteAccount()` → `apiClient.delete('/user/account')` + named export.
+  - `App/NGOConnectApp/src/screens/profile/ProfileScreen.tsx`: added `handleDeleteAccount` — two-step Alert confirmation (warn → final confirm → API call → logout on success; shows server message on SOLE_FOUNDER block); added "Delete Account" button below Sign Out (muted underlined text style so it doesn't compete visually).
+- **validate_sp_params.py**: all phases passed.
+- **API Documentation**: add `DELETE /api/v1/user/account` endpoint + `User_RequestAccountDeletion` SP at next "update documents" pass.
+- **Database Documentation**: add `User_RequestAccountDeletion` SP description (parameters, sole-founder guard logic, return values) at next "update documents" pass.
