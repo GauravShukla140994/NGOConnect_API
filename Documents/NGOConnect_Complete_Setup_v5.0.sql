@@ -3206,13 +3206,15 @@ BEGIN
       AND (
           p.IsPublic = 1
           OR p_UserId IS NULL OR p_UserId = 0
+          -- Past projects are historical records — always visible to any authenticated user
+          OR sv.ValueCode IN ('COMPLETED', 'EXPIRED', 'CANCELLED')
           OR EXISTS (
               SELECT 1 FROM OrgMembers om
-              JOIN LookupValues sv ON om.StatusLkpId = sv.LookupValueId
-              JOIN LookupTypes  st ON sv.LookupTypeId = st.LookupTypeId
+              JOIN LookupValues omv ON om.StatusLkpId  = omv.LookupValueId
+              JOIN LookupTypes  omt ON omv.LookupTypeId = omt.LookupTypeId
               WHERE om.OrgId = p.OrgId AND om.UserId = p_UserId
                 AND om.IsDeleted = 0
-                AND st.TypeCode = 'MEMBER_STATUS' AND sv.ValueCode = 'APPROVED'
+                AND omt.TypeCode = 'MEMBER_STATUS' AND omv.ValueCode = 'APPROVED'
           )
       );
 END //

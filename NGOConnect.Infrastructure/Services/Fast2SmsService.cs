@@ -22,14 +22,14 @@ namespace NGOConnect.Infrastructure.Services
     /// Config keys (appsettings.json → "Sms" section):
     ///   Sms:ApiKey        — Fast2SMS API key (never commit; use env var / gitignored file)
     ///   Sms:Route         — "q" (quick/test) | "dlt" (production)
-    ///   Sms:SenderId      — Required only for DLT route (registered sender ID / header)
-    ///   Sms:OtpTemplateId — Required only for DLT route — Fast2SMS's OTP Template ID
-    ///                       ("otp_id" in their API, a short hash e.g. "f7c2df256e").
-    ///                       NOT the same as the DLT Manager "Content Template" Message ID
-    ///                       — find this under Fast2SMS → OTP section for your approved
-    ///                       template, not the generic DLT Manager panel.
-    ///   Sms:TemplateId    — Reserved for a future generic/bulk DLT SMS sender (not OTP).
-    ///                       Unused by SendOtpAsync since the dedicated OTP API replaced it.
+    ///   Sms:SenderId        — Required for DLT route (registered sender ID / header, e.g. "AJIEPL")
+    ///   Sms:OtpTemplateId   — DLT route only — Fast2SMS's OTP Template ID ("otp_id" in their
+    ///                         API, a short hash e.g. "f7c2df256e"). Find this under Fast2SMS → OTP
+    ///                         for your approved template, NOT the DLT Manager numeric Message ID.
+    ///   Sms:InviteTemplateId — DLT Message ID for the org-invite template (e.g. "223944").
+    ///                         Used by SendTemplateAsync when sending invitation SMS.
+    ///   Sms:TemplateId      — Reserved for future generic/bulk DLT SMS; not used by any
+    ///                         current method.
     ///
     /// Railway env var: Sms__ApiKey
     /// </summary>
@@ -41,19 +41,21 @@ namespace NGOConnect.Infrastructure.Services
         private readonly string?    _senderId;
         private readonly string?    _templateId;
         private readonly string?    _otpTemplateId;
+        private readonly string?    _inviteTemplateId;
 
         private const string BulkApiUrl = "https://www.fast2sms.com/dev/bulkV2";
         private const string OtpApiUrl  = "https://www.fast2sms.com/dev/otp/send";
 
         public Fast2SmsService(HttpClient http, IConfiguration config)
         {
-            _http          = http;
-            _apiKey        = config["Sms:ApiKey"]
+            _http              = http;
+            _apiKey            = config["Sms:ApiKey"]
                 ?? throw new InvalidOperationException("Sms:ApiKey not configured.");
-            _route         = (config["Sms:Route"] ?? "q").Trim().ToLowerInvariant();
-            _senderId      = config["Sms:SenderId"];
-            _templateId    = config["Sms:TemplateId"];
-            _otpTemplateId = config["Sms:OtpTemplateId"];
+            _route             = (config["Sms:Route"] ?? "q").Trim().ToLowerInvariant();
+            _senderId          = config["Sms:SenderId"];
+            _templateId        = config["Sms:TemplateId"];
+            _otpTemplateId     = config["Sms:OtpTemplateId"];
+            _inviteTemplateId  = config["Sms:InviteTemplateId"];
         }
 
         public async Task<bool> SendOtpAsync(
@@ -247,6 +249,80 @@ namespace NGOConnect.Infrastructure.Services
             catch (Exception ex)
             {
                 Log.Error(ex, "Fast2SmsService.SendAsync failed for Mobile={Mobile}", MaskMobile(mobile));
+                return false;
+            }
+        }
+
+        // ── DLT template SMS ──────────────────────────────────────────
+
+        /// <summary>
+        /// Send an SMS using a DLT-registered template (Fast2SMS bulkV2 with route=dlt).
+        /// Falls back to a plain-text quick-route message on non-DLT configurations (dev/staging).
+        /// </summary>
+        public async Task<bool> SendTemplateAsync(
+            string mobile, string countryCode,
+            string templateId, string senderId,
+            string variablesValues, string fallbackMessage)
+        {
+            try
+            {
+                var cleanMobile = CleanMobile(mobile, countryCode);
+
+                if (_route == "dlt")
+                {
+                    // Production path — DLT template via Fast2SMS bulkV2
+                    var formData = new Dictionary<string, string>
+                    {
+                        ["route"]            = "dlt",
+                        ["sender_id"]        = senderId,
+                        ["message"]          = templateId,      // DLT Message ID (not the body text)
+                        ["variables_values"] = variablesValues, // pipe-separated, one per {#VAR#}
+                        ["flash"]            = "0",
+                        ["numbers"]          = cleanMobile
+                    };
+
+                    using var request = new HttpRequestMessage(HttpMethod.Post, BulkApiUrl)
+                    {
+                        Content = new FormUrlEncodedContent(formData)
+                    };
+                    request.Headers.TryAddWithoutValidation("authorization", _apiKey);
+                    request.Headers.TryAddWithoutValidation("cache-control", "no-cache");
+
+                    var response = await _http.SendAsync(request);
+                    var body     = await response.Content.ReadAsStringAsync();
+
+                    Log.Debug("Fast2SMS DLT template response: Status={Status} Body={Body}",
+                        response.StatusCode, body);
+
+                    var result = JsonDocument.Parse(body).RootElement;
+
+                    if (result.TryGetProperty("return", out var ret) && ret.GetBoolean())
+                    {
+                        Log.Information(
+                            "SMS template sent via Fast2SMS (DLT): Mobile={Mobile} TemplateId={TemplateId}",
+                            MaskMobile(cleanMobile), templateId);
+                        return true;
+                    }
+
+                    var errorMsg = result.TryGetProperty("message", out var msg)
+                        ? msg.ToString()
+                        : "Unknown gateway error";
+
+                    Log.Warning(
+                        "Fast2SMS rejected DLT template SMS: Mobile={Mobile} TemplateId={TemplateId} Error={Error}",
+                        MaskMobile(cleanMobile), templateId, errorMsg);
+                    return false;
+                }
+                else
+                {
+                    // Dev/staging quick-route fallback — plain text, no DLT registration needed
+                    Log.Debug("SendTemplateAsync: quick route active — using fallback plain-text message");
+                    return await SendAsync(mobile, countryCode, fallbackMessage);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Fast2SmsService.SendTemplateAsync failed for Mobile={Mobile}", MaskMobile(mobile));
                 return false;
             }
         }

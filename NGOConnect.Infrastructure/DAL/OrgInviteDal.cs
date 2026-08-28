@@ -54,7 +54,7 @@ namespace NGOConnect.Infrastructure.DAL
         }
 
         private string GetBaseUrl()
-            => _settings.GetValue("INVITE_BASE_URL") ?? "https://ripplehub.app/invite/";
+            => _settings.GetValue("ORG_SHARE_BASE_URL") ?? "https://www.ripplehub.app/organisation/?id=";
 
         private int GetExpiryDays()
             => _settings.GetValue<int>("INVITE_TOKEN_EXPIRY_DAYS", 30);
@@ -368,11 +368,36 @@ namespace NGOConnect.Infrastructure.DAL
 
         // ── Delivery helpers ─────────────────────────────────────────────────────
 
+        // ── SMS template settings ────────────────────────────────────────────────
+
+        /// <summary>
+        /// Fast2SMS DLT Message ID for the org-invite template (Message ID: 223944).
+        /// Template: "You have been invited by {#VAR#} to join {#VAR#} on RippleHub,
+        ///            a global social impact platform... Join here: {#VAR#} - AJIEPL"
+        /// Read from appsettings Sms:InviteTemplateId; falls back to the approved ID.
+        /// </summary>
+        private string GetInviteTemplateId()
+            => _settings.GetValue("SMS_INVITE_TEMPLATE_ID") ?? "223944";
+
+        /// <summary>Registered sender ID for DLT SMS (TRAI-registered header).</summary>
+        private string GetInviteSenderId()
+            => _settings.GetValue("SMS_INVITE_SENDER_ID") ?? "AJIEPL";
+
+        // ── Delivery helper ──────────────────────────────────────────────────────
+
         /// <summary>
         /// Fire-and-forget delivery via SMS or Email.
         /// Runs on the thread pool — never blocks the API response.
         /// Failures are logged but swallowed; delivery status is not written
         /// back to DB in this phase (can be wired via Org_Invite_UpdateDelivery in v5.0).
+        ///
+        /// SMS uses the approved Fast2SMS DLT template (Message ID 223944):
+        ///   "You have been invited by {inviterName} to join {orgName} on RippleHub,
+        ///    a global social impact platform connecting people with meaningful causes,
+        ///    volunteering and community initiatives. Join here: {inviteLink} - AJIEPL"
+        /// Variables (pipe-separated): inviterName | orgName | inviteLink
+        ///
+        /// Share URL format: https://www.ripplehub.app/organisation/?id={token}
         /// </summary>
         private async Task DeliverInviteAsync(
             string typeCode, string inviteValue, string? countryCode,
@@ -382,12 +407,23 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 if (typeCode == "PHONE")
                 {
-                    // Keep within 160 chars for single-segment SMS
-                    var smsText = $"{inviterName} invited you to join {orgName} on RippleHub. Accept: {inviteLink}";
-                    await _sms.SendAsync(inviteValue, countryCode ?? "+91", smsText);
+                    // DLT template: 3 variables → pipe-separated values for each {#VAR#}
+                    var variables = $"{inviterName}|{orgName}|{inviteLink}";
+
+                    // Fallback plain text for quick-route (dev/staging) — same wording, single segment
+                    var fallback = $"You have been invited by {inviterName} to join {orgName} on RippleHub. Join here: {inviteLink} - AJIEPL";
+
+                    await _sms.SendTemplateAsync(
+                        inviteValue,
+                        countryCode ?? "+91",
+                        GetInviteTemplateId(),
+                        GetInviteSenderId(),
+                        variables,
+                        fallback);
                 }
                 else
                 {
+                    // Email — inviteLink is already the org share URL
                     await _email.SendInviteAsync(inviteValue, inviterName, orgName, inviteLink);
                 }
             }

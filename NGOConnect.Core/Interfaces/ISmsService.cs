@@ -24,5 +24,22 @@ namespace NGOConnect.Core.Interfaces
         /// <param name="countryCode">Country code (e.g. "+91")</param>
         /// <param name="message">Full message text (max 160 chars for single SMS)</param>
         Task<bool> SendAsync(string mobile, string countryCode, string message);
+
+        /// <summary>
+        /// Send an SMS using a DLT-registered template with variable substitution.
+        /// On the DLT route: fires Fast2SMS bulkV2 with route=dlt, sender_id, message=templateId,
+        /// and pipe-separated variable values matching each {#VAR#} placeholder in the template.
+        /// On the quick route (dev/staging): builds a human-readable fallback and sends via quick route.
+        /// </summary>
+        /// <param name="mobile">Mobile number without country code</param>
+        /// <param name="countryCode">Country code (e.g. "+91")</param>
+        /// <param name="templateId">DLT Message ID registered in Fast2SMS (e.g. "223944")</param>
+        /// <param name="senderId">Registered sender ID / header (e.g. "AJIEPL")</param>
+        /// <param name="variablesValues">Pipe-separated values matching each {#VAR#} in the template</param>
+        /// <param name="fallbackMessage">Plain-text fallback used on the quick route (dev/staging)</param>
+        Task<bool> SendTemplateAsync(
+            string mobile, string countryCode,
+            string templateId, string senderId,
+            string variablesValues, string fallbackMessage);
     }
 }

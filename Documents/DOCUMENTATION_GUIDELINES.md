@@ -2896,3 +2896,27 @@ Backend endpoints (`PUT /superadmin/orgs/approve` with new `isNonRegistered`/`re
 - **Verification**: `validate_sp_params.py` — all phases passed (no SP changes). Website `npm run build` — clean. C# controller changes read-through verified manually (no `dotnet` SDK in this sandbox to compile).
 - **Action**: deploy the updated API (no DB patch needed — controller-only change) + Website build.
 - **API Documentation**: add `GET /api/v1/public/org/{orgToken}/projects` endpoint (query: `pageNumber`, `pageSize`; response: `PagedResult<project>` with `projectToken` per item) at next "update documents" pass.
+
+### [2026-08-28] Feature: Organisation profile reachable via query-param URL too
+- **Change**: `/organisation/{token}` (path) and `/organisation/?id={token}` (query) now both resolve to the same page. Purely a Website routing change — no API contract change, since the token itself (opaque, `IUrlTokenService`-encrypted) is identical either way; only how the client extracts it from the URL differs.
+- **Files** (`main.jsx`): added a second route, `<Route path="/organisation" element={<OrganisationProfilePage />} />`, alongside the existing `/organisation/:token` route.
+- **Files** (`OrganisationProfilePage.jsx`): token now resolved as `useParams().token || useSearchParams().get('id')`. Added a guard — if neither is present, shows the existing "Link Not Valid" error state immediately instead of firing a network call with a literal `"null"` token.
+- **Verification**: Website `npm run build` — clean.
+- **Action**: deploy Website build. No backend deploy needed.
+
+### [2026-08-28] Feature: Org invite — Fast2SMS DLT template SMS + updated share URL
+- **Context**: Admin dashboard → Volunteer (InviteMembersScreen) — when sharing the org profile to a non-platform contact via SMS or Email, the share URL is now `https://www.ripplehub.app/organisation/?id={token}` (matches the new website route added in the previous entry). SMS uses the approved Fast2SMS DLT template (Message ID: 223944) instead of a raw plain-text message.
+- **SMS template** (DLT Message ID 223944, Sender ID AJIEPL):
+  `"You have been invited by {#VAR#} to join {#VAR#} on RippleHub, a global social impact platform connecting people with meaningful causes, volunteering and community initiatives. Join here: {#VAR#} - AJIEPL"`
+  Variables (pipe-separated): `inviterName|orgName|inviteLink`
+- **Files changed** (no DB/SP/API contract changes — backend services only):
+  - `NGOConnect.Core/Interfaces/ISmsService.cs`: added `SendTemplateAsync(mobile, countryCode, templateId, senderId, variablesValues, fallbackMessage)` — fallback is plain-text quick-route message for dev/staging (Route="q").
+  - `NGOConnect.Infrastructure/Services/Fast2SmsService.cs`: added `_inviteTemplateId` config field (reads `Sms:InviteTemplateId`); implemented `SendTemplateAsync` — DLT route: POST to `bulkV2` with `route=dlt`, `sender_id`, `message=templateId`, `variables_values`, `numbers`; quick route: calls `SendAsync` with `fallbackMessage`. Updated XML doc comments.
+  - `NGOConnect.Infrastructure/DAL/OrgInviteDal.cs`:
+    - `GetBaseUrl()` now reads setting key `ORG_SHARE_BASE_URL` (was `INVITE_BASE_URL`), defaults to `https://www.ripplehub.app/organisation/?id=`.
+    - `DeliverInviteAsync` PHONE path now calls `_sms.SendTemplateAsync` with template ID 223944, sender AJIEPL, and pipe-separated variables. Email path unchanged (inviteLink is already the org share URL).
+    - Added `GetInviteTemplateId()` / `GetInviteSenderId()` settings helpers (keys: `SMS_INVITE_TEMPLATE_ID`, `SMS_INVITE_SENDER_ID`; defaults to `223944` / `AJIEPL`).
+  - `NGOConnect.API/appsettings.json`: added `Sms:InviteTemplateId` key (empty placeholder); updated comment.
+  - `NGOConnect.API/appsettings.Staging.json`: added `"InviteTemplateId": "223944"`.
+- **Action**: no DB patch needed. Rebuild + redeploy API to Railway staging. To activate DLT template sending: set Railway env var `Sms__Route=dlt` (or change `Route` in Staging config) after confirming template 223944 is Approved in Fast2SMS dashboard.
+- **No document update needed**: no endpoint, model, SP, or DB table changed.
