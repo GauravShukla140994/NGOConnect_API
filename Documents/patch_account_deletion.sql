@@ -3,6 +3,11 @@
 -- Feature: Account Deletion + 30-Day Revival Grace Period
 --
 -- Changes:
+--   0. Unique key redesign on Users.Mobile + Users.Email
+--      — drop simple unique (blocks re-registration after soft-delete)
+--      — add generated columns (MobileActive / EmailActive) + unique on those
+--      — result: only ONE active user per mobile/email enforced;
+--        multiple soft-deleted rows with same mobile/email allowed
 --   1. ALTER TABLE Users — add ScheduledDeletionAt DATETIME NULL
 --   2. SP User_RequestAccountDeletion — sets ScheduledDeletionAt (30-day grace)
 --   3. SP Auth_VerifyOTP — detects grace-period users, returns IsPendingDeletion=1
@@ -12,7 +17,33 @@
 -- Apply to: local → Railway staging → Railway production.
 -- ─────────────────────────────────────────────────────────────────────────────
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- STEP 0 — Conditional unique key for Mobile and Email
+--   MySQL has no partial indexes, so we use VIRTUAL generated columns.
+--   MobileActive = Mobile when IsDeleted=0, NULL when IsDeleted=1.
+--   NULLs are never compared in UNIQUE indexes → multiple deleted rows allowed.
+--   Same pattern for EmailActive.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- Drop old unconditional unique keys if they exist
+ALTER TABLE Users DROP INDEX IF EXISTS uq_users_mobile;
+ALTER TABLE Users DROP INDEX IF EXISTS uq_users_email;
+
+-- Add generated columns + conditional unique indexes
+ALTER TABLE Users
+    ADD COLUMN IF NOT EXISTS MobileActive VARCHAR(20)
+        GENERATED ALWAYS AS (IF(IsDeleted = 0, Mobile, NULL)) VIRTUAL,
+    ADD COLUMN IF NOT EXISTS EmailActive VARCHAR(255)
+        GENERATED ALWAYS AS (IF(IsDeleted = 0, Email, NULL)) VIRTUAL;
+
+-- Add unique indexes on the generated columns (separate ALTER to avoid conflicts)
+ALTER TABLE Users
+    ADD UNIQUE KEY IF NOT EXISTS uq_users_mobile_active (MobileActive),
+    ADD UNIQUE KEY IF NOT EXISTS uq_users_email_active  (EmailActive);
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- STEP 1 — Add ScheduledDeletionAt column to Users
+-- ─────────────────────────────────────────────────────────────────────────────
 ALTER TABLE Users
     ADD COLUMN IF NOT EXISTS ScheduledDeletionAt DATETIME NULL DEFAULT NULL AFTER DeletedBy;
 
@@ -266,12 +297,60 @@ BEGIN
     END IF;
 END //
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- STEP 5 — Auth_CreateFreshAccount
+--   Called when a grace-period user taps "No thanks, start fresh".
+--   Reads the old (soft-deleted) user's Mobile/Email/CountryCode and creates
+--   a brand-new Users + UserProfiles row. The old row stays as IsDeleted=1
+--   (audit trail). MobileActive generated column is NULL on the old row, so
+--   the new row's uq_users_mobile_active unique key is satisfied cleanly.
+-- ─────────────────────────────────────────────────────────────────────────────
+DROP PROCEDURE IF EXISTS Auth_CreateFreshAccount //
+CREATE PROCEDURE Auth_CreateFreshAccount(IN p_OldUserId INT UNSIGNED)
+BEGIN
+    DECLARE v_Mobile      VARCHAR(20)  DEFAULT NULL;
+    DECLARE v_Email       VARCHAR(150) DEFAULT NULL;
+    DECLARE v_CountryCode VARCHAR(6)   DEFAULT '+91';
+    DECLARE v_NewUserId   INT UNSIGNED DEFAULT 0;
+
+    -- Pull contact info from the soft-deleted row
+    SELECT Mobile, Email, CountryCode
+    INTO   v_Mobile, v_Email, v_CountryCode
+    FROM   Users
+    WHERE  UserId    = p_OldUserId
+      AND  IsDeleted = 1
+    LIMIT  1;
+
+    IF v_Mobile IS NULL AND v_Email IS NULL THEN
+        SELECT 0 AS IsSuccess,
+               'Original account not found or is not in a deleted state.' AS Message,
+               NULL AS UserId;
+    ELSE
+        -- Create fresh Users row (IsVerified=1 — they just proved OTP ownership)
+        INSERT INTO Users (Mobile, Email, CountryCode, IsVerified, IsActive)
+        VALUES (v_Mobile, v_Email, v_CountryCode, 1, 1);
+
+        SET v_NewUserId = LAST_INSERT_ID();
+
+        INSERT INTO UserProfiles (UserId, FirstName, LastName)
+        VALUES (v_NewUserId, '', '');
+
+        SELECT 1           AS IsSuccess,
+               'Fresh account created. Welcome!' AS Message,
+               v_NewUserId AS UserId;
+    END IF;
+END //
+
 DELIMITER ;
 
 SELECT 'patch_account_deletion applied successfully.' AS Status;
 
 -- Verify:
+-- SHOW INDEX FROM Users WHERE Key_name IN ('uq_users_mobile_active','uq_users_email_active');
+--   → should show 2 rows (generated column indexes)
 -- CALL User_RequestAccountDeletion(<userId>);         → IsSuccess=1, ScheduledDeletionAt set
 -- CALL User_ReviveAccount(<userId>);                  → IsSuccess=1, account restored
 -- CALL Auth_VerifyOTP('<mobile>', '<otp>', 1, '127.0.0.1', '+91');
---   → if user is in grace period: IsSuccess=1, IsPendingDeletion=1
+--   → active user:       IsSuccess=1, IsPendingDeletion=0
+--   → grace-period user: IsSuccess=1, IsPendingDeletion=1
+--   → expired / new:     IsSuccess=1, IsNewUser=1 (fresh UserId created)

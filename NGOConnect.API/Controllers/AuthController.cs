@@ -1,7 +1,9 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using NGOConnect.Core.Interfaces;
 using NGOConnect.Core.Models.Auth;
 using NGOConnect.Core.Models.Common;
+using System.Security.Claims;
 
 namespace NGOConnect.API.Controllers
 {
@@ -54,6 +56,24 @@ namespace NGOConnect.API.Controllers
             [FromBody] RevokeTokenRequest request)
         {
             return await _authDal.RevokeTokenAsync(request);
+        }
+
+        /// <summary>
+        /// Creates a fresh account with the same Mobile/Email as a grace-period deleted account.
+        /// Called when the user taps "No thanks, start fresh" in the revival modal.
+        /// Requires the grace-period Bearer token issued during OTP verify (IsPendingDeletion=true).
+        /// Returns new JWT tokens for the brand-new UserId.
+        /// </summary>
+        [HttpPost("fresh-account")]
+        [Authorize]
+        [ProducesResponseType(typeof(ApiResponse<VerifyOtpResponse>), 200)]
+        public async Task<ApiResponse<VerifyOtpResponse>> CreateFreshAccount()
+        {
+            var ip        = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            var claim     = User.FindFirst("uid") ?? User.FindFirst(ClaimTypes.NameIdentifier);
+            var oldUserId = claim is not null && int.TryParse(claim.Value, out var id) ? id : 0;
+
+            return await _authDal.CreateFreshAccountAsync(oldUserId, ip);
         }
     }
 }

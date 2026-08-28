@@ -244,6 +244,61 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
+        // ── Create Fresh Account ─────────────────────────────────
+        public async Task<ApiResponse<VerifyOtpResponse>> CreateFreshAccountAsync(
+            int oldUserId, string ipAddress)
+        {
+            try
+            {
+                using var conn = await _db.CreateConnectionAsync();
+                using var cmd  = _db.CreateCommand("Auth_CreateFreshAccount", conn);
+
+                _db.AddParameter(cmd, "p_OldUserId", oldUserId);
+
+                var ds = await _db.FillDataSetAsync(cmd);
+
+                if (!HasRows(ds))
+                    return ApiResponse<VerifyOtpResponse>.Failure(
+                        "Could not create fresh account.", "INTERNAL_ERROR");
+
+                var row       = ds.Tables[0].Rows[0];
+                int isSuccess = Convert.ToInt32(row["IsSuccess"]);
+
+                if (isSuccess == 0)
+                    return ApiResponse<VerifyOtpResponse>.Failure(
+                        row["Message"].ToString()!, "FRESH_ACCOUNT_FAILED");
+
+                int newUserId = Convert.ToInt32(row["UserId"]);
+
+                // Issue fresh tokens for the new UserId
+                var accessToken   = GenerateJwt(newUserId, newUserId.ToString());
+                var refreshToken  = GenerateRefreshToken();
+                var accessExpiry  = DateTime.UtcNow.AddMinutes(15);
+                var refreshExpiry = DateTime.UtcNow.AddDays(30);
+
+                await SaveRefreshTokenAsync(conn, newUserId, refreshToken, refreshExpiry, ipAddress);
+
+                Log.Information("Fresh account created. OldUserId={OldUserId} NewUserId={NewUserId}",
+                    oldUserId, newUserId);
+
+                return ApiResponse<VerifyOtpResponse>.Success(new VerifyOtpResponse
+                {
+                    UserId             = newUserId,
+                    IsNewUser          = true,
+                    IsPendingDeletion  = false,
+                    AccessToken        = accessToken,
+                    RefreshToken       = refreshToken,
+                    AccessTokenExpiry  = accessExpiry,
+                    RefreshTokenExpiry = refreshExpiry
+                }, "Fresh account created. Welcome!");
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "CreateFreshAccountAsync failed OldUserId={OldUserId}", oldUserId);
+                return ApiResponse<VerifyOtpResponse>.Failure("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
         // ── Private Helpers ──────────────────────────────────────
 
         private string GenerateJwt(int userId, string recipient)

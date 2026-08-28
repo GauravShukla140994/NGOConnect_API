@@ -65,14 +65,20 @@ CREATE TABLE Users (
     IsDeleted       TINYINT(1)      NOT NULL DEFAULT 0,
     DeletedAt       DATETIME        NULL,
     DeletedBy       INT UNSIGNED    NULL,
+    ScheduledDeletionAt DATETIME    NULL DEFAULT NULL,
     CreatedAt       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CreatedBy       INT UNSIGNED    NULL,
     UpdatedAt       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UpdatedBy       INT UNSIGNED    NULL,
+    -- Generated columns: Mobile/Email when active (IsDeleted=0), NULL when soft-deleted.
+    -- NULLs are never compared in UNIQUE indexes → multiple deleted rows per mobile/email allowed,
+    -- but only ONE active row per mobile/email enforced.
+    MobileActive    VARCHAR(20)     GENERATED ALWAYS AS (IF(IsDeleted = 0, Mobile, NULL)) VIRTUAL,
+    EmailActive     VARCHAR(150)    GENERATED ALWAYS AS (IF(IsDeleted = 0, Email,  NULL)) VIRTUAL,
     PRIMARY KEY (UserId),
-    UNIQUE KEY uq_users_mobile (Mobile, IsDeleted),
-    UNIQUE KEY uq_users_email  (Email, IsDeleted),
-    INDEX idx_users_isactive   (IsActive, IsDeleted)
+    UNIQUE KEY uq_users_mobile_active (MobileActive),
+    UNIQUE KEY uq_users_email_active  (EmailActive),
+    INDEX idx_users_isactive          (IsActive, IsDeleted)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE OtpTokens (
