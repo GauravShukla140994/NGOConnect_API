@@ -527,7 +527,7 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
-        // ── Account Deletion ─────────────────────────────────────────────────────
+        // ── Account Deletion + Revival ────────────────────────────────────────────
 
         public async Task<ApiResponse> RequestAccountDeletionAsync(int userId)
         {
@@ -540,6 +540,21 @@ namespace NGOConnect.Infrastructure.DAL
             catch (Exception ex)
             {
                 Log.Error(ex, "RequestAccountDeletionAsync failed UserId={UserId}", userId);
+                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
+        public async Task<ApiResponse> ReviveAccountAsync(int userId)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("User_ReviveAccount",
+                    cmd => _db.AddParameter(cmd, "p_UserId", userId));
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "ReviveAccountAsync failed UserId={UserId}", userId);
                 return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
             }
         }

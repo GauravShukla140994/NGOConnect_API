@@ -44,6 +44,12 @@ namespace NGOConnect.Core.Models.Auth
     {
         public int UserId { get; set; }
         public bool IsNewUser { get; set; }           // true = first time registration
+        /// <summary>
+        /// True when the user's account is soft-deleted but still within the 30-day
+        /// grace window. Tokens are valid — the mobile must show the revival flow
+        /// before navigating to the home screen.
+        /// </summary>
+        public bool IsPendingDeletion { get; set; }
         public string AccessToken { get; set; } = string.Empty;
         public string RefreshToken { get; set; } = string.Empty;
         public DateTime AccessTokenExpiry { get; set; }

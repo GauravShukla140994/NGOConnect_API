@@ -113,14 +113,24 @@ namespace NGOConnect.API.Controllers
             return await _userDal.VerifyContactOtpAsync(GetUserId(), request, ip);
         }
 
-        // ── Account Deletion (Google Play + App Store compliance) ───────────────
+        // ── Account Deletion + Revival (Google Play + App Store compliance) ────────
         /// <summary>
-        /// Soft-deletes the authenticated user's account and revokes all refresh tokens.
-        /// Blocked if the user is the sole Founder of any active (APPROVED) organisation.
+        /// Schedules the authenticated user's account for deletion (30-day grace period).
+        /// Revokes all refresh tokens immediately. Blocked if the user is the sole
+        /// Founder of any active (APPROVED) organisation.
         /// </summary>
         [HttpDelete("account")] [Authorize]
         public async Task<ApiResponse> DeleteAccount()
             => await _userDal.RequestAccountDeletionAsync(GetUserId());
+
+        /// <summary>
+        /// Revives a soft-deleted account within the 30-day grace window.
+        /// Called right after OTP login when IsPendingDeletion=true is returned.
+        /// Requires a valid Bearer token (issued during OTP verify for grace-period users).
+        /// </summary>
+        [HttpPost("account/revive")] [Authorize]
+        public async Task<ApiResponse> ReviveAccount()
+            => await _userDal.ReviveAccountAsync(GetUserId());
 
         private int GetUserId()
         {

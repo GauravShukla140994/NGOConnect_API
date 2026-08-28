@@ -199,7 +199,7 @@ When it is included in a Railway patch, update to `✅ Railway applied`.
 | `patch_fix_recommended_nonreg.sql` | Org_ListRecommended: restore IsNonRegistered — dropped by patch_org_category_name.sql | ✅ Railway applied |
 | `patch_fix_list_nonreg.sql` | Org_List + Org_ListRecommended: restore IsNonRegistered in both SPs (supersedes patch_fix_recommended_nonreg.sql) | 🟡 Local only |
 | `patch_add_registration_date.sql` | Add RegistrationDate column to Organisations + update Org_Register, Org_GetProfile, Org_Resubmit (SchemaVersion 5.1.12) | 🟡 Local only |
-| `patch_account_deletion.sql` | New SP `User_RequestAccountDeletion` — sole-founder guard + soft-delete Users + revoke RefreshTokens | 🟡 Local only |
+| `patch_account_deletion.sql` | `ALTER TABLE Users ADD ScheduledDeletionAt`; `User_RequestAccountDeletion` (sole-founder guard + 30-day grace soft-delete + revoke tokens); `Auth_VerifyOTP` extended (grace-period login → `IsPendingDeletion=1`); `User_ReviveAccount` (restore within grace window) | 🟡 Local only |
 
 ### Other Individual Patches (absorbed into versioned patches or superseded)
 
@@ -2938,3 +2938,25 @@ Backend endpoints (`PUT /superadmin/orgs/approve` with new `isNonRegistered`/`re
 - **validate_sp_params.py**: all phases passed.
 - **API Documentation**: add `DELETE /api/v1/user/account` endpoint + `User_RequestAccountDeletion` SP at next "update documents" pass.
 - **Database Documentation**: add `User_RequestAccountDeletion` SP description (parameters, sole-founder guard logic, return values) at next "update documents" pass.
+
+### [2026-08-28] Feature: Account deletion — 30-day grace period + revival flow (continued)
+- **Context**: Extends the account deletion feature with a 30-day grace period instead of immediate deletion, and a revival flow on login during that window.
+- **DB change**: `ALTER TABLE Users ADD COLUMN IF NOT EXISTS ScheduledDeletionAt DATETIME NULL DEFAULT NULL AFTER DeletedBy` — included in `patch_account_deletion.sql` (Step 1).
+- **SP changes** (all in `patch_account_deletion.sql`):
+  - `User_RequestAccountDeletion`: updated — sets `ScheduledDeletionAt = DATE_ADD(NOW(), INTERVAL 30 DAY)` (was immediate hard-flag only).
+  - `Auth_VerifyOTP`: extended with two extra lookup paths (by Mobile and by Email) for users where `IsDeleted=1 AND ScheduledDeletionAt > NOW()`. Returns `IsPendingDeletion=1` + full token set for grace-period accounts. Does NOT create a new `Users` row for grace-period accounts.
+  - `User_ReviveAccount(IN p_UserId INT UNSIGNED)`: new SP — checks `IsDeleted=1 AND ScheduledDeletionAt > NOW()`; resets `IsDeleted=0, DeletedAt=NULL, DeletedBy=NULL, ScheduledDeletionAt=NULL, IsVerified=1`.
+- **C# changes**:
+  - `NGOConnect.Core/Models/Auth/AuthModels.cs`: added `IsPendingDeletion bool` to `VerifyOtpResponse`.
+  - `NGOConnect.Infrastructure/DAL/AuthDal.cs`: reads `IsPendingDeletion` from `Auth_VerifyOTP` result (with `Columns.Contains` guard for backward compat); switches message to "Account pending deletion." when true.
+  - `NGOConnect.Core/Interfaces/IUserDal.cs`: added `ReviveAccountAsync(int userId)`.
+  - `NGOConnect.Infrastructure/DAL/UserDal.cs`: implemented `ReviveAccountAsync` — calls `User_ReviveAccount` via `ExecuteWriteAsync`.
+  - `NGOConnect.API/Controllers/UserController.cs`: added `[HttpPost("account/revive")] [Authorize] POST /api/v1/user/account/revive`.
+- **Mobile changes**:
+  - `App/NGOConnectApp/src/types/api.types.ts`: added `isPendingDeletion?: boolean` to `AuthTokens`.
+  - `App/NGOConnectApp/src/api/user.api.ts`: added `reviveAccount()` → `apiClient.post('/user/account/revive', {})` + named export.
+  - `App/NGOConnectApp/src/screens/profile/ProfileScreen.tsx`: replaced simple Alert confirmation with a two-step UI — (1) info bottom-sheet ("Before you go…" with 30-day grace period messaging, safe area inset padding) → (2) typed confirmation modal (user must type "DELETE" to enable confirm button). On success: shows 30-day revival message then logout.
+  - `App/NGOConnectApp/src/screens/auth/OtpScreen.tsx`: revival modal — if `tokens.isPendingDeletion`, tokens stored via `tokenStorage.setTokens()` (no `login()` call), revival modal shown. "Recover My Account" button: animates 5-second `Animated.timing` progress bar + `Promise.all([apiCall, delay])` for minimum display time → on success: `login(pendingTokens)`. "No thanks, let it go": clears tokens, resets OTP input.
+- **validate_sp_params.py**: all phases passed (run 2026-08-28).
+- **API Documentation**: add `POST /api/v1/user/account/revive` + update `Auth_VerifyOTP` description (new `IsPendingDeletion` return field) at next "update documents" pass.
+- **Database Documentation**: add `User_ReviveAccount` SP; update `Users` table (new `ScheduledDeletionAt` column); update `Auth_VerifyOTP` SP description at next "update documents" pass.

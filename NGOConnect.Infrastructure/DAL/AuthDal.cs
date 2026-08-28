@@ -127,8 +127,11 @@ namespace NGOConnect.Infrastructure.DAL
                     return ApiResponse<VerifyOtpResponse>.Failure(
                         row["Message"].ToString()!, "OTP_VERIFY_FAILED");
 
-                int  userId    = row["UserId"] == DBNull.Value? 0: Convert.ToInt32(row["UserId"]);
-                bool isNewUser = Convert.ToBoolean(row["IsNewUser"]);
+                int  userId             = row["UserId"] == DBNull.Value ? 0 : Convert.ToInt32(row["UserId"]);
+                bool isNewUser          = Convert.ToBoolean(row["IsNewUser"]);
+                bool isPendingDeletion  = row.Table.Columns.Contains("IsPendingDeletion")
+                                         && row["IsPendingDeletion"] != DBNull.Value
+                                         && Convert.ToBoolean(row["IsPendingDeletion"]);
 
                 // Generate JWT + Refresh token
                 var accessToken    = GenerateJwt(userId, request.Recipient);
@@ -143,13 +146,14 @@ namespace NGOConnect.Infrastructure.DAL
 
                 return ApiResponse<VerifyOtpResponse>.Success(new VerifyOtpResponse
                 {
-                    UserId             = userId,
-                    IsNewUser          = isNewUser,
-                    AccessToken        = accessToken,
-                    RefreshToken       = refreshToken,
-                    AccessTokenExpiry  = accessExpiry,
-                    RefreshTokenExpiry = refreshExpiry
-                }, isNewUser ? "Registration successful" : "Login successful");
+                    UserId              = userId,
+                    IsNewUser           = isNewUser,
+                    IsPendingDeletion   = isPendingDeletion,
+                    AccessToken         = accessToken,
+                    RefreshToken        = refreshToken,
+                    AccessTokenExpiry   = accessExpiry,
+                    RefreshTokenExpiry  = refreshExpiry
+                }, isPendingDeletion ? "Account pending deletion." : isNewUser ? "Registration successful" : "Login successful");
             }
             catch (Exception ex)
             {

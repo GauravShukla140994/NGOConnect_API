@@ -34,7 +34,8 @@ namespace NGOConnect.Core.Interfaces
         // Contact Update (OTP flow)
         Task<ApiResponse>                           SendContactOtpAsync(int userId, SendContactOtpRequest request, string ipAddress);
         Task<ApiResponse>                           VerifyContactOtpAsync(int userId, VerifyContactOtpRequest request, string ipAddress);
-        // Account Deletion (Google Play + App Store compliance)
+        // Account Deletion + Revival (Google Play + App Store compliance)
         Task<ApiResponse>                           RequestAccountDeletionAsync(int userId);
+        Task<ApiResponse>                           ReviveAccountAsync(int userId);
     }
 }
