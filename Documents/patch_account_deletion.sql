@@ -26,26 +26,69 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- Drop old unconditional unique keys if they exist
-ALTER TABLE Users DROP INDEX IF EXISTS uq_users_mobile;
-ALTER TABLE Users DROP INDEX IF EXISTS uq_users_email;
+-- (IF EXISTS on ALTER TABLE DROP INDEX requires MySQL 8.0.29+; use prepared stmt for older builds)
+SET @drop_mobile = IF(
+    (SELECT COUNT(*) FROM information_schema.statistics
+     WHERE table_schema = DATABASE() AND table_name = 'Users' AND index_name = 'uq_users_mobile') > 0,
+    'ALTER TABLE Users DROP INDEX uq_users_mobile',
+    'SELECT ''uq_users_mobile not present, skipping'' AS info'
+);
+PREPARE _stmt FROM @drop_mobile; EXECUTE _stmt; DEALLOCATE PREPARE _stmt;
 
--- Add generated columns + conditional unique indexes
-ALTER TABLE Users
-    ADD COLUMN IF NOT EXISTS MobileActive VARCHAR(20)
-        GENERATED ALWAYS AS (IF(IsDeleted = 0, Mobile, NULL)) VIRTUAL,
-    ADD COLUMN IF NOT EXISTS EmailActive VARCHAR(255)
-        GENERATED ALWAYS AS (IF(IsDeleted = 0, Email, NULL)) VIRTUAL;
+SET @drop_email = IF(
+    (SELECT COUNT(*) FROM information_schema.statistics
+     WHERE table_schema = DATABASE() AND table_name = 'Users' AND index_name = 'uq_users_email') > 0,
+    'ALTER TABLE Users DROP INDEX uq_users_email',
+    'SELECT ''uq_users_email not present, skipping'' AS info'
+);
+PREPARE _stmt FROM @drop_email; EXECUTE _stmt; DEALLOCATE PREPARE _stmt;
 
--- Add unique indexes on the generated columns (separate ALTER to avoid conflicts)
-ALTER TABLE Users
-    ADD UNIQUE KEY IF NOT EXISTS uq_users_mobile_active (MobileActive),
-    ADD UNIQUE KEY IF NOT EXISTS uq_users_email_active  (EmailActive);
+-- Add MobileActive generated column (idempotent)
+SET @add_mobile_col = IF(
+    (SELECT COUNT(*) FROM information_schema.columns
+     WHERE table_schema = DATABASE() AND table_name = 'Users' AND column_name = 'MobileActive') = 0,
+    'ALTER TABLE Users ADD COLUMN MobileActive VARCHAR(20) GENERATED ALWAYS AS (IF(IsDeleted = 0, Mobile, NULL)) VIRTUAL',
+    'SELECT ''MobileActive already exists, skipping'' AS info'
+);
+PREPARE _stmt FROM @add_mobile_col; EXECUTE _stmt; DEALLOCATE PREPARE _stmt;
+
+-- Add EmailActive generated column (idempotent)
+SET @add_email_col = IF(
+    (SELECT COUNT(*) FROM information_schema.columns
+     WHERE table_schema = DATABASE() AND table_name = 'Users' AND column_name = 'EmailActive') = 0,
+    'ALTER TABLE Users ADD COLUMN EmailActive VARCHAR(255) GENERATED ALWAYS AS (IF(IsDeleted = 0, Email, NULL)) VIRTUAL',
+    'SELECT ''EmailActive already exists, skipping'' AS info'
+);
+PREPARE _stmt FROM @add_email_col; EXECUTE _stmt; DEALLOCATE PREPARE _stmt;
+
+-- Add unique index on MobileActive (idempotent)
+SET @add_mobile_idx = IF(
+    (SELECT COUNT(*) FROM information_schema.statistics
+     WHERE table_schema = DATABASE() AND table_name = 'Users' AND index_name = 'uq_users_mobile_active') = 0,
+    'ALTER TABLE Users ADD UNIQUE KEY uq_users_mobile_active (MobileActive)',
+    'SELECT ''uq_users_mobile_active already exists, skipping'' AS info'
+);
+PREPARE _stmt FROM @add_mobile_idx; EXECUTE _stmt; DEALLOCATE PREPARE _stmt;
+
+-- Add unique index on EmailActive (idempotent)
+SET @add_email_idx = IF(
+    (SELECT COUNT(*) FROM information_schema.statistics
+     WHERE table_schema = DATABASE() AND table_name = 'Users' AND index_name = 'uq_users_email_active') = 0,
+    'ALTER TABLE Users ADD UNIQUE KEY uq_users_email_active (EmailActive)',
+    'SELECT ''uq_users_email_active already exists, skipping'' AS info'
+);
+PREPARE _stmt FROM @add_email_idx; EXECUTE _stmt; DEALLOCATE PREPARE _stmt;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- STEP 1 — Add ScheduledDeletionAt column to Users
+-- STEP 1 — Add ScheduledDeletionAt column to Users (idempotent)
 -- ─────────────────────────────────────────────────────────────────────────────
-ALTER TABLE Users
-    ADD COLUMN IF NOT EXISTS ScheduledDeletionAt DATETIME NULL DEFAULT NULL AFTER DeletedBy;
+SET @add_sched_col = IF(
+    (SELECT COUNT(*) FROM information_schema.columns
+     WHERE table_schema = DATABASE() AND table_name = 'Users' AND column_name = 'ScheduledDeletionAt') = 0,
+    'ALTER TABLE Users ADD COLUMN ScheduledDeletionAt DATETIME NULL DEFAULT NULL AFTER DeletedBy',
+    'SELECT ''ScheduledDeletionAt already exists, skipping'' AS info'
+);
+PREPARE _stmt FROM @add_sched_col; EXECUTE _stmt; DEALLOCATE PREPARE _stmt;
 
 DELIMITER //
 
@@ -357,8 +400,8 @@ DELIMITER ;
 -- ─────────────────────────────────────────────────────────────────────────────
 -- STEP 6 — Add ARCHIVED status to ORG_STATUS lookup (idempotent)
 -- ─────────────────────────────────────────────────────────────────────────────
-INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsActive, IsSystemValue)
-SELECT LookupTypeId, 'ARCHIVED', 'Archived', 8, 1, 1
+INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsDefault, IsSystemValue)
+SELECT LookupTypeId, 'ARCHIVED', 'Archived', 8, 0, 1
 FROM LookupTypes WHERE TypeCode = 'ORG_STATUS';
 
 DELIMITER //

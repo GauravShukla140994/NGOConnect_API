@@ -1290,7 +1290,7 @@ SELECT LookupTypeId, 'SUSPENDED', 'Suspended', 5, 1, 1 FROM LookupTypes WHERE Ty
 -- visibility for orgs, unlike Users which have a separate verification field).
 SELECT LookupTypeId, 'NEEDS_UPDATE', 'Needs Update', 6, 1, 1 FROM LookupTypes WHERE TypeCode = 'ORG_STATUS' UNION ALL
 SELECT LookupTypeId, 'RESUBMITTED', 'Resubmitted', 7, 1, 1 FROM LookupTypes WHERE TypeCode = 'ORG_STATUS' UNION ALL
-SELECT LookupTypeId, 'ARCHIVED', 'Archived', 8, 1, 1 FROM LookupTypes WHERE TypeCode = 'ORG_STATUS';
+SELECT LookupTypeId, 'ARCHIVED', 'Archived', 8, 0, 1 FROM LookupTypes WHERE TypeCode = 'ORG_STATUS';
 
 -- MEMBER_ROLE
 INSERT INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue, CreatedBy)

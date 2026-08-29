@@ -540,8 +540,9 @@ namespace NGOConnect.Infrastructure.DAL
                 // When the user is the sole founder of an org with members, the SP
                 // returns IsSuccess=0, ErrorCode='SOLE_FOUNDER' plus org details so
                 // the mobile can navigate to the TransferFounderScreen.
-                if (!result.Succeeded && result.Row != null
-                    && Col<string>(result.Row, "ErrorCode") == "SOLE_FOUNDER")
+                var errorCode = result.Row != null ? Col<string>(result.Row, "ErrorCode") : null;
+
+                if (!result.Succeeded && errorCode == "SOLE_FOUNDER" && result.Row != null)
                 {
                     var info = new SoleFounderOrgInfo
                     {
@@ -554,15 +555,15 @@ namespace NGOConnect.Infrastructure.DAL
                     return new ApiResponse<SoleFounderOrgInfo?>
                     {
                         IsSuccess = 0,
-                        Message   = result.Message!,
+                        Message   = result.Message,
                         ErrorCode = "SOLE_FOUNDER",
                         Data      = info,
                     };
                 }
 
                 return result.Succeeded
-                    ? ApiResponse<SoleFounderOrgInfo?>.Success(null, result.Message ?? "Account scheduled for deletion.")
-                    : ApiResponse<SoleFounderOrgInfo?>.Failure(result.Message ?? "An error occurred.", result.ErrorCode);
+                    ? ApiResponse<SoleFounderOrgInfo?>.Success(null, result.Message)
+                    : ApiResponse<SoleFounderOrgInfo?>.Failure(result.Message, errorCode);
             }
             catch (Exception ex)
             {
