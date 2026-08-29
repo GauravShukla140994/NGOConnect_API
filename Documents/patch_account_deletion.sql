@@ -99,6 +99,17 @@ BEGIN
         WHERE UserId    = p_UserId
           AND IsDeleted = 0;
 
+        -- Remove user from all org memberships immediately.
+        -- Without this, Org_GetDashboard TotalMembers still counts them.
+        -- Sole-founder guard above already blocked deletion if they were
+        -- the only founder of an APPROVED org, so this UPDATE is safe.
+        UPDATE OrgMembers
+        SET IsDeleted  = 1,
+            DeletedAt  = NOW(),
+            DeletedBy  = p_UserId
+        WHERE UserId    = p_UserId
+          AND IsDeleted = 0;
+
         -- Revoke all active refresh tokens immediately
         UPDATE RefreshTokens
         SET IsRevoked = 1,
@@ -338,6 +349,251 @@ BEGIN
         SELECT 1           AS IsSuccess,
                'Fresh account created. Welcome!' AS Message,
                v_NewUserId AS UserId;
+    END IF;
+END //
+
+DELIMITER ;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- STEP 6 — Add ARCHIVED status to ORG_STATUS lookup (idempotent)
+-- ─────────────────────────────────────────────────────────────────────────────
+INSERT IGNORE INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsActive, IsSystemValue)
+SELECT LookupTypeId, 'ARCHIVED', 'Archived', 8, 1, 1
+FROM LookupTypes WHERE TypeCode = 'ORG_STATUS';
+
+DELIMITER //
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- STEP 7 — User_RequestAccountDeletion (replaces Step 2)
+--
+-- New logic for sole-founder orgs:
+--   • 1 active member (founder only) → auto-archive org, then proceed
+--   • 2+ active members              → return SOLE_FOUNDER + org details
+--     (mobile shows TransferFounderScreen so user picks a successor first)
+-- ─────────────────────────────────────────────────────────────────────────────
+DROP PROCEDURE IF EXISTS User_RequestAccountDeletion //
+CREATE PROCEDURE User_RequestAccountDeletion(IN p_UserId INT UNSIGNED)
+BEGIN
+    -- Variables for the blocking org (sole founder, 2+ members)
+    DECLARE v_BlockOrgId    INT UNSIGNED DEFAULT 0;
+    DECLARE v_BlockOrgName  VARCHAR(200) DEFAULT NULL;
+    DECLARE v_BlockLogoUrl  VARCHAR(500) DEFAULT NULL;
+    DECLARE v_TotalMembers  INT          DEFAULT 0;
+    DECLARE v_AdminCount    INT          DEFAULT 0;
+
+    -- Silently handle "no rows" from SELECT INTO
+    DECLARE CONTINUE HANDLER FOR NOT FOUND BEGIN END;
+
+    -- Find the first org where this user is the SOLE FOUNDER and has 2+ members.
+    -- "Sole founder" = no other active FOUNDER role in that org.
+    SELECT
+        o.OrgId,
+        o.OrgName,
+        COALESCE(o.LogoUrl, '')                                                AS LogoUrl,
+        (SELECT COUNT(*)
+         FROM   OrgMembers om2
+         WHERE  om2.OrgId     = o.OrgId
+           AND  om2.IsDeleted = 0)                                             AS TotalMembers,
+        (SELECT COUNT(*)
+         FROM   OrgMembers om3
+         JOIN   LookupValues rv3 ON om3.RoleLkpId    = rv3.LookupValueId
+         JOIN   LookupTypes  rt3 ON rv3.LookupTypeId = rt3.LookupTypeId
+         WHERE  om3.OrgId     = o.OrgId
+           AND  om3.UserId   != p_UserId
+           AND  om3.IsDeleted = 0
+           AND  rt3.TypeCode  = 'MEMBER_ROLE'
+           AND  rv3.ValueCode IN ('ADMIN','FOUNDER'))                          AS AvailableAdminCount
+    INTO v_BlockOrgId, v_BlockOrgName, v_BlockLogoUrl, v_TotalMembers, v_AdminCount
+    FROM   OrgMembers om
+    JOIN   LookupValues rv ON om.RoleLkpId    = rv.LookupValueId
+    JOIN   LookupTypes  rt ON rv.LookupTypeId = rt.LookupTypeId
+    JOIN   Organisations o  ON om.OrgId       = o.OrgId
+    JOIN   LookupValues sv  ON o.StatusLkpId  = sv.LookupValueId
+    WHERE  om.UserId    = p_UserId
+      AND  om.IsDeleted = 0
+      AND  rt.TypeCode  = 'MEMBER_ROLE'
+      AND  rv.ValueCode = 'FOUNDER'
+      AND  o.IsDeleted  = 0
+      AND  sv.ValueCode = 'APPROVED'
+      -- No other active FOUNDER in this org
+      AND  NOT EXISTS (
+               SELECT 1
+               FROM   OrgMembers om_f
+               JOIN   LookupValues rv_f ON om_f.RoleLkpId    = rv_f.LookupValueId
+               JOIN   LookupTypes  rt_f ON rv_f.LookupTypeId = rt_f.LookupTypeId
+               WHERE  om_f.OrgId    = om.OrgId
+                 AND  om_f.UserId  != p_UserId
+                 AND  om_f.IsDeleted = 0
+                 AND  rt_f.TypeCode  = 'MEMBER_ROLE'
+                 AND  rv_f.ValueCode = 'FOUNDER'
+           )
+      -- Must have 2+ members to block (1-member orgs are auto-archived below)
+      AND  (SELECT COUNT(*) FROM OrgMembers om2
+            WHERE om2.OrgId = om.OrgId AND om2.IsDeleted = 0) > 1
+    ORDER BY o.OrgId
+    LIMIT 1;
+
+    IF v_BlockOrgId > 0 THEN
+        -- Blocked: user must transfer ownership before account can be deleted
+        SELECT 0               AS IsSuccess,
+               CONCAT('You are the only Founder of "', v_BlockOrgName,
+                      '". Please transfer ownership before deleting your account.') AS Message,
+               'SOLE_FOUNDER' AS ErrorCode,
+               v_BlockOrgId   AS OrgId,
+               v_BlockOrgName AS OrgName,
+               v_BlockLogoUrl AS OrgLogoUrl,
+               v_TotalMembers AS TotalMembers,
+               v_AdminCount   AS AvailableAdminCount;
+    ELSE
+        -- Safe to proceed.
+        -- 1. Auto-archive any sole-founder orgs with only 1 member (the founder).
+        UPDATE Organisations o
+        JOIN   OrgMembers   om ON om.OrgId    = o.OrgId
+                               AND om.UserId  = p_UserId
+                               AND om.IsDeleted = 0
+        JOIN   LookupValues rv ON om.RoleLkpId    = rv.LookupValueId
+        JOIN   LookupTypes  rt ON rv.LookupTypeId = rt.LookupTypeId
+        JOIN   LookupValues sv ON o.StatusLkpId   = sv.LookupValueId
+        SET    o.StatusLkpId = (
+                   SELECT lv.LookupValueId
+                   FROM   LookupValues lv
+                   JOIN   LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
+                   WHERE  lt.TypeCode  = 'ORG_STATUS'
+                     AND  lv.ValueCode = 'ARCHIVED'
+                   LIMIT 1
+               ),
+               o.UpdatedAt = NOW()
+        WHERE  o.IsDeleted  = 0
+          AND  rt.TypeCode  = 'MEMBER_ROLE'
+          AND  rv.ValueCode = 'FOUNDER'
+          AND  sv.ValueCode = 'APPROVED'
+          -- Only the founder is left in this org
+          AND  (SELECT COUNT(*) FROM OrgMembers om_c
+                WHERE om_c.OrgId = om.OrgId AND om_c.IsDeleted = 0) = 1
+          -- Sole-founder check (belt-and-suspenders)
+          AND  NOT EXISTS (
+                   SELECT 1
+                   FROM   OrgMembers om_f
+                   JOIN   LookupValues rv_f ON om_f.RoleLkpId    = rv_f.LookupValueId
+                   JOIN   LookupTypes  rt_f ON rv_f.LookupTypeId = rt_f.LookupTypeId
+                   WHERE  om_f.OrgId    = om.OrgId
+                     AND  om_f.UserId  != p_UserId
+                     AND  om_f.IsDeleted = 0
+                     AND  rt_f.TypeCode  = 'MEMBER_ROLE'
+                     AND  rv_f.ValueCode = 'FOUNDER'
+               );
+
+        -- 2. Soft-delete account + set 30-day grace window
+        UPDATE Users
+        SET    IsDeleted           = 1,
+               DeletedAt           = NOW(),
+               DeletedBy           = p_UserId,
+               ScheduledDeletionAt = DATE_ADD(NOW(), INTERVAL 30 DAY)
+        WHERE  UserId    = p_UserId
+          AND  IsDeleted = 0;
+
+        -- 3. Remove from all org memberships immediately
+        UPDATE OrgMembers
+        SET    IsDeleted = 1,
+               DeletedAt = NOW(),
+               DeletedBy = p_UserId
+        WHERE  UserId    = p_UserId
+          AND  IsDeleted = 0;
+
+        -- 4. Revoke all active refresh tokens immediately
+        UPDATE RefreshTokens
+        SET    IsRevoked = 1,
+               RevokedAt = NOW()
+        WHERE  UserId    = p_UserId
+          AND  IsRevoked = 0;
+
+        SELECT 1                   AS IsSuccess,
+               'Your account has been scheduled for deletion. You have 30 days to sign back in and recover it.' AS Message,
+               NULL                AS ErrorCode;
+    END IF;
+END //
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- STEP 8 — Org_TransferFoundership
+--   Promotes p_NewFounderId to FOUNDER, demotes p_CurrentFounderId to ADMIN.
+--   Called from mobile TransferFounderScreen before retrying account deletion.
+-- ─────────────────────────────────────────────────────────────────────────────
+DROP PROCEDURE IF EXISTS Org_TransferFoundership //
+CREATE PROCEDURE Org_TransferFoundership(
+    IN p_OrgId            INT UNSIGNED,
+    IN p_CurrentFounderId INT UNSIGNED,
+    IN p_NewFounderId     INT UNSIGNED
+)
+BEGIN
+    DECLARE v_IsCurrentFounder  INT UNSIGNED DEFAULT 0;
+    DECLARE v_NewMemberExists   INT UNSIGNED DEFAULT 0;
+    DECLARE v_FounderLkpId      INT UNSIGNED DEFAULT 0;
+    DECLARE v_AdminLkpId        INT UNSIGNED DEFAULT 0;
+
+    -- Verify caller is an active FOUNDER of this org
+    SELECT COUNT(*) INTO v_IsCurrentFounder
+    FROM   OrgMembers om
+    JOIN   LookupValues rv ON om.RoleLkpId    = rv.LookupValueId
+    JOIN   LookupTypes  rt ON rv.LookupTypeId = rt.LookupTypeId
+    WHERE  om.OrgId    = p_OrgId
+      AND  om.UserId   = p_CurrentFounderId
+      AND  om.IsDeleted = 0
+      AND  rt.TypeCode  = 'MEMBER_ROLE'
+      AND  rv.ValueCode = 'FOUNDER';
+
+    IF v_IsCurrentFounder = 0 THEN
+        SELECT 0 AS IsSuccess,
+               'You are not the Founder of this organisation.' AS Message,
+               'NOT_FOUNDER' AS ErrorCode;
+    ELSE
+        -- Verify new founder is an active member of this org (and not the same person)
+        SELECT COUNT(*) INTO v_NewMemberExists
+        FROM   OrgMembers
+        WHERE  OrgId    = p_OrgId
+          AND  UserId   = p_NewFounderId
+          AND  UserId  != p_CurrentFounderId
+          AND  IsDeleted = 0;
+
+        IF v_NewMemberExists = 0 THEN
+            SELECT 0 AS IsSuccess,
+                   'Selected member is not an active member of this organisation.' AS Message,
+                   'INVALID_MEMBER' AS ErrorCode;
+        ELSE
+            -- Look up FOUNDER and ADMIN LookupValueIds
+            SELECT LookupValueId INTO v_FounderLkpId
+            FROM   LookupValues lv
+            JOIN   LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
+            WHERE  lt.TypeCode  = 'MEMBER_ROLE'
+              AND  lv.ValueCode = 'FOUNDER'
+            LIMIT 1;
+
+            SELECT LookupValueId INTO v_AdminLkpId
+            FROM   LookupValues lv
+            JOIN   LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
+            WHERE  lt.TypeCode  = 'MEMBER_ROLE'
+              AND  lv.ValueCode = 'ADMIN'
+            LIMIT 1;
+
+            -- Promote new founder
+            UPDATE OrgMembers
+            SET    RoleLkpId = v_FounderLkpId,
+                   UpdatedAt = NOW()
+            WHERE  OrgId    = p_OrgId
+              AND  UserId   = p_NewFounderId
+              AND  IsDeleted = 0;
+
+            -- Demote current founder to ADMIN (keeps them in the org as admin)
+            UPDATE OrgMembers
+            SET    RoleLkpId = v_AdminLkpId,
+                   UpdatedAt = NOW()
+            WHERE  OrgId    = p_OrgId
+              AND  UserId   = p_CurrentFounderId
+              AND  IsDeleted = 0;
+
+            SELECT 1 AS IsSuccess,
+                   'Ownership transferred successfully.' AS Message,
+                   NULL AS ErrorCode;
+        END IF;
     END IF;
 END //
 

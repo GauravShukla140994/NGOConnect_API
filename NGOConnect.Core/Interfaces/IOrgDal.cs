@@ -51,5 +51,7 @@ namespace NGOConnect.Core.Interfaces
         // ── Documents ───────────────────────────────────────────────────────────
         Task<ApiResponse<List<DynamicRow>>>                GetDocumentsAsync(int orgId);
         Task<ApiResponse>                                  UploadDocumentAsync(int orgId, int userId, UploadOrgDocumentRequest request);
+        // ── Transfer Foundership (account deletion pre-requisite) ────────────
+        Task<ApiResponse>                                  TransferFoundershipAsync(int orgId, int currentFounderId, int newFounderId);
     }
 }

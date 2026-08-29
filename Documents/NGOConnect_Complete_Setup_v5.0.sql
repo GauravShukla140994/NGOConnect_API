@@ -1289,7 +1289,8 @@ SELECT LookupTypeId, 'SUSPENDED', 'Suspended', 5, 1, 1 FROM LookupTypes WHERE Ty
 -- Org is hidden from public listings while in either state (StatusLkpId gates
 -- visibility for orgs, unlike Users which have a separate verification field).
 SELECT LookupTypeId, 'NEEDS_UPDATE', 'Needs Update', 6, 1, 1 FROM LookupTypes WHERE TypeCode = 'ORG_STATUS' UNION ALL
-SELECT LookupTypeId, 'RESUBMITTED', 'Resubmitted', 7, 1, 1 FROM LookupTypes WHERE TypeCode = 'ORG_STATUS';
+SELECT LookupTypeId, 'RESUBMITTED', 'Resubmitted', 7, 1, 1 FROM LookupTypes WHERE TypeCode = 'ORG_STATUS' UNION ALL
+SELECT LookupTypeId, 'ARCHIVED', 'Archived', 8, 1, 1 FROM LookupTypes WHERE TypeCode = 'ORG_STATUS';
 
 -- MEMBER_ROLE
 INSERT INTO LookupValues (LookupTypeId, ValueCode, ValueName, OrderNo, IsSystemValue, CreatedBy)
@@ -16037,3 +16038,252 @@ DELIMITER ;
 
 INSERT IGNORE INTO SchemaVersions (Version, Description, AppliedBy)
 VALUES ('v5.1-hangfire-job-sps', '5 Hangfire background job SPs: Project_GenerateSessions (daily rolling), Project_AutoCompleteSessions, Project_GetCheckoutReminderTargets, Project_CheckMilestoneNotifications, Project_AutoFinalizeStaleClosing. Also renamed per-project init SP to Project_CreateInitialSessions.', 'System');
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Account Deletion: User_RequestAccountDeletion, User_ReviveAccount,
+--                   Auth_VerifyOTP (updated), Auth_CreateFreshAccount,
+--                   Org_TransferFoundership
+-- See patch_account_deletion.sql for full change history.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+DELIMITER //
+
+DROP PROCEDURE IF EXISTS User_RequestAccountDeletion //
+CREATE PROCEDURE User_RequestAccountDeletion(IN p_UserId INT UNSIGNED)
+BEGIN
+    DECLARE v_BlockOrgId    INT UNSIGNED DEFAULT 0;
+    DECLARE v_BlockOrgName  VARCHAR(200) DEFAULT NULL;
+    DECLARE v_BlockLogoUrl  VARCHAR(500) DEFAULT NULL;
+    DECLARE v_TotalMembers  INT          DEFAULT 0;
+    DECLARE v_AdminCount    INT          DEFAULT 0;
+
+    DECLARE CONTINUE HANDLER FOR NOT FOUND BEGIN END;
+
+    SELECT
+        o.OrgId,
+        o.OrgName,
+        COALESCE(o.LogoUrl, '')                                                AS LogoUrl,
+        (SELECT COUNT(*)
+         FROM   OrgMembers om2
+         WHERE  om2.OrgId     = o.OrgId
+           AND  om2.IsDeleted = 0)                                             AS TotalMembers,
+        (SELECT COUNT(*)
+         FROM   OrgMembers om3
+         JOIN   LookupValues rv3 ON om3.RoleLkpId    = rv3.LookupValueId
+         JOIN   LookupTypes  rt3 ON rv3.LookupTypeId = rt3.LookupTypeId
+         WHERE  om3.OrgId     = o.OrgId
+           AND  om3.UserId   != p_UserId
+           AND  om3.IsDeleted = 0
+           AND  rt3.TypeCode  = 'MEMBER_ROLE'
+           AND  rv3.ValueCode IN ('ADMIN','FOUNDER'))                          AS AvailableAdminCount
+    INTO v_BlockOrgId, v_BlockOrgName, v_BlockLogoUrl, v_TotalMembers, v_AdminCount
+    FROM   OrgMembers om
+    JOIN   LookupValues rv ON om.RoleLkpId    = rv.LookupValueId
+    JOIN   LookupTypes  rt ON rv.LookupTypeId = rt.LookupTypeId
+    JOIN   Organisations o  ON om.OrgId       = o.OrgId
+    JOIN   LookupValues sv  ON o.StatusLkpId  = sv.LookupValueId
+    WHERE  om.UserId    = p_UserId
+      AND  om.IsDeleted = 0
+      AND  rt.TypeCode  = 'MEMBER_ROLE'
+      AND  rv.ValueCode = 'FOUNDER'
+      AND  o.IsDeleted  = 0
+      AND  sv.ValueCode = 'APPROVED'
+      AND  NOT EXISTS (
+               SELECT 1
+               FROM   OrgMembers om_f
+               JOIN   LookupValues rv_f ON om_f.RoleLkpId    = rv_f.LookupValueId
+               JOIN   LookupTypes  rt_f ON rv_f.LookupTypeId = rt_f.LookupTypeId
+               WHERE  om_f.OrgId    = om.OrgId
+                 AND  om_f.UserId  != p_UserId
+                 AND  om_f.IsDeleted = 0
+                 AND  rt_f.TypeCode  = 'MEMBER_ROLE'
+                 AND  rv_f.ValueCode = 'FOUNDER'
+           )
+      AND  (SELECT COUNT(*) FROM OrgMembers om2
+            WHERE om2.OrgId = om.OrgId AND om2.IsDeleted = 0) > 1
+    ORDER BY o.OrgId
+    LIMIT 1;
+
+    IF v_BlockOrgId > 0 THEN
+        SELECT 0               AS IsSuccess,
+               CONCAT('You are the only Founder of "', v_BlockOrgName,
+                      '". Please transfer ownership before deleting your account.') AS Message,
+               'SOLE_FOUNDER' AS ErrorCode,
+               v_BlockOrgId   AS OrgId,
+               v_BlockOrgName AS OrgName,
+               v_BlockLogoUrl AS OrgLogoUrl,
+               v_TotalMembers AS TotalMembers,
+               v_AdminCount   AS AvailableAdminCount;
+    ELSE
+        UPDATE Organisations o
+        JOIN   OrgMembers   om ON om.OrgId    = o.OrgId
+                               AND om.UserId  = p_UserId
+                               AND om.IsDeleted = 0
+        JOIN   LookupValues rv ON om.RoleLkpId    = rv.LookupValueId
+        JOIN   LookupTypes  rt ON rv.LookupTypeId = rt.LookupTypeId
+        JOIN   LookupValues sv ON o.StatusLkpId   = sv.LookupValueId
+        SET    o.StatusLkpId = (
+                   SELECT lv.LookupValueId
+                   FROM   LookupValues lv
+                   JOIN   LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
+                   WHERE  lt.TypeCode  = 'ORG_STATUS'
+                     AND  lv.ValueCode = 'ARCHIVED'
+                   LIMIT 1
+               ),
+               o.UpdatedAt = NOW()
+        WHERE  o.IsDeleted  = 0
+          AND  rt.TypeCode  = 'MEMBER_ROLE'
+          AND  rv.ValueCode = 'FOUNDER'
+          AND  sv.ValueCode = 'APPROVED'
+          AND  (SELECT COUNT(*) FROM OrgMembers om_c
+                WHERE om_c.OrgId = om.OrgId AND om_c.IsDeleted = 0) = 1
+          AND  NOT EXISTS (
+                   SELECT 1
+                   FROM   OrgMembers om_f
+                   JOIN   LookupValues rv_f ON om_f.RoleLkpId    = rv_f.LookupValueId
+                   JOIN   LookupTypes  rt_f ON rv_f.LookupTypeId = rt_f.LookupTypeId
+                   WHERE  om_f.OrgId    = om.OrgId
+                     AND  om_f.UserId  != p_UserId
+                     AND  om_f.IsDeleted = 0
+                     AND  rt_f.TypeCode  = 'MEMBER_ROLE'
+                     AND  rv_f.ValueCode = 'FOUNDER'
+               );
+
+        UPDATE Users
+        SET    IsDeleted           = 1,
+               DeletedAt           = NOW(),
+               DeletedBy           = p_UserId,
+               ScheduledDeletionAt = DATE_ADD(NOW(), INTERVAL 30 DAY)
+        WHERE  UserId    = p_UserId
+          AND  IsDeleted = 0;
+
+        UPDATE OrgMembers
+        SET    IsDeleted = 1,
+               DeletedAt = NOW(),
+               DeletedBy = p_UserId
+        WHERE  UserId    = p_UserId
+          AND  IsDeleted = 0;
+
+        UPDATE RefreshTokens
+        SET    IsRevoked = 1,
+               RevokedAt = NOW()
+        WHERE  UserId    = p_UserId
+          AND  IsRevoked = 0;
+
+        SELECT 1 AS IsSuccess,
+               'Your account has been scheduled for deletion. You have 30 days to sign back in and recover it.' AS Message,
+               NULL AS ErrorCode;
+    END IF;
+END //
+
+DROP PROCEDURE IF EXISTS User_ReviveAccount //
+CREATE PROCEDURE User_ReviveAccount(IN p_UserId INT UNSIGNED)
+BEGIN
+    DECLARE v_ScheduledDeletionAt DATETIME DEFAULT NULL;
+
+    SELECT ScheduledDeletionAt INTO v_ScheduledDeletionAt
+    FROM   Users
+    WHERE  UserId = p_UserId AND IsDeleted = 1
+    LIMIT  1;
+
+    IF v_ScheduledDeletionAt IS NULL THEN
+        SELECT 0 AS IsSuccess, 'Account not found or not scheduled for deletion.' AS Message;
+    ELSEIF v_ScheduledDeletionAt <= NOW() THEN
+        SELECT 0 AS IsSuccess, 'The 30-day recovery window has passed. This account has been permanently deleted.' AS Message;
+    ELSE
+        UPDATE Users
+        SET    IsDeleted           = 0,
+               DeletedAt           = NULL,
+               DeletedBy           = NULL,
+               ScheduledDeletionAt = NULL,
+               IsVerified          = 1,
+               UpdatedAt           = NOW()
+        WHERE  UserId = p_UserId;
+
+        SELECT 1 AS IsSuccess, 'Welcome back! Your account has been fully restored.' AS Message;
+    END IF;
+END //
+
+DROP PROCEDURE IF EXISTS Auth_CreateFreshAccount //
+CREATE PROCEDURE Auth_CreateFreshAccount(IN p_OldUserId INT UNSIGNED)
+BEGIN
+    DECLARE v_Mobile      VARCHAR(20)  DEFAULT NULL;
+    DECLARE v_Email       VARCHAR(150) DEFAULT NULL;
+    DECLARE v_CountryCode VARCHAR(6)   DEFAULT '+91';
+    DECLARE v_NewUserId   INT UNSIGNED DEFAULT 0;
+
+    SELECT Mobile, Email, CountryCode
+    INTO   v_Mobile, v_Email, v_CountryCode
+    FROM   Users
+    WHERE  UserId    = p_OldUserId
+      AND  IsDeleted = 1
+    LIMIT  1;
+
+    IF v_Mobile IS NULL AND v_Email IS NULL THEN
+        SELECT 0 AS IsSuccess,
+               'Original account not found or is not in a deleted state.' AS Message,
+               NULL AS UserId;
+    ELSE
+        INSERT INTO Users (Mobile, Email, CountryCode, IsVerified, IsActive)
+        VALUES (v_Mobile, v_Email, v_CountryCode, 1, 1);
+        SET v_NewUserId = LAST_INSERT_ID();
+        INSERT INTO UserProfiles (UserId, FirstName, LastName) VALUES (v_NewUserId, '', '');
+        SELECT 1 AS IsSuccess, 'Fresh account created. Welcome!' AS Message, v_NewUserId AS UserId;
+    END IF;
+END //
+
+DROP PROCEDURE IF EXISTS Org_TransferFoundership //
+CREATE PROCEDURE Org_TransferFoundership(
+    IN p_OrgId            INT UNSIGNED,
+    IN p_CurrentFounderId INT UNSIGNED,
+    IN p_NewFounderId     INT UNSIGNED
+)
+BEGIN
+    DECLARE v_IsCurrentFounder INT UNSIGNED DEFAULT 0;
+    DECLARE v_NewMemberExists  INT UNSIGNED DEFAULT 0;
+    DECLARE v_FounderLkpId     INT UNSIGNED DEFAULT 0;
+    DECLARE v_AdminLkpId       INT UNSIGNED DEFAULT 0;
+
+    SELECT COUNT(*) INTO v_IsCurrentFounder
+    FROM   OrgMembers om
+    JOIN   LookupValues rv ON om.RoleLkpId    = rv.LookupValueId
+    JOIN   LookupTypes  rt ON rv.LookupTypeId = rt.LookupTypeId
+    WHERE  om.OrgId    = p_OrgId
+      AND  om.UserId   = p_CurrentFounderId
+      AND  om.IsDeleted = 0
+      AND  rt.TypeCode  = 'MEMBER_ROLE'
+      AND  rv.ValueCode = 'FOUNDER';
+
+    IF v_IsCurrentFounder = 0 THEN
+        SELECT 0 AS IsSuccess, 'You are not the Founder of this organisation.' AS Message, 'NOT_FOUNDER' AS ErrorCode;
+    ELSE
+        SELECT COUNT(*) INTO v_NewMemberExists
+        FROM   OrgMembers
+        WHERE  OrgId    = p_OrgId
+          AND  UserId   = p_NewFounderId
+          AND  UserId  != p_CurrentFounderId
+          AND  IsDeleted = 0;
+
+        IF v_NewMemberExists = 0 THEN
+            SELECT 0 AS IsSuccess, 'Selected member is not an active member of this organisation.' AS Message, 'INVALID_MEMBER' AS ErrorCode;
+        ELSE
+            SELECT LookupValueId INTO v_FounderLkpId
+            FROM   LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+            WHERE  lt.TypeCode = 'MEMBER_ROLE' AND lv.ValueCode = 'FOUNDER' LIMIT 1;
+
+            SELECT LookupValueId INTO v_AdminLkpId
+            FROM   LookupValues lv JOIN LookupTypes lt ON lv.LookupTypeId = lt.LookupTypeId
+            WHERE  lt.TypeCode = 'MEMBER_ROLE' AND lv.ValueCode = 'ADMIN' LIMIT 1;
+
+            UPDATE OrgMembers SET RoleLkpId = v_FounderLkpId, UpdatedAt = NOW()
+            WHERE  OrgId = p_OrgId AND UserId = p_NewFounderId AND IsDeleted = 0;
+
+            UPDATE OrgMembers SET RoleLkpId = v_AdminLkpId, UpdatedAt = NOW()
+            WHERE  OrgId = p_OrgId AND UserId = p_CurrentFounderId AND IsDeleted = 0;
+
+            SELECT 1 AS IsSuccess, 'Ownership transferred successfully.' AS Message, NULL AS ErrorCode;
+        END IF;
+    END IF;
+END //
+
+DELIMITER ;

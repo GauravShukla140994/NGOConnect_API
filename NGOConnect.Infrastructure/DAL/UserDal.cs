@@ -2,6 +2,7 @@ using System.Data;
 using System.Text.Json;
 using NGOConnect.Core.Interfaces;
 using NGOConnect.Core.Models.Common;
+using NGOConnect.Core.Models.Org;
 using NGOConnect.Core.Models.User;
 using Serilog;
 
@@ -529,18 +530,44 @@ namespace NGOConnect.Infrastructure.DAL
 
         // ── Account Deletion + Revival ────────────────────────────────────────────
 
-        public async Task<ApiResponse> RequestAccountDeletionAsync(int userId)
+        public async Task<ApiResponse<SoleFounderOrgInfo?>> RequestAccountDeletionAsync(int userId)
         {
             try
             {
                 var result = await ExecuteWriteAsync("User_RequestAccountDeletion",
                     cmd => _db.AddParameter(cmd, "p_UserId", userId));
-                return result.ToApiResponse();
+
+                // When the user is the sole founder of an org with members, the SP
+                // returns IsSuccess=0, ErrorCode='SOLE_FOUNDER' plus org details so
+                // the mobile can navigate to the TransferFounderScreen.
+                if (!result.Succeeded && result.Row != null
+                    && Col<string>(result.Row, "ErrorCode") == "SOLE_FOUNDER")
+                {
+                    var info = new SoleFounderOrgInfo
+                    {
+                        OrgId               = Col<int>    (result.Row, "OrgId"),
+                        OrgName             = Col<string> (result.Row, "OrgName") ?? string.Empty,
+                        OrgLogoUrl          = Col<string> (result.Row, "OrgLogoUrl"),
+                        TotalMembers        = Col<int>    (result.Row, "TotalMembers"),
+                        AvailableAdminCount = Col<int>    (result.Row, "AvailableAdminCount"),
+                    };
+                    return new ApiResponse<SoleFounderOrgInfo?>
+                    {
+                        IsSuccess = 0,
+                        Message   = result.Message!,
+                        ErrorCode = "SOLE_FOUNDER",
+                        Data      = info,
+                    };
+                }
+
+                return result.Succeeded
+                    ? ApiResponse<SoleFounderOrgInfo?>.Success(null, result.Message ?? "Account scheduled for deletion.")
+                    : ApiResponse<SoleFounderOrgInfo?>.Failure(result.Message ?? "An error occurred.", result.ErrorCode);
             }
             catch (Exception ex)
             {
                 Log.Error(ex, "RequestAccountDeletionAsync failed UserId={UserId}", userId);
-                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+                return ApiResponse<SoleFounderOrgInfo?>.Failure("An error occurred.", "INTERNAL_ERROR");
             }
         }
 

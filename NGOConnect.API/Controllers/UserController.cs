@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using NGOConnect.Core.Interfaces;
 using NGOConnect.Core.Models.Common;
+using NGOConnect.Core.Models.Org;
 using NGOConnect.Core.Models.User;
 using System.Security.Claims;
 
@@ -120,7 +121,7 @@ namespace NGOConnect.API.Controllers
         /// Founder of any active (APPROVED) organisation.
         /// </summary>
         [HttpDelete("account")] [Authorize]
-        public async Task<ApiResponse> DeleteAccount()
+        public async Task<ApiResponse<SoleFounderOrgInfo?>> DeleteAccount()
             => await _userDal.RequestAccountDeletionAsync(GetUserId());
 
         /// <summary>

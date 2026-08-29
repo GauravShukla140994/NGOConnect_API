@@ -174,6 +174,17 @@ namespace NGOConnect.API.Controllers
         public async Task<ApiResponse> UploadDocument(int orgId, [FromBody] UploadOrgDocumentRequest request)
             => await _org.UploadDocumentAsync(orgId, GetUserId(), request);
 
+        // ── Transfer Foundership (account deletion pre-requisite) ─────────────────
+
+        /// <summary>
+        /// Promotes newFounderUserId to FOUNDER and demotes the calling user to ADMIN.
+        /// Called from the mobile TransferFounderScreen when the user wants to delete
+        /// their account but is the sole Founder of an org with other members.
+        /// </summary>
+        [HttpPost("{orgId:int}/transfer-founder")] [Authorize]
+        public async Task<ApiResponse> TransferFounder(int orgId, [FromBody] TransferFoundershipRequest request)
+            => await _org.TransferFoundershipAsync(orgId, GetUserId(), request.NewFounderUserId);
+
         // ── Admin Posts (s-admin-vols Posts tab) ──────────────────────────────────
 
         [HttpGet("{orgId:int}/community-posts/admin")] [Authorize]

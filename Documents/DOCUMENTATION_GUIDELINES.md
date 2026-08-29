@@ -2960,3 +2960,33 @@ Backend endpoints (`PUT /superadmin/orgs/approve` with new `isNonRegistered`/`re
 - **validate_sp_params.py**: all phases passed (run 2026-08-28).
 - **API Documentation**: add `POST /api/v1/user/account/revive` + update `Auth_VerifyOTP` description (new `IsPendingDeletion` return field) at next "update documents" pass.
 - **Database Documentation**: add `User_ReviveAccount` SP; update `Users` table (new `ScheduledDeletionAt` column); update `Auth_VerifyOTP` SP description at next "update documents" pass.
+
+### [2026-08-29] Feature: Sole Founder Transfer Ownership flow (account deletion pre-requisite)
+- **Context**: When a user who is the sole Founder of an APPROVED org with 2+ members tries to delete their account, instead of a plain error, the system now guides them through transferring ownership to another member first. Single-member orgs (founder is the only member) are auto-archived silently so deletion proceeds immediately.
+- **SP changes** (all in `patch_account_deletion.sql` Steps 6–8):
+  - **LookupValues**: added `ARCHIVED` (OrderNo=8) to `ORG_STATUS` — safe INSERT IGNORE; also added to `NGOConnect_Complete_Setup_v5.0.sql`.
+  - **`User_RequestAccountDeletion`** (Step 7 — replaces Step 2 version): reworked sole-founder logic:
+    - Finds first org where user is sole FOUNDER + has 2+ active members → returns `IsSuccess=0`, `ErrorCode='SOLE_FOUNDER'`, plus `OrgId`, `OrgName`, `OrgLogoUrl`, `TotalMembers`, `AvailableAdminCount` (existing Admins excl. founder).
+    - If no such blocking org: `UPDATE Organisations` to set `StatusLkpId = ARCHIVED` for each sole-founder org with only 1 member (founder), then proceeds with normal soft-delete + OrgMembers cleanup + token revoke.
+  - **`Org_TransferFoundership(p_OrgId, p_CurrentFounderId, p_NewFounderId)`** (Step 8 — new SP):
+    - Verifies caller is active FOUNDER of org; verifies new user is an active member (and not the same person).
+    - `UPDATE OrgMembers SET RoleLkpId = FOUNDER_LkpId` for new founder; `UPDATE OrgMembers SET RoleLkpId = ADMIN_LkpId` for old founder (stays in org as Admin).
+    - Returns `IsSuccess`, `Message`, `ErrorCode` (NOT_FOUNDER | INVALID_MEMBER on failure).
+- **C# changes**:
+  - `NGOConnect.Core/Models/Org/OrgModels.cs`: added `SoleFounderOrgInfo` (OrgId, OrgName, OrgLogoUrl, TotalMembers, AvailableAdminCount) + `TransferFoundershipRequest` (NewFounderUserId).
+  - `NGOConnect.Core/Interfaces/IUserDal.cs`: changed `RequestAccountDeletionAsync` return from `Task<ApiResponse>` → `Task<ApiResponse<SoleFounderOrgInfo?>>`.
+  - `NGOConnect.Core/Interfaces/IOrgDal.cs`: added `TransferFoundershipAsync(int orgId, int currentFounderId, int newFounderId)`.
+  - `NGOConnect.Infrastructure/DAL/UserDal.cs`: updated `RequestAccountDeletionAsync` — reads `OrgId/OrgName/OrgLogoUrl/TotalMembers/AvailableAdminCount` from `result.Row` when `ErrorCode='SOLE_FOUNDER'`; builds `ApiResponse<SoleFounderOrgInfo?>` manually.
+  - `NGOConnect.Infrastructure/DAL/OrgDal.cs`: added `TransferFoundershipAsync` — calls `Org_TransferFoundership` via `ExecuteWriteAsync`.
+  - `NGOConnect.API/Controllers/UserController.cs`: updated `DeleteAccount` return type to `ApiResponse<SoleFounderOrgInfo?>`.
+  - `NGOConnect.API/Controllers/OrgController.cs`: added `[HttpPost("{orgId:int}/transfer-founder")] [Authorize] POST /api/v1/org/{orgId}/transfer-founder` — body: `{ newFounderUserId: number }`.
+- **Mobile changes**:
+  - `App/NGOConnectApp/src/types/api.types.ts`: added `SoleFounderOrgInfo` interface.
+  - `App/NGOConnectApp/src/api/user.api.ts`: updated `deleteAccount()` return type to `ApiResponse<SoleFounderOrgInfo | null>`.
+  - `App/NGOConnectApp/src/api/org.api.ts`: added `transferFounder(orgId, newFounderUserId)` → `POST /org/{orgId}/transfer-founder`.
+  - `App/NGOConnectApp/src/screens/profile/ProfileScreen.tsx`: in `handleConfirmDelete`, added `else if (errorCode === 'SOLE_FOUNDER')` branch → `nav.navigate('TransferFounder', { orgId, orgName, orgLogoUrl, totalMembers, availableAdminCount })`.
+  - `App/NGOConnectApp/src/screens/profile/TransferFounderScreen.tsx`: new screen — loads org members (excluding self), sorts Admins first, user picks successor, confirm alert → `transferFounder()` → `deleteAccount()` → `logout()`. If AvailableAdminCount=0, info note explains the person will be promoted directly to Founder.
+  - `App/NGOConnectApp/src/navigation/AppNavigator.tsx`: imported and registered `TransferFounderScreen` (`name="TransferFounder"`, `headerShown: false`).
+- **validate_sp_params.py**: all phases passed (run 2026-08-29).
+- **API Documentation**: add `POST /api/v1/org/{orgId}/transfer-founder` endpoint + update `DELETE /api/v1/user/account` (new Data field: SoleFounderOrgInfo, new ErrorCode: SOLE_FOUNDER) at next "update documents" pass.
+- **Database Documentation**: add `Org_TransferFoundership` SP; update `User_RequestAccountDeletion` SP; add ARCHIVED to ORG_STATUS LookupValues; update `NGOConnect_Complete_Setup_v5.0.sql` version note at next "update documents" pass.

@@ -1,4 +1,5 @@
 using NGOConnect.Core.Models.Common;
+using NGOConnect.Core.Models.Org;
 using NGOConnect.Core.Models.User;
 
 namespace NGOConnect.Core.Interfaces
@@ -35,7 +36,8 @@ namespace NGOConnect.Core.Interfaces
         Task<ApiResponse>                           SendContactOtpAsync(int userId, SendContactOtpRequest request, string ipAddress);
         Task<ApiResponse>                           VerifyContactOtpAsync(int userId, VerifyContactOtpRequest request, string ipAddress);
         // Account Deletion + Revival (Google Play + App Store compliance)
-        Task<ApiResponse>                           RequestAccountDeletionAsync(int userId);
+        // Returns SoleFounderOrgInfo in Data when ErrorCode = 'SOLE_FOUNDER'
+        Task<ApiResponse<SoleFounderOrgInfo?>>      RequestAccountDeletionAsync(int userId);
         Task<ApiResponse>                           ReviveAccountAsync(int userId);
     }
 }

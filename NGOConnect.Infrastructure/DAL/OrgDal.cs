@@ -959,6 +959,28 @@ namespace NGOConnect.Infrastructure.DAL
             }
         }
 
+        // ── Transfer Foundership (account deletion pre-requisite) ────────────────
+
+        public async Task<ApiResponse> TransferFoundershipAsync(int orgId, int currentFounderId, int newFounderId)
+        {
+            try
+            {
+                var result = await ExecuteWriteAsync("Org_TransferFoundership", cmd =>
+                {
+                    _db.AddParameter(cmd, "p_OrgId",            orgId);
+                    _db.AddParameter(cmd, "p_CurrentFounderId", currentFounderId);
+                    _db.AddParameter(cmd, "p_NewFounderId",     newFounderId);
+                });
+                return result.ToApiResponse();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "TransferFoundershipAsync failed OrgId={OrgId} CurrentFounder={Founder} NewFounder={New}",
+                    orgId, currentFounderId, newFounderId);
+                return ApiResponse.Fail("An error occurred.", "INTERNAL_ERROR");
+            }
+        }
+
         // ── Notification helpers ──────────────────────────────────────────────────
 
         private async Task FireUserNotifAsync(int userId, string title, string body,

@@ -309,6 +309,27 @@ namespace NGOConnect.Core.Models.Org
         public string Action { get; set; } = "KEEP";
     }
 
+    // ── Sole Founder Transfer Ownership ─────────────────────────────────────────
+    /// <summary>
+    /// Returned in ApiResponse.Data when User_RequestAccountDeletion returns
+    /// ErrorCode = 'SOLE_FOUNDER'. Mobile uses this to navigate to the
+    /// TransferFounderScreen so the user can hand off leadership first.
+    /// </summary>
+    public class SoleFounderOrgInfo
+    {
+        public int     OrgId               { get; set; }
+        public string  OrgName             { get; set; } = string.Empty;
+        public string? OrgLogoUrl          { get; set; }
+        public int     TotalMembers        { get; set; }
+        public int     AvailableAdminCount { get; set; }  // existing ADMINs who can be promoted
+    }
+
+    /// <summary>Request body for POST /api/v1/org/{orgId}/transfer-founder.</summary>
+    public class TransferFoundershipRequest
+    {
+        public int NewFounderUserId { get; set; }
+    }
+
     // ── Admin Member Impact (s-member-impact screen — admin view) ────────────────
     public class OrgMemberImpactModel
     {
