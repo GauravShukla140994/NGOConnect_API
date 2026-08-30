@@ -372,7 +372,7 @@ namespace NGOConnect.Infrastructure.DAL
                     // Fire notifications on 1st report and every 5th thereafter (5, 10, 15 …)
                     if (reportCount == 1 || (reportCount > 0 && reportCount % 5 == 0))
                     {
-                        _ = FirePostReportNotificationsAsync(postId, authorUserId, orgId, reportCount);
+                        _ = FirePostReportNotificationsAsync(postId, authorUserId, orgId, reportCount, userId);
                     }
                 }
 
@@ -388,7 +388,7 @@ namespace NGOConnect.Infrastructure.DAL
         // ── Private notification helpers ─────────────────────────────────────────
 
         private async Task FirePostReportNotificationsAsync(
-            int postId, int authorUserId, int? orgId, int reportCount)
+            int postId, int authorUserId, int? orgId, int reportCount, int reporterUserId)
         {
             try
             {
@@ -432,7 +432,7 @@ namespace NGOConnect.Infrastructure.DAL
                 }
 
                 // 3. Email all active super admins
-                _ = EmailSuperAdminsPostReportAsync(postId, orgId, reportCount, countLabel);
+                _ = EmailSuperAdminsPostReportAsync(postId, orgId, reportCount, countLabel, reporterUserId);
             }
             catch (Exception ex)
             {
@@ -441,25 +441,73 @@ namespace NGOConnect.Infrastructure.DAL
         }
 
         private async Task EmailSuperAdminsPostReportAsync(
-            int postId, int? orgId, int reportCount, string countLabel)
+            int postId, int? orgId, int reportCount, string countLabel, int reporterUserId)
         {
             try
             {
                 var supportAddress = _config["Email:SupportAddress"] ?? "support@ripplehub.app";
-
                 var subject = $"[Ripple Hub] Post Report Alert — {reportCount} report(s) on Post #{postId}";
+
+                // Fetch enriched details from DB
+                string orgName        = orgId.HasValue ? orgId.Value.ToString() : "Not linked";
+                string orgIdStr       = orgId.HasValue ? orgId.Value.ToString() : "—";
+                string postAuthorId   = "—";
+                string postAuthorName = "—";
+                string postCreatedAt  = "—";
+                string reporterIdStr  = reporterUserId > 0 ? reporterUserId.ToString() : "—";
+                string reporterName   = "—";
+                string reportedAt     = "—";
+
+                try
+                {
+                    var details = await ExecuteGetAsync("Post_GetReportDetails",
+                        cmd => _db.AddParameter(cmd, "p_PostId", postId));
+
+                    if (details != null)
+                    {
+                        orgIdStr       = ColNullable<int>(details, "OrgId")?.ToString()            ?? "—";
+                        orgName        = Col<string>(details, "OrgName")                           ?? "Not linked";
+                        postAuthorId   = ColNullable<int>(details, "PostAuthorUserId")?.ToString() ?? "—";
+                        postAuthorName = Col<string>(details, "PostAuthorName")                    ?? "—";
+                        postCreatedAt  = Col<string>(details, "PostCreatedAt")                     ?? "—";
+                        reporterIdStr  = ColNullable<int>(details, "ReportedByUserId")?.ToString() ?? "—";
+                        reporterName   = Col<string>(details, "ReporterName")                      ?? "—";
+                        reportedAt     = Col<string>(details, "ReportedAt")                        ?? "—";
+                    }
+                }
+                catch (Exception detailEx)
+                {
+                    Log.Warning(detailEx, "Post_GetReportDetails failed for PostId={PostId} — sending basic email", postId);
+                }
+
+                var td1 = @"style=""padding:8px;background:#F3F4F6;font-weight:bold;width:160px;border:1px solid #E5E7EB""";
+                var td2 = @"style=""padding:8px;border:1px solid #E5E7EB""";
+
                 var html = $@"
-<div style=""font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px"">
+<div style=""font-family:Arial,sans-serif;max-width:620px;margin:0 auto;padding:20px"">
   <h2 style=""color:#DC2626"">⚠️ Post Report Alert</h2>
   <p>A feed post has been <strong>{countLabel}</strong> and requires your review.</p>
-  <table style=""width:100%;border-collapse:collapse;margin:16px 0"">
-    <tr><td style=""padding:8px;background:#F3F4F6;font-weight:bold;width:140px"">Post ID</td>
-        <td style=""padding:8px;border:1px solid #E5E7EB"">#{postId}</td></tr>
-    <tr><td style=""padding:8px;background:#F3F4F6;font-weight:bold"">Organisation ID</td>
-        <td style=""padding:8px;border:1px solid #E5E7EB"">{(orgId.HasValue ? orgId.Value.ToString() : "Not linked")}</td></tr>
-    <tr><td style=""padding:8px;background:#F3F4F6;font-weight:bold"">Total Reports</td>
-        <td style=""padding:8px;border:1px solid #E5E7EB"">{reportCount}</td></tr>
+
+  <h4 style=""margin:20px 0 6px;color:#374151"">📄 Post Details</h4>
+  <table style=""width:100%;border-collapse:collapse;margin-bottom:16px"">
+    <tr><td {td1}>Post ID</td>          <td {td2}>#{postId}</td></tr>
+    <tr><td {td1}>Post Author</td>       <td {td2}>{postAuthorName} (ID: {postAuthorId})</td></tr>
+    <tr><td {td1}>Post Uploaded At</td>  <td {td2}>{postCreatedAt}</td></tr>
+    <tr><td {td1}>Total Reports</td>     <td {td2}>{reportCount}</td></tr>
   </table>
+
+  <h4 style=""margin:20px 0 6px;color:#374151"">🏢 Organisation</h4>
+  <table style=""width:100%;border-collapse:collapse;margin-bottom:16px"">
+    <tr><td {td1}>Organisation ID</td>   <td {td2}>{orgIdStr}</td></tr>
+    <tr><td {td1}>Organisation Name</td> <td {td2}>{orgName}</td></tr>
+  </table>
+
+  <h4 style=""margin:20px 0 6px;color:#374151"">🚩 Report Details</h4>
+  <table style=""width:100%;border-collapse:collapse;margin-bottom:16px"">
+    <tr><td {td1}>Reported By</td>       <td {td2}>{reporterName} (ID: {reporterIdStr})</td></tr>
+    <tr><td {td1}>Reported At</td>       <td {td2}>{reportedAt}</td></tr>
+  </table>
+
   <p style=""color:#6B7280;font-size:13px"">Log in to the Super Admin portal to review and take action (remove the post if it violates community guidelines).</p>
   <p style=""color:#9CA3AF;font-size:12px;margin-top:24px"">This is an automated alert from Ripple Hub.</p>
 </div>";

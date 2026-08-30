@@ -8211,7 +8211,34 @@ BEGIN
 END //
 
 
--- ── 3.07 User_UploadDocument ────────────────────────────────────────────────
+-- ── 3.07 Post_GetReportDetails ──────────────────────────────────────────────
+-- Returns enriched details for the post report super-admin email:
+-- org name, post author (id + name + uploaded at), reporter (id + name + reported at)
+-- (Source: NGOConnect_Patch_PostReportEnhancement.sql)
+DROP PROCEDURE IF EXISTS Post_GetReportDetails //
+CREATE PROCEDURE Post_GetReportDetails(IN p_PostId INT UNSIGNED)
+BEGIN
+    SELECT
+        p.PostId,
+        p.OrgId,
+        COALESCE(o.OrgName, 'Not linked')                AS OrgName,
+        p.UserId                                          AS PostAuthorUserId,
+        CONCAT(ap.FirstName, ' ', ap.LastName)            AS PostAuthorName,
+        DATE_FORMAT(p.CreatedAt,  '%d-%b-%Y %h:%i %p')   AS PostCreatedAt,
+        pr.ReportedByUserId,
+        CONCAT(rp.FirstName, ' ', rp.LastName)            AS ReporterName,
+        DATE_FORMAT(pr.CreatedAt, '%d-%b-%Y %h:%i %p')   AS ReportedAt
+    FROM   Posts        p
+    LEFT   JOIN Organisations o  ON o.OrgId   = p.OrgId
+    LEFT   JOIN UserProfiles  ap ON ap.UserId  = p.UserId              AND ap.IsDeleted = 0
+    JOIN   PostReports        pr ON pr.PostId  = p.PostId
+    LEFT   JOIN UserProfiles  rp ON rp.UserId  = pr.ReportedByUserId   AND rp.IsDeleted = 0
+    WHERE  p.PostId = p_PostId
+    ORDER  BY pr.CreatedAt DESC
+    LIMIT  1;
+END //
+
+-- ── 3.08 User_UploadDocument ────────────────────────────────────────────────
 -- Updated: upsert pattern — soft-deletes existing doc of same type first
 -- (Source: NGOConnect_Patch_UserDocuments.sql)
 DROP PROCEDURE IF EXISTS User_UploadDocument //
@@ -16157,6 +16184,12 @@ BEGIN
         WHERE  UserId    = p_UserId
           AND  IsDeleted = 0;
 
+        -- Hard-delete stale soft-deleted OrgMember rows first to avoid UNIQUE constraint
+        -- conflict on (OrgId, UserId, IsDeleted) when user rejoined an org they left before.
+        DELETE FROM OrgMembers
+        WHERE  UserId    = p_UserId
+          AND  IsDeleted = 1;
+
         UPDATE OrgMembers
         SET    IsDeleted = 1,
                DeletedAt = NOW(),
@@ -16191,6 +16224,7 @@ BEGIN
     ELSEIF v_ScheduledDeletionAt <= NOW() THEN
         SELECT 0 AS IsSuccess, 'The 30-day recovery window has passed. This account has been permanently deleted.' AS Message;
     ELSE
+        -- Restore the user account
         UPDATE Users
         SET    IsDeleted           = 0,
                DeletedAt           = NULL,
@@ -16199,6 +16233,42 @@ BEGIN
                IsVerified          = 1,
                UpdatedAt           = NOW()
         WHERE  UserId = p_UserId;
+
+        -- Restore org memberships removed during account deletion.
+        -- DeletedBy = p_UserId is the fingerprint for self-deletion (account deletion flow).
+        -- Admin-removed memberships have DeletedBy = adminUserId and are left as-is.
+        UPDATE OrgMembers
+        SET    IsDeleted = 0,
+               DeletedAt = NULL,
+               DeletedBy = NULL,
+               UpdatedAt = NOW()
+        WHERE  UserId    = p_UserId
+          AND  IsDeleted = 1
+          AND  DeletedBy = p_UserId;
+
+        -- Un-archive orgs where this user was the sole founder and the org was auto-archived during deletion.
+        UPDATE Organisations o
+        JOIN   OrgMembers  om ON om.OrgId  = o.OrgId
+        JOIN   LookupValues rv ON om.RoleLkpId   = rv.LookupValueId
+        JOIN   LookupTypes  rt ON rv.LookupTypeId = rt.LookupTypeId
+        JOIN   LookupValues sv ON o.StatusLkpId   = sv.LookupValueId
+        JOIN   LookupTypes  st ON sv.LookupTypeId  = st.LookupTypeId
+        SET    o.StatusLkpId = (
+                   SELECT lv.LookupValueId
+                   FROM   LookupValues lv
+                   JOIN   LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
+                   WHERE  lt.TypeCode  = 'ORG_STATUS'
+                     AND  lv.ValueCode = 'APPROVED'
+                   LIMIT  1
+               ),
+               o.UpdatedAt = NOW()
+        WHERE  om.UserId    = p_UserId
+          AND  om.IsDeleted = 0
+          AND  rt.TypeCode  = 'MEMBER_ROLE'
+          AND  rv.ValueCode = 'FOUNDER'
+          AND  st.TypeCode  = 'ORG_STATUS'
+          AND  sv.ValueCode = 'ARCHIVED'
+          AND  o.IsDeleted  = 0;
 
         SELECT 1 AS IsSuccess, 'Welcome back! Your account has been fully restored.' AS Message;
     END IF;

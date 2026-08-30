@@ -337,6 +337,7 @@ BEGIN
                'The 30-day recovery window has passed. This account has been permanently deleted.' AS Message;
 
     ELSE
+        -- Restore the user account
         UPDATE Users
         SET IsDeleted           = 0,
             DeletedAt           = NULL,
@@ -345,6 +346,45 @@ BEGIN
             IsVerified          = 1,
             UpdatedAt           = NOW()
         WHERE UserId = p_UserId;
+
+        -- Restore org memberships that were removed as part of account deletion.
+        -- Fingerprint: DeletedBy = p_UserId (user deleted themselves).
+        -- Memberships removed by an admin have DeletedBy = adminUserId (different value)
+        -- so those are intentionally left soft-deleted.
+        UPDATE OrgMembers
+        SET IsDeleted = 0,
+            DeletedAt = NULL,
+            DeletedBy = NULL,
+            UpdatedAt = NOW()
+        WHERE UserId    = p_UserId
+          AND IsDeleted = 1
+          AND DeletedBy = p_UserId;
+
+        -- Restore orgs that were auto-archived during deletion because the user was
+        -- the sole founder with no other members. Now that their membership is back,
+        -- set them back to APPROVED so the org is visible again.
+        UPDATE Organisations o
+        JOIN   OrgMembers   om ON om.OrgId       = o.OrgId
+        JOIN   LookupValues rv ON om.RoleLkpId    = rv.LookupValueId
+        JOIN   LookupTypes  rt ON rv.LookupTypeId = rt.LookupTypeId
+        JOIN   LookupValues sv ON o.StatusLkpId   = sv.LookupValueId
+        JOIN   LookupTypes  st ON sv.LookupTypeId = st.LookupTypeId
+        SET    o.StatusLkpId = (
+                   SELECT lv.LookupValueId
+                   FROM   LookupValues lv
+                   JOIN   LookupTypes  lt ON lv.LookupTypeId = lt.LookupTypeId
+                   WHERE  lt.TypeCode  = 'ORG_STATUS'
+                     AND  lv.ValueCode = 'APPROVED'
+                   LIMIT 1
+               ),
+               o.UpdatedAt = NOW()
+        WHERE  om.UserId   = p_UserId
+          AND  om.IsDeleted = 0
+          AND  rt.TypeCode  = 'MEMBER_ROLE'
+          AND  rv.ValueCode = 'FOUNDER'
+          AND  st.TypeCode  = 'ORG_STATUS'
+          AND  sv.ValueCode = 'ARCHIVED'
+          AND  o.IsDeleted  = 0;
 
         SELECT 1 AS IsSuccess,
                'Welcome back! Your account has been fully restored.' AS Message;
@@ -535,7 +575,15 @@ BEGIN
         WHERE  UserId    = p_UserId
           AND  IsDeleted = 0;
 
-        -- 3. Remove from all org memberships immediately
+        -- 3. Remove from all org memberships immediately.
+        --    First hard-delete any stale soft-deleted rows for this user — they can
+        --    exist when a user joined, was removed, then rejoined the same org.
+        --    Without this, the UPDATE below hits a UNIQUE constraint on
+        --    (OrgId, UserId, IsDeleted) when an IsDeleted=1 row already exists.
+        DELETE FROM OrgMembers
+        WHERE  UserId    = p_UserId
+          AND  IsDeleted = 1;
+
         UPDATE OrgMembers
         SET    IsDeleted = 1,
                DeletedAt = NOW(),

@@ -2990,3 +2990,10 @@ Backend endpoints (`PUT /superadmin/orgs/approve` with new `isNonRegistered`/`re
 - **validate_sp_params.py**: all phases passed (run 2026-08-29).
 - **API Documentation**: add `POST /api/v1/org/{orgId}/transfer-founder` endpoint + update `DELETE /api/v1/user/account` (new Data field: SoleFounderOrgInfo, new ErrorCode: SOLE_FOUNDER) at next "update documents" pass.
 - **Database Documentation**: add `Org_TransferFoundership` SP; update `User_RequestAccountDeletion` SP; add ARCHIVED to ORG_STATUS LookupValues; update `NGOConnect_Complete_Setup_v5.0.sql` version note at next "update documents" pass.
+
+### [2026-08-29] Fix: User_ReviveAccount — restore OrgMembers on account revival
+- **Problem**: After reviving a soft-deleted account within the 30-day grace window, the user's org memberships remained soft-deleted — they were removed from all orgs visually even though the account was restored.
+- **Root cause**: `User_ReviveAccount` only reset the `Users` row. The `User_RequestAccountDeletion` SP also soft-deletes all `OrgMembers` rows (`IsDeleted=1, DeletedBy=p_UserId`) but revival never reversed this.
+- **Fix**: Added `UPDATE OrgMembers SET IsDeleted=0, DeletedAt=NULL, DeletedBy=NULL WHERE UserId=p_UserId AND IsDeleted=1 AND DeletedBy=p_UserId` to `User_ReviveAccount`. The `DeletedBy=p_UserId` fingerprint distinguishes account-deletion cleanup (self) from admin-removed memberships (different DeletedBy value) — admin removals are correctly left soft-deleted.
+- **Also fixed**: `User_RequestAccountDeletion` — added `DELETE FROM OrgMembers WHERE UserId=p_UserId AND IsDeleted=1` before the soft-delete UPDATE to prevent `Duplicate entry for key uq_orgmember_org_user` when a user had previously joined, been removed, and rejoined an org (leaving a stale IsDeleted=1 row).
+- **Files**: `patch_account_deletion.sql` (Step 4 `User_ReviveAccount` updated), `NGOConnect_Complete_Setup_v5.0.sql` (both SPs updated). No C# or mobile changes needed.
