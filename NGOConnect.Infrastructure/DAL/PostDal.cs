@@ -460,19 +460,19 @@ namespace NGOConnect.Infrastructure.DAL
 
                 try
                 {
-                    var details = await ExecuteGetAsync("Post_GetReportDetails",
+                    var details = await ExecuteDynamicGetAsync("Post_GetReportDetails",
                         cmd => _db.AddParameter(cmd, "p_PostId", postId));
 
                     if (details != null)
                     {
-                        orgIdStr       = ColNullable<int>(details, "OrgId")?.ToString()            ?? "—";
-                        orgName        = Col<string>(details, "OrgName")                           ?? "Not linked";
-                        postAuthorId   = ColNullable<int>(details, "PostAuthorUserId")?.ToString() ?? "—";
-                        postAuthorName = Col<string>(details, "PostAuthorName")                    ?? "—";
-                        postCreatedAt  = Col<string>(details, "PostCreatedAt")                     ?? "—";
-                        reporterIdStr  = ColNullable<int>(details, "ReportedByUserId")?.ToString() ?? "—";
-                        reporterName   = Col<string>(details, "ReporterName")                      ?? "—";
-                        reportedAt     = Col<string>(details, "ReportedAt")                        ?? "—";
+                        orgIdStr       = details.Get<int?>("OrgId")?.ToString()            ?? "—";
+                        orgName        = details.Get<string>("OrgName")                    ?? "Not linked";
+                        postAuthorId   = details.Get<int?>("PostAuthorUserId")?.ToString() ?? "—";
+                        postAuthorName = details.Get<string>("PostAuthorName")             ?? "—";
+                        postCreatedAt  = details.Get<string>("PostCreatedAt")              ?? "—";
+                        reporterIdStr  = details.Get<int?>("ReportedByUserId")?.ToString() ?? "—";
+                        reporterName   = details.Get<string>("ReporterName")               ?? "—";
+                        reportedAt     = details.Get<string>("ReportedAt")                 ?? "—";
                     }
                 }
                 catch (Exception detailEx)
