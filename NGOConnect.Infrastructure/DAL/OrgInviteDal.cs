@@ -371,9 +371,11 @@ namespace NGOConnect.Infrastructure.DAL
         // ── SMS template settings ────────────────────────────────────────────────
 
         /// <summary>
-        /// Fast2SMS DLT Message ID for the org-invite template (Message ID: 223944).
-        /// Template: "You have been invited by {#VAR#} to join {#VAR#} on RippleHub,
-        ///            a global social impact platform... Join here: {#VAR#} - AJIEPL"
+        /// Fast2SMS DLT Message ID for the org-invite template.
+        /// Template: "You have been invited by {#VAR#} to join {#VAR#} on RippleHub App.
+        ///            Join here: https://www.ripplehub.app/organisation/?{#VAR#} - AJIEPL"
+        /// VAR1 = inviter name | VAR2 = org name | VAR3 = query string only (e.g. "id=TOKEN")
+        /// Note: the URL base is hardcoded in the DLT template; only the query string is a variable.
         /// Read from appsettings Sms:InviteTemplateId; falls back to the approved ID.
         /// </summary>
         private string GetInviteTemplateId()
@@ -391,12 +393,13 @@ namespace NGOConnect.Infrastructure.DAL
         /// Failures are logged but swallowed; delivery status is not written
         /// back to DB in this phase (can be wired via Org_Invite_UpdateDelivery in v5.0).
         ///
-        /// SMS uses the approved Fast2SMS DLT template (Message ID 223944):
-        ///   "You have been invited by {inviterName} to join {orgName} on RippleHub,
-        ///    a global social impact platform connecting people with meaningful causes,
-        ///    volunteering and community initiatives. Join here: {inviteLink} - AJIEPL"
-        /// Variables (pipe-separated): inviterName | orgName | inviteLink
+        /// SMS uses the approved Fast2SMS DLT template:
+        ///   "You have been invited by {inviterName} to join {orgName} on RippleHub App.
+        ///    Join here: https://www.ripplehub.app/organisation/?{queryString} - AJIEPL"
+        /// Variables (pipe-separated): inviterName | orgName | queryString
         ///
+        /// IMPORTANT: The DLT template has the URL base hardcoded up to '?'.
+        /// VAR3 must be only the query string portion (e.g. "id=TOKEN"), not the full URL.
         /// Share URL format: https://www.ripplehub.app/organisation/?id={token}
         /// </summary>
         private async Task DeliverInviteAsync(
@@ -407,11 +410,20 @@ namespace NGOConnect.Infrastructure.DAL
             {
                 if (typeCode == "PHONE")
                 {
-                    // DLT template: 3 variables → pipe-separated values for each {#VAR#}
-                    var variables = $"{inviterName}|{orgName}|{inviteLink}";
+                    // DLT template has URL base hardcoded: "...organisation/?{#VAR#}"
+                    // VAR3 must be only the query string (e.g. "id=TOKEN"), not the full URL.
+                    // Derive the template URL prefix by trimming "id=" from ORG_SHARE_BASE_URL.
+                    var shareBase       = _settings.GetValue("ORG_SHARE_BASE_URL") ?? "https://www.ripplehub.app/organisation/?id=";
+                    var templatePrefix  = shareBase.Contains('?') ? shareBase[..(shareBase.IndexOf('?') + 1)] : shareBase;
+                    var linkQueryString = inviteLink.StartsWith(templatePrefix, StringComparison.OrdinalIgnoreCase)
+                                             ? inviteLink[templatePrefix.Length..]
+                                             : inviteLink; // fallback: pass full URL if base doesn't match
 
-                    // Fallback plain text for quick-route (dev/staging) — same wording, single segment
-                    var fallback = $"You have been invited by {inviterName} to join {orgName} on RippleHub. Join here: {inviteLink} - AJIEPL";
+                    // DLT template: 3 variables → pipe-separated values for each {#VAR#}
+                    var variables = $"{inviterName}|{orgName}|{linkQueryString}";
+
+                    // Fallback plain text for quick-route (dev/staging) — uses full URL for readability
+                    var fallback = $"You have been invited by {inviterName} to join {orgName} on RippleHub App. Join here: {inviteLink} - AJIEPL";
 
                     await _sms.SendTemplateAsync(
                         inviteValue,
